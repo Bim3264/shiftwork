@@ -1,0 +1,11 @@
+- A monthly nurse shift scheduler
+- 30 or 31 days
+- Some days are weekends
+- There are X amount of nurses
+- Each day are divided into shifts (sorting from beginning of the day) -> (Night/Day/Evening) or (Day/Night)
+- Each shift need to have at least the minimun amount of nurse (M_shift) e.g. M_night = 3, M_day = 5, M_evening = 3
+- Weekend can have different amounts of M_shift
+- Each nurse can request holidays (all must be met for now)
+- Each nurse can request shifts (all must be met for now)
+- There are some illegal shifts combination -> E/N N/D -> the only legal combiations are D/E of the same day and D/N of the next day (optional)
+- All nurses must have roughly the same amount of each shifts type and holidays.
