@@ -1,0 +1,49 @@
+{#
+  Self-replacing status fragment. While the job is queued/running it keeps the
+  polling attributes (hx-get + hx-trigger every 2s, hx-swap outerHTML) so it
+  re-fetches itself; on a terminal state it renders WITHOUT those attributes so
+  polling stops.
+#}
+{% set polling = job.status.value in ("queued", "running") %}
+<div id="job-status"
+     {% if polling %}
+     hx-get="/jobs/{{ job.id }}/status"
+     hx-trigger="every 2s"
+     hx-swap="outerHTML"
+     {% endif %}>
+
+  {% if job.status.value == "queued" %}
+    <p class="spinner">⏳ Queued — waiting for a worker…</p>
+  {% elif job.status.value == "running" %}
+    <p class="spinner">⚙️ Running the solver…</p>
+
+  {% elif job.status.value == "succeeded" and job.result_grid %}
+    <h2>Schedule ({{ job.solver_status }})</h2>
+    <p><a class="btn" href="/jobs/{{ job.id }}/download">Download CSV</a></p>
+    <table>
+      <tr>
+        <th>Nurse</th>
+        {% for d in job.result_grid["days"] %}<th>{{ d }}</th>{% endfor %}
+      </tr>
+      {% for r in job.result_grid["rows"] %}
+      <tr>
+        <td>{{ r.name }}</td>
+        {% for c in r.cells %}<td class="cell">{{ c }}</td>{% endfor %}
+      </tr>
+      {% endfor %}
+    </table>
+
+  {% elif job.status.value == "succeeded" %}
+    <h2>No feasible schedule</h2>
+    <p>The solver ran to completion but there is
+       <strong>no schedule that satisfies all the constraints</strong>
+       (solver status: {{ job.solver_status }}). Try relaxing a constraint,
+       adding staff, or loosening requests.</p>
+    {% if job.log %}<details><summary>Solver log</summary><pre>{{ job.log }}</pre></details>{% endif %}
+
+  {% elif job.status.value == "failed" %}
+    <h2>Solve failed</h2>
+    <div class="error">{{ job.error or "Unknown error." }}</div>
+    {% if job.log %}<details><summary>Solver log</summary><pre>{{ job.log }}</pre></details>{% endif %}
+  {% endif %}
+</div>

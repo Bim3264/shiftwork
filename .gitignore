@@ -1,0 +1,7 @@
+log.txt
+*.db
+shiftwork_web.db
+__pycache__/
+logs/
+.idea/
+~$*

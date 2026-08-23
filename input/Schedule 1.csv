@@ -1,0 +1,31 @@
+[ward]
+ward_name,Ward 4B
+hospital,Siriraj Hospital
+contact_name,Head Nurse A
+contact_line,@line_id
+month,7
+year,2026
+tier,ward
+license_key,
+
+[settings]
+num_days,31
+weekends,6 7 13 14 20 21 27 28
+allow_evening_to_night,false
+allow_night_to_day,false
+head_nurse_special_shift,true
+
+[schedule]
+Name,Type,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31
+NurseA,senior,,off,ช,,,,,,,,,,,,,,,,,,,,,,,,,,,off,
+NurseB,,ช/บ,,,,,off,,ช,,off,,,,off,,,,ช,,,off,,,,,,,,,,off
+NurseC,,,,,,,off,,,,,,,,,,,,,,,,,off,,off,,,,,
+NurseD,,off,,,off,,,,,,,,,,,,off,,,,,,,,,,,,,,
+NurseE,,,,,,,,,off,,,,,,,,,,,off,,,,,,,,,,,
+NurseF,,,,,,,ช,,,,,,,,,,,off,,,,ช,,,,,off,off,,,
+NurseG,new,off,,ช,,ช,ช,ช,ช,ช,,off,,ช,,,,,,,,,,,,off,,,,,,
+NurseH,,,,,,,off,,,,,,,,,,,,,off,,,,,,,,,,off,
+NurseI,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+NurseJ,,off,,,,,,,,,,off,,,,off,,,,,,,,off,,,,,,,off
+NurseK,new,ด,,,,,,,ด,,,,off,off,,,,,,,,,,ช,,,,,,,off,
+NurseL,,,,,,,mtg,,,,,,,,,,,,,off,,,,,,,,,,,
