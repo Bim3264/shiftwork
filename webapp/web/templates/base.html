@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}ShiftWork{% endblock %}</title>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 960px;
+           padding: 0 1rem; color: #1a1a1a; }
+    header { display: flex; justify-content: space-between; align-items: center;
+             border-bottom: 1px solid #ddd; padding-bottom: .5rem; margin-bottom: 1.5rem; }
+    header a { text-decoration: none; color: #2450a4; }
+    h1 { font-size: 1.4rem; } h2 { font-size: 1.1rem; margin-top: 1.5rem; }
+    table { border-collapse: collapse; width: 100%; margin: .5rem 0; }
+    th, td { border: 1px solid #ccc; padding: .25rem .4rem; text-align: left; font-size: .85rem; }
+    th { background: #f4f6fa; }
+    input[type=text], input[type=number] { padding: .2rem; }
+    .cell { width: 3.2rem; text-align: center; }
+    .btn { display: inline-block; padding: .4rem .8rem; background: #2450a4; color: #fff;
+           border: none; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: .9rem; }
+    .btn.secondary { background: #667; }
+    .error { background: #fde8e8; border: 1px solid #f5a3a3; padding: .6rem .8rem;
+             border-radius: 4px; color: #8a1f1f; margin: 1rem 0; }
+    .muted { color: #666; font-size: .85rem; }
+    .spinner { color: #2450a4; }
+    label { display: inline-block; margin: .2rem 0; }
+    fieldset { border: 1px solid #ddd; border-radius: 4px; margin: 1rem 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="/"><strong>ShiftWork</strong></a>
+    <div>
+      {% if user %}
+        <span class="muted">{{ user.email }}</span>
+        <form action="/logout" method="post" style="display:inline">
+          <button class="btn secondary" type="submit">Sign out</button>
+        </form>
+      {% endif %}
+    </div>
+  </header>
+  {% block content %}{% endblock %}
+</body>
+</html>

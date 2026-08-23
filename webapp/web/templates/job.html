@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Job {{ job.id }} — ShiftWork{% endblock %}
+{% block content %}
+<h1>Solve job #{{ job.id }}</h1>
+<p class="muted">Input #{{ job.input_id }} · time limit {{ job.max_time_seconds }}s</p>
+
+<div hx-get="/jobs/{{ job.id }}/status" hx-trigger="load" hx-swap="outerHTML">
+  <p class="spinner">Loading status…</p>
+</div>
+{% endblock %}

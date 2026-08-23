@@ -1,9 +1,8 @@
-requested_shift = [
-    {'NurseA': "day"}
-]
+import re
 
-print(requested_shift[0])
 
-for nurse in requested_shift[0]:
-    print(requested_shift[0])
-    print("NurseA" in requested_shift[0])
+match = re.search(r'input\\(.*?)(?=\.csv)', "input\\Schedule 1.csv")
+
+file = match.group(1)
+
+print(file)

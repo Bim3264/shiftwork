@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — ShiftWork{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+<p><a class="btn" href="/inputs/new">New schedule</a></p>
+
+<h2>Recent inputs</h2>
+{% if inputs %}
+<table>
+  <tr><th>ID</th><th>Source</th><th>Nurses</th><th>Days</th><th>Created</th><th></th></tr>
+  {% for row in inputs %}
+  <tr>
+    <td>{{ row.id }}</td>
+    <td>{{ row.source }}</td>
+    <td>{{ row.data.get("nurses", [])|length }}</td>
+    <td>{{ row.data.get("settings", {}).get("num_days", "") }}</td>
+    <td class="muted">{{ row.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+    <td><a href="/inputs/{{ row.id }}/edit">Edit / solve</a></td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">No inputs yet. Create one to get started.</p>
+{% endif %}
+
+<h2>Recent jobs</h2>
+{% if jobs %}
+<table>
+  <tr><th>Job</th><th>Status</th><th>Solver</th><th>Created</th><th></th></tr>
+  {% for job in jobs %}
+  <tr>
+    <td>{{ job.id }}</td>
+    <td>{{ job.status.value }}</td>
+    <td>{{ job.solver_status or "" }}</td>
+    <td class="muted">{{ job.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+    <td><a href="/jobs/{{ job.id }}">View</a></td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">No solve jobs yet.</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Edit input {{ row.id }} — ShiftWork{% endblock %}
+{% block content %}
+<h1>Edit input #{{ row.id }}</h1>
+<p class="muted">Source: {{ row.source }}. Valid cell tokens:
+  {{ valid_tokens|join(", ") }}, off, mtg, or blank.</p>
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+<form action="/inputs/{{ row.id }}" method="post">
+  <fieldset>
+    <legend>Constraint selector</legend>
+    <label>Number of days:
+      <input type="number" name="num_days" value="{{ settings.num_days }}" min="1" max="31">
+    </label><br>
+    <label>Weekend days (space separated, 1-based):
+      <input type="text" name="weekends" value="{{ weekends_str }}" size="30">
+    </label><br>
+    <label>
+      <input type="checkbox" name="allow_evening_to_night"
+             {% if settings.allow_evening_to_night %}checked{% endif %}>
+      Allow evening → night transition
+    </label><br>
+    <label>
+      <input type="checkbox" name="allow_night_to_day"
+             {% if settings.allow_night_to_day %}checked{% endif %}>
+      Allow night → day transition
+    </label><br>
+    <label>
+      <input type="checkbox" name="head_nurse_special_shift"
+             {% if settings.head_nurse_special_shift %}checked{% endif %}>
+      Head-nurse special shift (senior DAY/OFF rule)
+    </label><br>
+    <label class="muted">
+      <input type="checkbox" disabled>
+      Enable meetings (tier-derived, read-only)
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Schedule grid</legend>
+    <input type="hidden" name="row_count" value="{{ nurses|length }}">
+    <table>
+      <tr>
+        <th>Name</th><th>Type</th>
+        {% for d in days %}<th>{{ d }}</th>{% endfor %}
+      </tr>
+      {% for nurse in nurses %}
+      <tr>
+        <td><input type="text" name="name_{{ loop.index0 }}" value="{{ nurse.name }}"></td>
+        <td><input type="text" name="type_{{ loop.index0 }}" value="{{ nurse.type }}" size="6"></td>
+        {% for d in days %}
+        <td><input class="cell" type="text" name="cell_{{ loop.index0 }}_{{ d }}"
+                   value="{{ nurse.shifts.get(d, '') }}"></td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </table>
+    {% if not nurses %}
+      <p class="muted">This input has no nurses yet. (Blank-grid editing of rows is
+      minimal in the MVP — upload a CSV to populate the grid, then adjust here.)</p>
+    {% endif %}
+  </fieldset>
+
+  <button class="btn" type="submit">Save changes</button>
+</form>
+
+<form action="/inputs/{{ row.id }}/solve" method="post" style="margin-top:1rem">
+  <button class="btn" type="submit">Solve</button>
+</form>
+{% endblock %}

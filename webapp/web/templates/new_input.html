@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}New schedule — ShiftWork{% endblock %}
+{% block content %}
+<h1>New schedule</h1>
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+<fieldset>
+  <legend>Upload a CSV</legend>
+  <p class="muted">Sectioned ShiftWork CSV ([ward] / [settings] / [schedule]).</p>
+  <form action="/inputs" method="post" enctype="multipart/form-data">
+    <input type="hidden" name="source" value="csv_upload">
+    <input type="file" name="file" accept=".csv">
+    <button class="btn" type="submit">Upload</button>
+  </form>
+</fieldset>
+
+<fieldset>
+  <legend>Start from a blank grid</legend>
+  <p class="muted">Create an empty input with default settings and edit it in the browser.</p>
+  <form action="/inputs" method="post">
+    <input type="hidden" name="source" value="grid">
+    <button class="btn secondary" type="submit">Start blank grid</button>
+  </form>
+</fieldset>
+{% endblock %}
