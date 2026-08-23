@@ -416,9 +416,11 @@ class DevAuthBypassTest(unittest.TestCase):
         app_module.app.dependency_overrides[get_db] = _override_db
         self.client = TestClient(app_module.app, follow_redirects=False)
         self._orig_bypass = config.DEV_AUTH_BYPASS
+        self._orig_auth_enabled = config.AUTH_ENABLED
 
     def tearDown(self):
         config.DEV_AUTH_BYPASS = self._orig_bypass
+        config.AUTH_ENABLED = self._orig_auth_enabled
         app_module.app.dependency_overrides.clear()
         os.unlink(self._db_path)
 
@@ -439,6 +441,21 @@ class DevAuthBypassTest(unittest.TestCase):
                 select(User).where(User.email == config.DEV_USER_EMAIL)
             ).scalars().first()
             self.assertIsNotNone(user)
+
+    def test_auth_disabled_flag_grants_access(self):
+        # AUTH_ENABLED=false turns OAuth off (independent of the dev bypass).
+        config.DEV_AUTH_BYPASS = False
+        config.AUTH_ENABLED = False
+        r = self.client.get("/")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("Dashboard", r.text)
+
+    def test_login_redirects_home_when_auth_off(self):
+        config.DEV_AUTH_BYPASS = False
+        config.AUTH_ENABLED = False
+        r = self.client.get("/login")
+        self.assertEqual(r.status_code, 303)
+        self.assertEqual(r.headers["location"], "/")
 
 
 if __name__ == "__main__":

@@ -36,6 +36,13 @@ Open the web service → **Variables** and add:
 
 Do **not** set `DEV_AUTH_BYPASS` in production.
 
+**Optional — launch without Google OAuth:** to get live before setting up Google
+sign-in, set `AUTH_ENABLED=0` and skip step 5 (the `GOOGLE_*` vars). Login is
+turned off and everyone who opens the URL shares one account. ⚠️ Anyone with the
+link then has full access — only do this behind a trusted network or as a
+short-lived launch, and flip `AUTH_ENABLED=1` + add the Google credentials to
+lock it down.
+
 ### 4. Get your public URL
 Web service → **Settings → Networking → Generate Domain**. You'll get something
 like `https://shiftwork-production.up.railway.app`. Optionally set the

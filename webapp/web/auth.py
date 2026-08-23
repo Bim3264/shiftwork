@@ -50,6 +50,16 @@ def get_db():
         db.close()
 
 
+# ── Auth on/off ───────────────────────────────────────────────────────────────
+def auth_is_off() -> bool:
+    """True when login is disabled — either AUTH_ENABLED=false (a deliberate
+    deployment choice) or DEV_AUTH_BYPASS (local dev). In this mode every request
+    runs as a single shared local user and Google OAuth is not used.
+
+    Read at call time so it is overridable/testable."""
+    return config.DEV_AUTH_BYPASS or not config.AUTH_ENABLED
+
+
 # ── Allowlist gate ────────────────────────────────────────────────────────────
 def is_email_allowed(email: str) -> bool:
     """True if `email` may use the app under the MVP allowlist policy.
@@ -107,9 +117,9 @@ def _get_or_create_dev_user(db: Session) -> User:
 
 def require_user(request: Request, db: Session = Depends(get_db)) -> User:
     """Return the logged-in `User`, or short-circuit to /login via AuthRedirect."""
-    # Local dev escape hatch (read at call time so it's overridable/testable):
-    # skip Google entirely and run as a single local user. Guarded off by default.
-    if config.DEV_AUTH_BYPASS:
+    # When auth is turned off (AUTH_ENABLED=false or DEV_AUTH_BYPASS), skip
+    # Google entirely and run as a single shared local user.
+    if auth_is_off():
         return _get_or_create_dev_user(db)
 
     user_id = request.session.get("user_id")
@@ -164,6 +174,9 @@ router = APIRouter()
 
 @router.get("/login")
 async def login(request: Request):
+    # With auth off there is no Google client; send them to the app.
+    if auth_is_off():
+        return RedirectResponse(url="/", status_code=303)
     redirect_uri = request.url_for("auth_callback")
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
@@ -229,12 +242,13 @@ def _forbidden_page(email: str) -> str:
 
 def install_auth(app) -> None:
     """Wire auth into the app: session middleware, OAuth client, router, handler."""
-    if config.DEV_AUTH_BYPASS:
+    if auth_is_off():
         import sys
         print(
-            "WARNING: DEV_AUTH_BYPASS is ON — Google sign-in is disabled and "
-            "every request runs as a local dev user. NEVER enable this in a "
-            "deployed environment.",
+            "WARNING: authentication is DISABLED (AUTH_ENABLED=false or "
+            "DEV_AUTH_BYPASS). Google sign-in is off and every request runs as a "
+            "single shared user. Anyone who can reach this URL has full access — "
+            "only run like this behind a trusted network or temporarily.",
             file=sys.stderr,
         )
 
@@ -245,8 +259,9 @@ def install_auth(app) -> None:
         same_site="lax",  # sent on the top-level OAuth callback redirect
     )
 
-    # `oauth.google` is None until registered; guard so a repeat call is a no-op.
-    if oauth.create_client("google") is None:
+    # Register the Google client only when auth is on. `oauth.google` is None
+    # until registered; guard so a repeat call is a no-op.
+    if not auth_is_off() and oauth.create_client("google") is None:
         oauth.register(
             name="google",
             client_id=config.GOOGLE_CLIENT_ID,
