@@ -39,6 +39,12 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///shiftwork_web.db")
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
 # ── Auth (Google OIDC) ────────────────────────────────────────────────────────
+# Master switch for login. When false, Google OAuth is turned off entirely and
+# every request runs as a single shared user (same behaviour as DEV_AUTH_BYPASS,
+# but intended as a deliberate deployment choice — e.g. launching before Google
+# OAuth is set up). WARNING: with auth off, anyone who can reach the URL is in.
+AUTH_ENABLED = _get_bool("AUTH_ENABLED", True)
+
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "dev-insecure-change-me")

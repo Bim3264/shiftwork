@@ -65,6 +65,11 @@ it solves). On Windows, `webapp\run_local.bat` sets both for you. Both are
 development-only escape hatches, off by default, and print a warning; **never
 enable them in a deployed environment.**
 
+To turn login off in a *deployed* setting (e.g. to launch before Google OAuth is
+configured), use `AUTH_ENABLED=0` instead of the dev bypass — same single-user
+effect, but it's a deliberate, production-facing switch. It still means anyone
+with the URL is in, so treat it as temporary.
+
 The Google OAuth redirect URI to register is `<your-host>/auth/callback`.
 
 ## Timeouts
