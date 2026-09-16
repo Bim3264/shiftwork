@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><link href="https://fonts.googleapis.com/css2?family=Architects+Daughter&display=swap" rel="stylesheet"><style>body{margin:0;background:#f0eee9;font-family:Helvetica,system-ui,sans-serif}.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(0,0,0,.08);scroll-margin-top:16px}.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 20px}.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#102A43;color:#fff;border-radius:4px;text-decoration:none}.dv-tname{font:600 13px/1.2 Helvetica,sans-serif;color:#102A43}.dv-opts{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}.dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(16,42,67,.1);color:#102A43;border-radius:5px;text-decoration:none}.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 Helvetica,sans-serif;color:rgba(0,0,0,.55)}.dv-card{max-width:100%;background:#fff;border:1px solid rgba(0,0,0,.1);border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.06);overflow:hidden}.dv-opt:target .dv-oid{background:#14B8A6;color:#fff}.dv-next{margin:22px 0 0;font:12px/1.5 Helvetica,sans-serif;color:rgba(0,0,0,.5)}.dv-grouphd{margin:30px 0 14px;font:400 12px/1.3 'Architects Daughter',cursive;color:#102A43;letter-spacing:.02em;border-bottom:1px dashed rgba(16,42,67,.25);padding-bottom:6px}</style></helmet>
+
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Round 1 — 8 screens × 3 approaches. Low-fi structure only; navy/teal used sparingly for primary action.</span></div>
+
+<p class="dv-grouphd">Dashboard — แดชบอร์ด</p>
+<div class="dv-opts">
+  <div class="dv-opt" id="1a"><div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>Table-first — closest to today, decluttered</div>
+  <div class="dv-card" style="width:420px;padding:0">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1.5px solid #102A43"><div style="font:600 13px Helvetica;color:#102A43">Shift<span style="color:#14B8A6">Work</span></div><div style="display:flex;gap:8px;align-items:center"><div style="width:56px;height:8px;background:#E5E7EB;border-radius:4px"></div><div style="width:22px;height:22px;border-radius:50%;background:#E5E7EB"></div></div></div>
+    <div style="padding:16px;display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-end"><div><div style="font:600 15px Helvetica;color:#102A43">ตารางเวร / Schedules</div><div style="font:11px Helvetica;color:#6B7280;margin-top:3px">หอผู้ป่วย 4B · 18 พยาบาล</div></div><div style="background:#14B8A6;color:#fff;font:600 11px Helvetica;padding:8px 12px;border-radius:8px">+ สร้างใหม่ / New</div></div>
+      <div style="border:1px solid #E5E7EB;border-radius:12px;overflow:hidden">
+        <div style="display:grid;grid-template-columns:1.4fr 1fr .8fr .6fr;gap:8px;padding:8px 12px;background:#F8FAFC;font:600 10px Helvetica;color:#6B7280"><div>เดือน / Month</div><div>สถานะ / Status</div><div>คำขอ</div><div></div></div>
+        <div style="display:grid;grid-template-columns:1.4fr 1fr .8fr .6fr;gap:8px;padding:11px 12px;border-top:1px solid #E5E7EB;align-items:center;font:11px Helvetica;color:#1F2937"><div>สิงหาคม 2026</div><div><span style="background:#D1FAE5;color:#065F46;padding:3px 7px;border-radius:20px;font-size:10px">เสร็จ / Done</span></div><div style="color:#6B7280">42/45</div><div style="color:#14B8A6;font-weight:600">เปิด</div></div>
+        <div style="display:grid;grid-template-columns:1.4fr 1fr .8fr .6fr;gap:8px;padding:11px 12px;border-top:1px solid #E5E7EB;align-items:center;font:11px Helvetica;color:#1F2937"><div>กรกฎาคม 2026</div><div><span style="background:#FEF3C7;color:#92400E;padding:3px 7px;border-radius:20px;font-size:10px">ร่าง / Draft</span></div><div style="color:#6B7280">—</div><div style="color:#14B8A6;font-weight:600">แก้ไข</div></div>
+        <div style="display:grid;grid-template-columns:1.4fr 1fr .8fr .6fr;gap:8px;padding:11px 12px;border-top:1px solid #E5E7EB;align-items:center;font:11px Helvetica;color:#9CA3AF"><div>มิถุนายน 2026</div><div><span style="background:#FEE2E2;color:#991B1B;padding:3px 7px;border-radius:20px;font-size:10px">ไม่สำเร็จ</span></div><div>—</div><div style="color:#14B8A6;font-weight:600">ดูสาเหตุ</div></div>
+      </div>
+      <div style="font:11px 'Architects Daughter',cursive;color:#6B7280">one row per month · jobs folded into the schedule they belong to</div>
+    </div>
+  </div></div>
+
+  <div class="dv-opt" id="1b"><div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>This-month hero — one obvious next action</div>
+  <div class="dv-card" style="width:420px;padding:0">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1.5px solid #102A43"><div style="font:600 13px Helvetica;color:#102A43">Shift<span style="color:#14B8A6">Work</span></div><div style="width:22px;height:22px;border-radius:50%;background:#E5E7EB"></div></div>
+    <div style="padding:16px;display:flex;flex-direction:column;gap:14px">
+      <div style="border:1.5px solid #102A43;border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:12px">
+        <div style="font:11px Helvetica;color:#14B8A6;font-weight:600">เดือนนี้ / THIS MONTH</div>
+        <div style="font:600 20px Helvetica;color:#102A43">กันยายน 2026</div>
+        <div style="display:flex;gap:8px"><div style="flex:1;height:6px;background:#14B8A6;border-radius:3px"></div><div style="flex:1;height:6px;background:#14B8A6;border-radius:3px"></div><div style="flex:1;height:6px;background:#E5E7EB;border-radius:3px"></div><div style="flex:1;height:6px;background:#E5E7EB;border-radius:3px"></div></div>
+        <div style="font:11px Helvetica;color:#6B7280">รับคำขอแล้ว 12/18 คน · Requests collected</div>
+        <div style="background:#14B8A6;color:#fff;font:600 12px Helvetica;padding:10px;border-radius:10px;text-align:center">จัดตารางเวร / Build roster</div>
+      </div>
+      <div style="display:flex;gap:10px">
+        <div style="flex:1;border:1px solid #E5E7EB;border-radius:12px;padding:12px"><div style="font:600 16px Helvetica;color:#102A43">4 ชม.</div><div style="font:10px Helvetica;color:#6B7280;margin-top:3px">ประหยัดเดือนก่อน</div></div>
+        <div style="flex:1;border:1px solid #E5E7EB;border-radius:12px;padding:12px"><div style="font:600 16px Helvetica;color:#102A43">93%</div><div style="font:10px Helvetica;color:#6B7280;margin-top:3px">คำขอที่ได้รับ</div></div>
+      </div>
+      <div style="font:600 11px Helvetica;color:#6B7280">ก่อนหน้า / Past months</div>
+      <div style="display:flex;flex-direction:column;gap:6px"><div style="display:flex;justify-content:space-between;font:11px Helvetica;color:#1F2937;border:1px solid #E5E7EB;border-radius:8px;padding:9px 11px"><span>สิงหาคม 2026</span><span style="color:#6B7280">เสร็จ · ดาวน์โหลด</span></div><div style="display:flex;justify-content:space-between;font:11px Helvetica;color:#1F2937;border:1px solid #E5E7EB;border-radius:8px;padding:9px 11px"><span>กรกฎาคม 2026</span><span style="color:#6B7280">เสร็จ · ดาวน์โหลด</span></div></div>
+    </div>
+  </div></div>
+
+  <div class="dv-opt" id="1c"><div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>Ward rail + activity — for multi-ward heads (desktop + mobile)</div>
+  <div style="display:flex;gap:14px;align-items:flex-start">
+  <div class="dv-card" style="width:400px;padding:0;display:flex">
+    <div style="width:104px;border-right:1px solid #E5E7EB;background:#F8FAFC;padding:12px 10px;display:flex;flex-direction:column;gap:10px">
+      <div style="font:600 11px Helvetica;color:#102A43">Shift<span style="color:#14B8A6">Work</span></div>
+      <div style="font:9px Helvetica;color:#9CA3AF;margin-top:4px">หอผู้ป่วย / WARDS</div>
+      <div style="background:#fff;border:1.5px solid #14B8A6;border-radius:8px;padding:7px;font:600 10px Helvetica;color:#102A43">4B<div style="font-weight:400;color:#6B7280;font-size:9px">18 คน</div></div>
+      <div style="border:1px solid #E5E7EB;border-radius:8px;padding:7px;font:10px Helvetica;color:#6B7280">ICU<div style="font-size:9px">12 คน</div></div>
+      <div style="border:1px solid #E5E7EB;border-radius:8px;padding:7px;font:10px Helvetica;color:#6B7280">ER<div style="font-size:9px">24 คน</div></div>
+      <div style="font:10px Helvetica;color:#14B8A6;margin-top:auto">+ เพิ่มหอ</div>
+    </div>
+    <div style="flex:1;padding:14px;display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center"><div style="font:600 14px Helvetica;color:#102A43">หอผู้ป่วย 4B</div><div style="background:#14B8A6;color:#fff;font:600 10px Helvetica;padding:7px 10px;border-radius:8px">+ New</div></div>
+      <div style="display:flex;gap:6px"><div style="border:1px solid #102A43;border-radius:20px;padding:5px 10px;font:600 10px Helvetica;color:#102A43">ตาราง</div><div style="border:1px solid #E5E7EB;border-radius:20px;padding:5px 10px;font:10px Helvetica;color:#6B7280">พยาบาล</div><div style="border:1px solid #E5E7EB;border-radius:20px;padding:5px 10px;font:10px Helvetica;color:#6B7280">ตั้งค่า</div></div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="border-left:3px solid #14B8A6;padding:8px 10px;background:#F8FAFC;border-radius:0 8px 8px 0"><div style="font:600 11px Helvetica;color:#102A43">ก.ย. 2026 · กำลังคำนวณ</div><div style="font:10px Helvetica;color:#6B7280;margin-top:3px">เริ่ม 2 นาทีที่แล้ว</div></div>
+        <div style="border-left:3px solid #E5E7EB;padding:8px 10px;border-radius:0 8px 8px 0"><div style="font:11px Helvetica;color:#1F2937">ส.ค. 2026 · เสร็จ</div><div style="font:10px Helvetica;color:#6B7280;margin-top:3px">42/45 คำขอ · ดาวน์โหลด</div></div>
+        <div style="border-left:3px solid #E5E7EB;padding:8px 10px;border-radius:0 8px 8px 0"><div style="font:11px Helvetica;color:#1F2937">ก.ค. 2026 · เสร็จ</div><div style="font:10px Helvetica;color:#6B7280;margin-top:3px">45/45 คำขอ · ดาวน์โหลด</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="dv-card" style="width:170px;padding:0;border-radius:20px">
+    <div style="padding:8px 12px;border-bottom:1px solid #E5E7EB;font:600 11px Helvetica;color:#102A43">Shift<span style="color:#14B8A6">Work</span></div>
+    <div style="padding:12px;display:flex;flex-direction:column;gap:8px">
+      <div style="font:600 12px Helvetica;color:#102A43">4B · ก.ย. 2026</div>
+      <div style="border:1.5px solid #14B8A6;border-radius:10px;padding:10px;font:10px Helvetica;color:#102A43">กำลังคำนวณ…<div style="height:5px;background:#E5E7EB;border-radius:3px;margin-top:8px"><div style="width:60%;height:5px;background:#14B8A6;border-radius:3px"></div></div></div>
+      <div style="border:1px solid #E5E7EB;border-radius:10px;padding:10px;font:10px Helvetica;color:#6B7280">ส.ค. 2026 · เสร็จ</div>
+      <div style="border:1px solid #E5E7EB;border-radius:10px;padding:10px;font:10px Helvetica;color:#6B7280">ก.ค. 2026 · เสร็จ</div>
+      <div style="font:10px 'Architects Daughter',cursive;color:#9CA3AF">mobile = read + monitor only</div>
+    </div>
+  </div>
+  </div></div>
+</div>
+
+<p class="dv-grouphd">New schedule — สร้างตารางใหม่</p>
+<div class="dv-opts">
+  <div class="dv-opt" id="1d"><div class="dv-olabel"><a class="dv-oid" href="#1d">1d</a>Two doors — upload vs blank, as today but weighted</div>
+  <div class="dv-card" style="width:400px;padding:20px;display:flex;flex-direction:column;gap:14px">
+    <div style="font:600 16px Helvetica;color:#102A43">สร้างตารางใหม่ / New schedule</div>
+    <div style="font:11px Helvetica;color:#6B7280">เลือกวิธีเริ่มต้น · Pick a starting point</div>
+    <div style="border:1.5px solid #14B8A6;border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;justify-content:space-between"><div style="font:600 13px Helvetica;color:#102A43">อัปโหลดไฟล์ CSV</div><div style="font:10px Helvetica;color:#14B8A6;font-weight:600">แนะนำ</div></div>
+      <div style="border:1.5px dashed #14B8A6;border-radius:10px;padding:22px;text-align:center;font:11px Helvetica;color:#6B7280;background:#F8FAFC">ลากไฟล์มาวางที่นี่<br><span style="font-size:10px">Drop your ward CSV</span></div>
+      <div style="font:10px Helvetica;color:#9CA3AF">[ward] / [settings] / [schedule] · ดาวน์โหลดแม่แบบ</div>
+    </div>
+    <div style="border:1px solid #E5E7EB;border-radius:14px;padding:14px;display:flex;justify-content:space-between;align-items:center"><div><div style="font:600 12px Helvetica;color:#102A43">เริ่มจากตารางว่าง</div><div style="font:10px Helvetica;color:#6B7280;margin-top:3px">Start from a blank grid</div></div><div style="border:1px solid #102A43;border-radius:8px;padding:7px 11px;font:600 10px Helvetica;color:#102A43">เริ่ม</div></div>
+  </div></div>
+
+  <div class="dv-opt" id="1e"><div class="dv-olabel"><a class="dv-oid" href="#1e">1e</a>Guided stepper — month, staff, requests, solve</div>
+  <div class="dv-card" style="width:400px;padding:20px;display:flex;flex-direction:column;gap:16px">
+    <div style="display:flex;align-items:center;gap:6px">
+      <div style="width:22px;height:22px;border-radius:50%;background:#14B8A6;color:#fff;font:600 10px/22px Helvetica;text-align:center">1</div><div style="flex:1;height:2px;background:#E5E7EB"></div>
+      <div style="width:22px;height:22px;border-radius:50%;border:1.5px solid #E5E7EB;color:#9CA3AF;font:600 10px/19px Helvetica;text-align:center">2</div><div style="flex:1;height:2px;background:#E5E7EB"></div>
+      <div style="width:22px;height:22px;border-radius:50%;border:1.5px solid #E5E7EB;color:#9CA3AF;font:600 10px/19px Helvetica;text-align:center">3</div><div style="flex:1;height:2px;background:#E5E7EB"></div>
+      <div style="width:22px;height:22px;border-radius:50%;border:1.5px solid #E5E7EB;color:#9CA3AF;font:600 10px/19px Helvetica;text-align:center">4</div>
+    </div>
+    <div style="font:11px Helvetica;color:#6B7280">ขั้นที่ 1 จาก 4 · Step 1 of 4</div>
+    <div style="font:600 17px Helvetica;color:#102A43">เดือนไหน? / Which month?</div>
+    <div style="display:flex;gap:8px"><div style="flex:1;border:1.5px solid #102A43;border-radius:10px;padding:12px;text-align:center;font:600 12px Helvetica;color:#102A43">ก.ย. 2026</div><div style="flex:1;border:1px solid #E5E7EB;border-radius:10px;padding:12px;text-align:center;font:12px Helvetica;color:#6B7280">ต.ค. 2026</div><div style="border:1px solid #E5E7EB;border-radius:10px;padding:12px;font:12px Helvetica;color:#6B7280">อื่น</div></div>
+    <div style="border:1px solid #E5E7EB;border-radius:12px;padding:12px;background:#F8FAFC">
+      <div style="font:600 11px Helvetica;color:#102A43">วันหยุด 5 วันในเดือนนี้</div>
+      <div style="display:flex;gap:5px;margin-top:8px;flex-wrap:wrap">
+        <span style="border:1px solid #E5E7EB;background:#fff;border-radius:6px;padding:4px 8px;font:10px Helvetica;color:#1F2937">5 · วันแม่</span>
+        <span style="border:1px solid #E5E7EB;background:#fff;border-radius:6px;padding:4px 8px;font:10px Helvetica;color:#1F2937">12</span>
+        <span style="border:1px solid #E5E7EB;background:#fff;border-radius:6px;padding:4px 8px;font:10px Helvetica;color:#1F2937">19</span>
+        <span style="border:1px dashed #14B8A6;border-radius:6px;padding:4px 8px;font:10px Helvetica;color:#14B8A6">+ เพิ่ม</span>
+      </div>
+      <div style="font:10px Helvetica;color:#6B7280;margin-top:8px">เติมเสาร์-อาทิตย์และวันหยุดราชการให้อัตโนมัติ</div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px"><div style="border:1px solid #E5E7EB;border-radius:8px;padding:9px 14px;font:11px Helvetica;color:#6B7280">ย้อนกลับ</div><div style="background:#14B8A6;color:#fff;border-radius:8px;padding:9px 16px;font:600 11px Helvetica">ต่อไป / Next</div></div>
+  </div></div>
+
+  <div class="dv-opt" id="1f"><div class="dv-olabel"><a class="dv-oid" href="#1f">1f</a>Repeat last month — the real common path</div>
+  <div class="dv-card" style="width:400px;padding:20px;display:flex;flex-direction:column;gap:14px">
+    <div style="font:600 16px Helvetica;color:#102A43">ตารางเดือนกันยายน 2026</div>
+    <div style="border:1.5px solid #102A43;border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:10px">
+      <div style="font:600 13px Helvetica;color:#102A43">ใช้ค่าเดิมจากเดือนสิงหาคม</div>
+      <div style="font:11px Helvetica;color:#6B7280">พยาบาล 18 คน · กฎ 19 ข้อ · อัตรากำลังเดิม<br>Reuse August's ward, staff and rules</div>
+      <div style="display:flex;flex-direction:column;gap:5px;font:10px Helvetica;color:#1F2937">
+        <div style="display:flex;gap:6px;align-items:center"><span style="color:#14B8A6">✓</span> รายชื่อพยาบาล 18 คน</div>
+        <div style="display:flex;gap:6px;align-items:center"><span style="color:#14B8A6">✓</span> อัตรากำลังต่อเวร</div>
+        <div style="display:flex;gap:6px;align-items:center"><span style="color:#F59E0B">!</span> คำขอ / วันหยุด — ต้องกรอกใหม่</div>
+      </div>
+      <div style="background:#14B8A6;color:#fff;border-radius:10px;padding:11px;text-align:center;font:600 12px Helvetica">ใช้ค่าเดิม / Reuse</div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <div style="flex:1;border:1px solid #E5E7EB;border-radius:12px;padding:12px;text-align:center;font:11px Helvetica;color:#6B7280">อัปโหลด CSV</div>
+      <div style="flex:1;border:1px solid #E5E7EB;border-radius:12px;padding:12px;text-align:center;font:11px Helvetica;color:#6B7280">ตารางว่าง</div>
+    </div>
+    <div style="font:11px 'Architects Daughter',cursive;color:#6B7280">month 2+ never re-enters the ward</div>
+  </div></div>
+</div>
+
+<p class="dv-grouphd">Edit input &amp; settings — ตั้งค่า (defaults + advanced drawer)</p>
+<div class="dv-opts">
+  <div class="dv-opt" id="1g"><div class="dv-olabel"><a class="dv-oid" href="#1g">1g</a>Summary + collapsed Advanced</div>
+  <div class="dv-card" style="width:420px;padding:18px;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font:600 15px Helvetica;color:#102A43">หอผู้ป่วย 4B · ก.ย. 2026</div><div style="font:11px Helvetica;color:#6B7280;margin-top:3px">18 พยาบาล · 30 วัน</div></div><span style="border:1px solid #14B8A6;color:#14B8A6;border-radius:20px;padding:4px 9px;font:600 10px Helvetica">Ward+</span></div>
+    <div style="border:1px solid #E5E7EB;border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px">
+      <div style="font:600 11px Helvetica;color:#102A43">อัตรากำลังต่อเวร / Coverage</div>
+      <div style="display:grid;grid-template-columns:60px 1fr 1fr 1fr;gap:8px;font:10px Helvetica;color:#6B7280"><div></div><div>ช เช้า</div><div>บ บ่าย</div><div>ด ดึก</div></div>
+      <div style="display:grid;grid-template-columns:60px 1fr 1fr 1fr;gap:8px;align-items:center;font:11px Helvetica;color:#1F2937"><div style="color:#6B7280">จ-ศ</div><div style="border:1px solid #E5E7EB;border-radius:7px;padding:6px;text-align:center">5</div><div style="border:1px solid #E5E7EB;border-radius:7px;padding:6px;text-align:center">3</div><div style="border:1px solid #E5E7EB;border-radius:7px;padding:6px;text-align:center">3</div></div>
+      <div style="display:grid;grid-template-columns:60px 1fr 1fr 1fr;gap:8px;align-items:center;font:11px Helvetica;color:#1F2937"><div style="color:#6B7280">ส-อา</div><div style="border:1px solid #E5E7EB;border-radius:7px;padding:6px;text-align:center">4</div><div style="border:1px solid #E5E7EB;border-radius:7px;padding:6px;text-align:center">2</div><div style="border:1px solid #E5E7EB;border-radius:7px;padding:6px;text-align:center">2</div></div>
+    </div>
+    <div style="border:1px solid #E5E7EB;border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px">
+      <div style="font:600 11px Helvetica;color:#102A43">ยืดหยุ่นคำขอ / Request flexibility</div>
+      <div style="display:flex;justify-content:space-between;font:11px Helvetica;color:#1F2937"><span>รับคำขอขั้นต่ำ</span><span style="font-weight:600">100%</span></div>
+      <div style="height:5px;background:#E5E7EB;border-radius:3px"><div style="width:100%;height:5px;background:#14B8A6;border-radius:3px"></div></div>
+      <div style="font:10px Helvetica;color:#6B7280">ลดลงได้ถ้าจัดตารางไม่ลงตัว</div>
+    </div>
+    <div style="border:1px solid #E5E7EB;border-radius:12px;padding:13px;display:flex;justify-content:space-between;align-items:center;background:#F8FAFC"><div><div style="font:600 11px Helvetica;color:#102A43">ตั้งค่าขั้นสูง / Advanced</div><div style="font:10px Helvetica;color:#6B7280;margin-top:2px">กฎการต่อเวร · หัวหน้าเวร · วันประชุม · 14 ข้อ</div></div><div style="font:14px Helvetica;color:#6B7280">⌄</div></div>
+    <div style="background:#14B8A6;color:#fff;border-radius:10px;padding:12px;text-align:center;font:600 12px Helvetica">จัดตารางเวร / Solve</div>
+  </div></div>
+
+  <div class="dv-opt" id="1h"><div class="dv-olabel"><a class="dv-oid" href="#1h">1h</a>Sectioned nav + panel — desktop, everything reachable</div>
+  <div class="dv-card" style="width:440px;padding:0;display:flex">
+    <div style="width:128px;border-right:1px solid #E5E7EB;padding:14px 10px;display:flex;flex-direction:column;gap:3px;background:#F8FAFC">
+      <div style="font:600 10px Helvetica;color:#9CA3AF;margin-bottom:5px">ตั้งค่า</div>
+      <div style="background:#fff;border:1px solid #14B8A6;border-radius:7px;padding:7px 9px;font:600 10px Helvetica;color:#102A43">เดือน &amp; วันหยุด</div>
+      <div style="padding:7px 9px;font:10px Helvetica;color:#6B7280">อัตรากำลัง ✓</div>
+      <div style="padding:7px 9px;font:10px Helvetica;color:#6B7280">กฎการต่อเวร ✓</div>
+      <div style="padding:7px 9px;font:10px Helvetica;color:#6B7280">คำขอพยาบาล <span style="color:#F59E0B">!</span></div>
+      <div style="padding:7px 9px;font:10px Helvetica;color:#9CA3AF">วันประชุม 🔒</div>
+      <div style="padding:7px 9px;font:10px Helvetica;color:#6B7280">ขั้นสูง</div>
+      <div style="margin-top:auto;background:#14B8A6;color:#fff;border-radius:8px;padding:9px;text-align:center;font:600 10px Helvetica">Solve</div>
+    </div>
+    <div style="flex:1;padding:16px;display:flex;flex-direction:column;gap:12px">
+      <div style="font:600 14px Helvetica;color:#102A43">เดือน &amp; วันหยุด</div>
+      <div style="display:flex;gap:8px"><div style="flex:1"><div style="font:10px Helvetica;color:#6B7280;margin-bottom:4px">เดือน</div><div style="border:1px solid #E5E7EB;border-radius:8px;padding:8px;font:11px Helvetica;color:#1F2937">กันยายน</div></div><div style="flex:1"><div style="font:10px Helvetica;color:#6B7280;margin-bottom:4px">ปี</div><div style="border:1px solid #E5E7EB;border-radius:8px;padding:8px;font:11px Helvetica;color:#1F2937">2026</div></div><div style="flex:1"><div style="font:10px Helvetica;color:#6B7280;margin-bottom:4px">จำนวนวัน</div><div style="border:1px solid #E5E7EB;border-radius:8px;padding:8px;font:11px Helvetica;color:#1F2937">30</div></div></div>
+      <div><div style="font:10px Helvetica;color:#6B7280;margin-bottom:6px">ปฏิทิน — คลิกเลือกวันหยุดเพิ่ม</div>
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">
+          <div style="border:1px solid #E5E7EB;border-radius:5px;padding:6px 0;text-align:center;font:9px Helvetica;color:#1F2937">1</div><div style="border:1px solid #E5E7EB;border-radius:5px;padding:6px 0;text-align:center;font:9px Helvetica;color:#1F2937">2</div><div style="border:1px solid #E5E7EB;border-radius:5px;padding:6px 0;text-align:center;font:9px Helvetica;color:#1F2937">3</div><div style="border:1px solid #E5E7EB;border-radius:5px;padding:6px 0;text-align:center;font:9px Helvetica;color:#1F2937">4</div><div style="border:1px solid #E5E7EB;border-radius:5px;padding:6px 0;text-align:center;font:9px Helvetica;color:#1F2937">5</div><div style="background:#CCFBF1;border:1px solid #14B8A6;border-radius:5px;padding:6px 0;text-align:center;font:9px Helvetica;color:#102A43">6</div><div style="background:#CCFBF1;border:1px solid #14B8A6;border-radius:5px;padding:6px 0;text-align:center;font:9px Helvetica;color:#102A43">7</div>
+          <div style="border:1px solid #E5E7EB;border-radius:5px;padding:6px 0;text-align:center;font:9px Helvetica;color:#1F2937">8</div><div style="border:1px solid #E5E7EB;border-radius:5px;padding:6px 0;text-align:center;font:9px Helvetica;color:#1F2937">9</div><div style="border:1px solid #E5E7EB;border-radius:5px;padding:6px 0;text-align:center;font:9px Helvetica;color:#1F2937">10</div><div style="border:1px solid #E5E7EB;border-radius:5px;padding:6px 0;text-align:center;font:9px Helvetica;color:#1F2937">11</div><div style="border:1px solid #E5E7EB;border-radius:5px;padding:6px 0;text-align:center;font:9px Helvetica;color:#1F2937">12</div><div style="background:#CCFBF1;border:1px solid #14B8A6;border-radius:5px;padding:6px 0;text-align:center;font:9px Helvetica;color:#102A43">13</div><div style="background:#CCFBF1;border:1px solid #14B8A6;border-radius:5px;padding:6px 0;text-align:center;font:9px Helvetica;color:#102A43">14</div>
+          <div style="border:1px solid #F59E0B;background:#FEF3C7;border-radius:5px;padding:6px 0;text-align:center;font:9px Helvetica;color:#92400E">15</div><div style="border:1px solid #E5E7EB;border-radius:5px;padding:6px 0;text-align:center;font:9px Helvetica;color:#1F2937">16</div><div style="border:1px solid #E5E7EB;border-radius:5px;padding:6px 0;text-align:center;font:9px Helvetica;color:#1F2937">17</div><div style="border:1px solid #E5E7EB;border-radius:5px;padding:6px 0;text-align:center;font:9px Helvetica;color:#1F2937">18</div><div style="border:1px solid #E5E7EB;border-radius:5px;padding:6px 0;text-align:center;font:9px Helvetica;color:#1F2937">19</div><div style="background:#CCFBF1;border:1px solid #14B8A6;border-radius:5px;padding:6px 0;text-align:center;font:9px Helvetica;color:#102A43">20</div><div style="background:#CCFBF1;border:1px solid #14B8A6;border-radius:5px;padding:6px 0;text-align:center;font:9px Helvetica;color:#102A43">21</div>
+        </div>
+        <div style="display:flex;gap:12px;margin-top:8px;font:9px Helvetica;color:#6B7280"><span>■ เสาร์-อาทิตย์</span><span style="color:#92400E">■ วันหยุดราชการ</span></div>
+      </div>
+    </div>
+  </div></div>
+
+  <div class="dv-opt" id="1i"><div class="dv-olabel"><a class="dv-oid" href="#1i">1i</a>Pre-flight checklist — fix blockers before solving</div>
+  <div class="dv-card" style="width:400px;padding:18px;display:flex;flex-direction:column;gap:12px">
+    <div style="font:600 15px Helvetica;color:#102A43">พร้อมจัดตารางหรือยัง?</div>
+    <div style="font:11px Helvetica;color:#6B7280">Ready to solve · 3 of 5 checks passed</div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;gap:10px;align-items:center;border:1px solid #E5E7EB;border-radius:10px;padding:11px"><span style="color:#10B981;font:12px Helvetica">✓</span><div style="flex:1;font:11px Helvetica;color:#1F2937">พยาบาล 18 คน — พอสำหรับอัตรากำลัง</div></div>
+      <div style="display:flex;gap:10px;align-items:center;border:1px solid #E5E7EB;border-radius:10px;padding:11px"><span style="color:#10B981;font:12px Helvetica">✓</span><div style="flex:1;font:11px Helvetica;color:#1F2937">วันหยุด 8 วัน · เติมอัตโนมัติแล้ว</div></div>
+      <div style="display:flex;gap:10px;align-items:center;border:1.5px solid #F59E0B;background:#FFFBEB;border-radius:10px;padding:11px"><span style="color:#F59E0B;font:12px Helvetica">!</span><div style="flex:1"><div style="font:600 11px Helvetica;color:#92400E">พยาบาล 4 คนขอวันหยุดวันที่ 12 เกินโควตา</div><div style="font:10px Helvetica;color:#92400E;margin-top:2px">Only 2 can be off that day</div></div><div style="border:1px solid #92400E;border-radius:7px;padding:5px 9px;font:600 10px Helvetica;color:#92400E">แก้</div></div>
+      <div style="display:flex;gap:10px;align-items:center;border:1px solid #E5E7EB;border-radius:10px;padding:11px"><span style="color:#9CA3AF;font:12px Helvetica">○</span><div style="flex:1;font:11px Helvetica;color:#6B7280">วันประชุม — ไม่มีในแพ็กเกจ Ward+</div><div style="font:10px Helvetica;color:#14B8A6;font-weight:600">อัปเกรด</div></div>
+    </div>
+    <div style="border:1px solid #E5E7EB;border-radius:10px;padding:11px;display:flex;justify-content:space-between;align-items:center;background:#F8FAFC"><div style="font:600 11px Helvetica;color:#102A43">ตั้งค่าขั้นสูง / Advanced</div><div style="font:14px Helvetica;color:#6B7280">⌄</div></div>
+    <div style="background:#14B8A6;color:#fff;border-radius:10px;padding:12px;text-align:center;font:600 12px Helvetica">จัดตารางเวร แม้มีคำเตือน</div>
+  </div></div>
+</div>
+
+<p class="dv-grouphd">Schedule grid editor — คำขอและวันหยุดของพยาบาล</p>
+<div class="dv-opts">
+  <div class="dv-opt" id="1j"><div class="dv-olabel"><a class="dv-oid" href="#1j">1j</a>Grid with request layer + coverage footer</div>
+  <div class="dv-card" style="width:520px;padding:16px;display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center"><div style="font:600 14px Helvetica;color:#102A43">คำขอเวร / Requests · ก.ย. 2026</div><div style="display:flex;gap:6px"><div style="border:1px solid #102A43;border-radius:7px;padding:5px 9px;font:600 10px Helvetica;color:#102A43">คำขอ</div><div style="border:1px solid #E5E7EB;border-radius:7px;padding:5px 9px;font:10px Helvetica;color:#6B7280">เวรทั้งหมด</div></div></div>
+    <div style="display:flex;gap:10px;font:10px Helvetica;color:#6B7280"><span><b style="color:#14B8A6">ช</b> เช้า</span><span><b style="color:#F59E0B">บ</b> บ่าย</span><span><b style="color:#102A43">ด</b> ดึก</span><span><b style="color:#EF4444">X</b> ขอหยุด</span></div>
+    <div style="overflow:hidden">
+      <div style="display:grid;grid-template-columns:78px repeat(14,1fr);gap:2px;font:9px Helvetica;color:#9CA3AF;margin-bottom:2px"><div></div><div style="text-align:center">1</div><div style="text-align:center">2</div><div style="text-align:center">3</div><div style="text-align:center">4</div><div style="text-align:center">5</div><div style="text-align:center;color:#14B8A6">6</div><div style="text-align:center;color:#14B8A6">7</div><div style="text-align:center">8</div><div style="text-align:center">9</div><div style="text-align:center">10</div><div style="text-align:center">11</div><div style="text-align:center">12</div><div style="text-align:center;color:#14B8A6">13</div><div style="text-align:center;color:#14B8A6">14</div></div>
+      <div style="display:grid;grid-template-columns:78px repeat(14,1fr);gap:2px;align-items:center;margin-bottom:2px"><div style="font:10px Helvetica;color:#1F2937">สมศรี <span style="color:#9CA3AF">หน.</span></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;background:#CCFBF1;border:1px solid #14B8A6;border-radius:4px;font:600 9px/18px Helvetica;color:#102A43;text-align:center">ช</div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;background:#FEE2E2;border:1px solid #EF4444;border-radius:4px;font:600 9px/18px Helvetica;color:#991B1B;text-align:center">X</div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px;background:#F8FAFC"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px;background:#F8FAFC"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px;background:#F8FAFC"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px;background:#F8FAFC"></div></div>
+      <div style="display:grid;grid-template-columns:78px repeat(14,1fr);gap:2px;align-items:center;margin-bottom:2px"><div style="font:10px Helvetica;color:#1F2937">มาลี</div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;background:#FEF3C7;border:1px solid #F59E0B;border-radius:4px;font:600 9px/18px Helvetica;color:#92400E;text-align:center">บ</div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;background:#FEE2E2;border:1px solid #EF4444;border-radius:4px;font:600 9px/18px Helvetica;color:#991B1B;text-align:center">X</div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px;background:#F8FAFC"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px;background:#F8FAFC"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px;background:#F8FAFC"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px;background:#F8FAFC"></div></div>
+      <div style="display:grid;grid-template-columns:78px repeat(14,1fr);gap:2px;align-items:center;margin-bottom:2px"><div style="font:10px Helvetica;color:#1F2937">ประไพ</div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;background:#102A43;border-radius:4px;font:600 9px/20px Helvetica;color:#fff;text-align:center">ด</div><div style="height:20px;background:#FEE2E2;border:1px solid #EF4444;border-radius:4px;font:600 9px/18px Helvetica;color:#991B1B;text-align:center">X</div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px;background:#F8FAFC"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px;background:#F8FAFC"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px;background:#F8FAFC"></div><div style="height:20px;border:1px solid #E5E7EB;border-radius:4px;background:#F8FAFC"></div></div>
+      <div style="display:grid;grid-template-columns:78px repeat(14,1fr);gap:2px;align-items:center;margin-bottom:2px"><div style="font:10px Helvetica;color:#9CA3AF">+ 15 คน</div><div style="height:20px;border:1px dashed #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px dashed #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px dashed #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px dashed #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px dashed #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px dashed #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px dashed #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px dashed #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px dashed #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px dashed #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px dashed #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px dashed #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px dashed #E5E7EB;border-radius:4px"></div><div style="height:20px;border:1px dashed #E5E7EB;border-radius:4px"></div></div>
+      <div style="display:grid;grid-template-columns:78px repeat(14,1fr);gap:2px;align-items:center;border-top:1.5px solid #102A43;padding-top:6px;margin-top:4px"><div style="font:600 9px Helvetica;color:#102A43">ขอหยุด/วัน</div><div style="text-align:center;font:9px Helvetica;color:#6B7280">0</div><div style="text-align:center;font:9px Helvetica;color:#6B7280">1</div><div style="text-align:center;font:9px Helvetica;color:#6B7280">0</div><div style="text-align:center;font:9px Helvetica;color:#6B7280">1</div><div style="text-align:center;font:600 9px Helvetica;color:#EF4444">4</div><div style="text-align:center;font:9px Helvetica;color:#6B7280">0</div><div style="text-align:center;font:9px Helvetica;color:#6B7280">2</div><div style="text-align:center;font:9px Helvetica;color:#6B7280">1</div><div style="text-align:center;font:9px Helvetica;color:#6B7280">0</div><div style="text-align:center;font:9px Helvetica;color:#6B7280">0</div><div style="text-align:center;font:9px Helvetica;color:#6B7280">1</div><div style="text-align:center;font:9px Helvetica;color:#6B7280">2</div><div style="text-align:center;font:9px Helvetica;color:#6B7280">1</div><div style="text-align:center;font:9px Helvetica;color:#6B7280">0</div></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center"><div style="font:10px Helvetica;color:#EF4444">วันที่ 5 มีคนขอหยุด 4 คน — เกินที่รับได้ 2 คน</div><div style="background:#14B8A6;color:#fff;border-radius:8px;padding:8px 14px;font:600 11px Helvetica">จัดตาราง</div></div>
+  </div></div>
+
+  <div class="dv-opt" id="1k"><div class="dv-olabel"><a class="dv-oid" href="#1k">1k</a>Request queue beside the grid — approve one by one</div>
+  <div class="dv-card" style="width:460px;padding:0;display:flex">
+    <div style="flex:1;padding:14px;border-right:1px solid #E5E7EB">
+      <div style="font:600 12px Helvetica;color:#102A43;margin-bottom:10px">ปฏิทินคำขอ · ก.ย.</div>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">
+        <div style="border:1px solid #E5E7EB;border-radius:5px;padding:8px 0;text-align:center;font:9px Helvetica;color:#1F2937">1</div><div style="border:1px solid #E5E7EB;border-radius:5px;padding:8px 0;text-align:center;font:9px Helvetica;color:#1F2937">2</div><div style="border:1px solid #E5E7EB;border-radius:5px;padding:8px 0;text-align:center;font:9px Helvetica;color:#1F2937">3<div style="width:4px;height:4px;background:#14B8A6;border-radius:50%;margin:2px auto 0"></div></div><div style="border:1px solid #E5E7EB;border-radius:5px;padding:8px 0;text-align:center;font:9px Helvetica;color:#1F2937">4</div><div style="border:1.5px solid #EF4444;background:#FEE2E2;border-radius:5px;padding:8px 0;text-align:center;font:600 9px Helvetica;color:#991B1B">5<div style="font-size:8px;font-weight:400">4</div></div><div style="border:1px solid #E5E7EB;background:#F8FAFC;border-radius:5px;padding:8px 0;text-align:center;font:9px Helvetica;color:#9CA3AF">6</div><div style="border:1px solid #E5E7EB;background:#F8FAFC;border-radius:5px;padding:8px 0;text-align:center;font:9px Helvetica;color:#9CA3AF">7</div>
+        <div style="border:1px solid #E5E7EB;border-radius:5px;padding:8px 0;text-align:center;font:9px Helvetica;color:#1F2937">8</div><div style="border:1px solid #E5E7EB;border-radius:5px;padding:8px 0;text-align:center;font:9px Helvetica;color:#1F2937">9</div><div style="border:1px solid #E5E7EB;border-radius:5px;padding:8px 0;text-align:center;font:9px Helvetica;color:#1F2937">10</div><div style="border:1px solid #E5E7EB;border-radius:5px;padding:8px 0;text-align:center;font:9px Helvetica;color:#1F2937">11<div style="width:4px;height:4px;background:#14B8A6;border-radius:50%;margin:2px auto 0"></div></div><div style="border:1px solid #F59E0B;background:#FEF3C7;border-radius:5px;padding:8px 0;text-align:center;font:9px Helvetica;color:#92400E">12<div style="font-size:8px">2</div></div><div style="border:1px solid #E5E7EB;background:#F8FAFC;border-radius:5px;padding:8px 0;text-align:center;font:9px Helvetica;color:#9CA3AF">13</div><div style="border:1px solid #E5E7EB;background:#F8FAFC;border-radius:5px;padding:8px 0;text-align:center;font:9px Helvetica;color:#9CA3AF">14</div>
+        <div style="border:1px solid #E5E7EB;border-radius:5px;padding:8px 0;text-align:center;font:9px Helvetica;color:#1F2937">15</div><div style="border:1px solid #E5E7EB;border-radius:5px;padding:8px 0;text-align:center;font:9px Helvetica;color:#1F2937">16</div><div style="border:1px solid #E5E7EB;border-radius:5px;padding:8px 0;text-align:center;font:9px Helvetica;color:#1F2937">17</div><div style="border:1px solid #E5E7EB;border-radius:5px;padding:8px 0;text-align:center;font:9px Helvetica;color:#1F2937">18</div><div style="border:1px solid #E5E7EB;border-radius:5px;padding:8px 0;text-align:center;font:9px Helvetica;color:#1F2937">19</div><div style="border:1px solid #E5E7EB;background:#F8FAFC;border-radius:5px;padding:8px 0;text-align:center;font:9px Helvetica;color:#9CA3AF">20</div><div style="border:1px solid #E5E7EB;background:#F8FAFC;border-radius:5px;padding:8px 0;text-align:center;font:9px Helvetica;color:#9CA3AF">21</div>
+      </div>
+      <div style="font:9px Helvetica;color:#6B7280;margin-top:8px">ตัวเลข = จำนวนคำขอหยุดวันนั้น</div>
+      <div style="margin-top:12px;border:1px solid #E5E7EB;border-radius:10px;padding:10px"><div style="font:600 10px Helvetica;color:#102A43">วันที่ 5 · 4 คำขอ / รับได้ 2</div><div style="height:5px;background:#E5E7EB;border-radius:3px;margin-top:7px"><div style="width:50%;height:5px;background:#EF4444;border-radius:3px"></div></div></div>
+    </div>
+    <div style="width:186px;padding:14px;display:flex;flex-direction:column;gap:8px;background:#F8FAFC">
+      <div style="font:600 11px Helvetica;color:#102A43">คำขอที่ต้องตัดสิน</div>
+      <div style="background:#fff;border:1.5px solid #102A43;border-radius:10px;padding:10px"><div style="font:600 10px Helvetica;color:#102A43">มาลี · วันที่ 5</div><div style="font:9px Helvetica;color:#6B7280;margin:4px 0 8px">ขอหยุด · ลาไปงานบวช</div><div style="display:flex;gap:5px"><div style="flex:1;background:#14B8A6;color:#fff;border-radius:6px;padding:6px;text-align:center;font:600 9px Helvetica">อนุมัติ</div><div style="flex:1;border:1px solid #E5E7EB;border-radius:6px;padding:6px;text-align:center;font:9px Helvetica;color:#6B7280">ปฏิเสธ</div></div></div>
+      <div style="background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:10px;font:9px Helvetica;color:#6B7280">ประไพ · วันที่ 5 · ขอหยุด</div>
+      <div style="background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:10px;font:9px Helvetica;color:#6B7280">สมศรี · วันที่ 5 · ขอหยุด</div>
+      <div style="background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:10px;font:9px Helvetica;color:#6B7280">อารี · วันที่ 12 · ขอเวรดึก</div>
+      <div style="font:9px 'Architects Daughter',cursive;color:#9CA3AF;margin-top:auto">solver only sees approved ones</div>
+    </div>
+  </div></div>
+
+  <div class="dv-opt" id="1l"><div class="dv-olabel"><a class="dv-oid" href="#1l">1l</a>Mobile — nurses submit, head nurse taps through</div>
+  <div style="display:flex;gap:12px">
+  <div class="dv-card" style="width:200px;padding:0;border-radius:20px">
+    <div style="padding:10px 12px;border-bottom:1px solid #E5E7EB;display:flex;justify-content:space-between;align-items:center"><div style="font:600 11px Helvetica;color:#102A43">คำขอ · ก.ย.</div><div style="font:9px Helvetica;color:#6B7280">4/18</div></div>
+    <div style="padding:12px;display:flex;flex-direction:column;gap:9px">
+      <div style="border:1.5px solid #102A43;border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;gap:8px;align-items:center"><div style="width:28px;height:28px;border-radius:50%;background:#E5E7EB"></div><div><div style="font:600 11px Helvetica;color:#102A43">มาลี ก.</div><div style="font:9px Helvetica;color:#6B7280">พยาบาลวิชาชีพ</div></div></div>
+        <div style="background:#FEE2E2;border-radius:8px;padding:9px;font:10px Helvetica;color:#991B1B"><b>ขอหยุด</b> · ศ 5 ก.ย.<br><span style="font-size:9px">ลาไปงานบวช</span></div>
+        <div style="font:9px Helvetica;color:#F59E0B">วันนั้นมี 4 คนขอหยุด · รับได้ 2</div>
+        <div style="display:flex;gap:6px"><div style="flex:1;background:#14B8A6;color:#fff;border-radius:8px;padding:9px;text-align:center;font:600 10px Helvetica">อนุมัติ</div><div style="flex:1;border:1px solid #E5E7EB;border-radius:8px;padding:9px;text-align:center;font:10px Helvetica;color:#6B7280">ไม่</div></div>
+      </div>
+      <div style="border:1px solid #E5E7EB;border-radius:14px;padding:10px;font:10px Helvetica;color:#9CA3AF">ประไพ · 5 ก.ย. · ขอหยุด</div>
+      <div style="border:1px solid #E5E7EB;border-radius:14px;padding:10px;font:10px Helvetica;color:#9CA3AF">อารี · 12 ก.ย. · ขอเวรดึก</div>
+    </div>
+  </div>
+  <div class="dv-card" style="width:200px;padding:0;border-radius:20px">
+    <div style="padding:10px 12px;border-bottom:1px solid #E5E7EB;font:600 11px Helvetica;color:#102A43">ส่งคำขอ (พยาบาล)</div>
+    <div style="padding:12px;display:flex;flex-direction:column;gap:9px">
+      <div style="font:10px Helvetica;color:#6B7280">เลือกวันที่ต้องการหยุด — ได้ 3 วัน</div>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">
+        <div style="border:1px solid #E5E7EB;border-radius:4px;padding:6px 0;text-align:center;font:8px Helvetica;color:#1F2937">1</div><div style="border:1px solid #E5E7EB;border-radius:4px;padding:6px 0;text-align:center;font:8px Helvetica;color:#1F2937">2</div><div style="border:1px solid #E5E7EB;border-radius:4px;padding:6px 0;text-align:center;font:8px Helvetica;color:#1F2937">3</div><div style="border:1px solid #E5E7EB;border-radius:4px;padding:6px 0;text-align:center;font:8px Helvetica;color:#1F2937">4</div><div style="background:#14B8A6;border-radius:4px;padding:6px 0;text-align:center;font:600 8px Helvetica;color:#fff">5</div><div style="border:1px solid #E5E7EB;border-radius:4px;padding:6px 0;text-align:center;font:8px Helvetica;color:#9CA3AF">6</div><div style="border:1px solid #E5E7EB;border-radius:4px;padding:6px 0;text-align:center;font:8px Helvetica;color:#9CA3AF">7</div>
+        <div style="border:1px solid #E5E7EB;border-radius:4px;padding:6px 0;text-align:center;font:8px Helvetica;color:#1F2937">8</div><div style="border:1px solid #E5E7EB;border-radius:4px;padding:6px 0;text-align:center;font:8px Helvetica;color:#1F2937">9</div><div style="border:1px solid #E5E7EB;border-radius:4px;padding:6px 0;text-align:center;font:8px Helvetica;color:#1F2937">10</div><div style="border:1px solid #E5E7EB;border-radius:4px;padding:6px 0;text-align:center;font:8px Helvetica;color:#1F2937">11</div><div style="background:#14B8A6;border-radius:4px;padding:6px 0;text-align:center;font:600 8px Helvetica;color:#fff">12</div><div style="border:1px solid #E5E7EB;border-radius:4px;padding:6px 0;text-align:center;font:8px Helvetica;color:#9CA3AF">13</div><div style="border:1px solid #E5E7EB;border-radius:4px;padding:6px 0;text-align:center;font:8px Helvetica;color:#9CA3AF">14</div>
+      </div>
+      <div style="border:1px solid #E5E7EB;border-radius:8px;padding:9px;font:9px Helvetica;color:#9CA3AF">เหตุผล (ไม่บังคับ)</div>
+      <div style="background:#14B8A6;color:#fff;border-radius:9px;padding:10px;text-align:center;font:600 10px Helvetica">ส่งคำขอ</div>
+      <div style="font:9px 'Architects Daughter',cursive;color:#9CA3AF">removes the paper request slip</div>
+    </div>
+  </div>
+  </div></div>
+</div>
+
+<p class="dv-grouphd">Solve progress — กำลังจัดตาราง</p>
+<div class="dv-opts">
+  <div class="dv-opt" id="1m"><div class="dv-olabel"><a class="dv-oid" href="#1m">1m</a>Calm full-screen wait with real steps</div>
+  <div class="dv-card" style="width:400px;padding:30px 22px;display:flex;flex-direction:column;gap:16px;align-items:center;text-align:center">
+    <div style="width:52px;height:52px;border-radius:50%;border:3px solid #E5E7EB;border-top-color:#14B8A6"></div>
+    <div><div style="font:600 16px Helvetica;color:#102A43">กำลังจัดตารางเวร</div><div style="font:11px Helvetica;color:#6B7280;margin-top:4px">Usually takes under a minute</div></div>
+    <div style="width:100%;display:flex;flex-direction:column;gap:7px;text-align:left">
+      <div style="display:flex;gap:9px;font:11px Helvetica;color:#1F2937"><span style="color:#10B981">✓</span>ตรวจข้อมูลพยาบาล 18 คน</div>
+      <div style="display:flex;gap:9px;font:11px Helvetica;color:#1F2937"><span style="color:#10B981">✓</span>ใส่คำขอ 45 รายการ</div>
+      <div style="display:flex;gap:9px;font:600 11px Helvetica;color:#102A43"><span style="color:#14B8A6">◐</span>ค้นหาตารางที่ยุติธรรม…</div>
+      <div style="display:flex;gap:9px;font:11px Helvetica;color:#9CA3AF"><span>○</span>ตรวจกฎ 19 ข้อ</div>
+    </div>
+    <div style="width:100%;height:6px;background:#E5E7EB;border-radius:3px"><div style="width:64%;height:6px;background:#14B8A6;border-radius:3px"></div></div>
+    <div style="font:10px Helvetica;color:#9CA3AF">ปิดหน้านี้ได้ · เราจะแจ้งเมื่อเสร็จ</div>
+  </div></div>
+
+  <div class="dv-opt" id="1n"><div class="dv-olabel"><a class="dv-oid" href="#1n">1n</a>Non-blocking — solve runs in a dashboard strip</div>
+  <div class="dv-card" style="width:400px;padding:16px;display:flex;flex-direction:column;gap:12px">
+    <div style="font:600 14px Helvetica;color:#102A43">ตารางเวร / Schedules</div>
+    <div style="border:1.5px solid #14B8A6;border-radius:12px;padding:13px;display:flex;gap:12px;align-items:center;background:#F0FDFA">
+      <div style="width:26px;height:26px;border-radius:50%;border:3px solid #CCFBF1;border-top-color:#14B8A6"></div>
+      <div style="flex:1"><div style="font:600 11px Helvetica;color:#102A43">ก.ย. 2026 · กำลังคำนวณ 0:38</div><div style="height:4px;background:#CCFBF1;border-radius:2px;margin-top:6px"><div style="width:55%;height:4px;background:#14B8A6;border-radius:2px"></div></div></div>
+      <div style="font:10px Helvetica;color:#6B7280">ยกเลิก</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:7px">
+      <div style="display:flex;justify-content:space-between;border:1px solid #E5E7EB;border-radius:10px;padding:10px;font:11px Helvetica;color:#1F2937"><span>ส.ค. 2026</span><span style="color:#6B7280">เสร็จ</span></div>
+      <div style="display:flex;justify-content:space-between;border:1px solid #E5E7EB;border-radius:10px;padding:10px;font:11px Helvetica;color:#1F2937"><span>ก.ค. 2026</span><span style="color:#6B7280">เสร็จ</span></div>
+    </div>
+    <div style="border:1px solid #E5E7EB;border-radius:10px;padding:11px;display:flex;gap:9px;align-items:center;background:#F8FAFC"><div style="width:16px;height:16px;border-radius:4px;border:1.5px solid #14B8A6"></div><div style="font:10px Helvetica;color:#1F2937">แจ้งเตือนทาง LINE เมื่อเสร็จ</div></div>
+    <div style="font:11px 'Architects Daughter',cursive;color:#6B7280">head nurse can keep working / leave</div>
+  </div></div>
+
+  <div class="dv-opt" id="1o"><div class="dv-olabel"><a class="dv-oid" href="#1o">1o</a>Transparent — best-so-far preview while it searches</div>
+  <div class="dv-card" style="width:400px;padding:16px;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center"><div style="font:600 14px Helvetica;color:#102A43">กำลังจัดตาราง · 0:38</div><div style="border:1px solid #E5E7EB;border-radius:7px;padding:5px 10px;font:10px Helvetica;color:#6B7280">หยุดและใช้ผลนี้</div></div>
+    <div style="display:flex;gap:10px">
+      <div style="flex:1;border:1px solid #E5E7EB;border-radius:10px;padding:10px"><div style="font:600 14px Helvetica;color:#102A43">41/45</div><div style="font:9px Helvetica;color:#6B7280;margin-top:2px">คำขอที่รับได้</div></div>
+      <div style="flex:1;border:1px solid #E5E7EB;border-radius:10px;padding:10px"><div style="font:600 14px Helvetica;color:#102A43">ครบ</div><div style="font:9px Helvetica;color:#6B7280;margin-top:2px">อัตรากำลัง</div></div>
+      <div style="flex:1;border:1px solid #E5E7EB;border-radius:10px;padding:10px"><div style="font:600 14px Helvetica;color:#102A43">±1</div><div style="font:9px Helvetica;color:#6B7280;margin-top:2px">ความสมดุล</div></div>
+    </div>
+    <div style="border:1px solid #E5E7EB;border-radius:10px;padding:11px">
+      <div style="font:10px Helvetica;color:#6B7280;margin-bottom:8px">ตารางที่ดีที่สุดขณะนี้ / best so far</div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <div style="display:flex;gap:2px"><div style="width:44px;height:11px;background:#E5E7EB;border-radius:2px"></div><div style="flex:1;display:flex;gap:2px"><div style="flex:1;height:11px;background:#CCFBF1;border-radius:2px"></div><div style="flex:1;height:11px;background:#FEF3C7;border-radius:2px"></div><div style="flex:1;height:11px;background:#102A43;border-radius:2px"></div><div style="flex:1;height:11px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:2px"></div><div style="flex:1;height:11px;background:#CCFBF1;border-radius:2px"></div><div style="flex:1;height:11px;background:#CCFBF1;border-radius:2px"></div><div style="flex:1;height:11px;background:#FEF3C7;border-radius:2px"></div><div style="flex:1;height:11px;background:#102A43;border-radius:2px"></div></div></div>
+        <div style="display:flex;gap:2px"><div style="width:44px;height:11px;background:#E5E7EB;border-radius:2px"></div><div style="flex:1;display:flex;gap:2px"><div style="flex:1;height:11px;background:#FEF3C7;border-radius:2px"></div><div style="flex:1;height:11px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:2px"></div><div style="flex:1;height:11px;background:#CCFBF1;border-radius:2px"></div><div style="flex:1;height:11px;background:#CCFBF1;border-radius:2px"></div><div style="flex:1;height:11px;background:#102A43;border-radius:2px"></div><div style="flex:1;height:11px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:2px"></div><div style="flex:1;height:11px;background:#CCFBF1;border-radius:2px"></div><div style="flex:1;height:11px;background:#FEF3C7;border-radius:2px"></div></div></div>
+        <div style="display:flex;gap:2px"><div style="width:44px;height:11px;background:#E5E7EB;border-radius:2px"></div><div style="flex:1;display:flex;gap:2px"><div style="flex:1;height:11px;background:#102A43;border-radius:2px"></div><div style="flex:1;height:11px;background:#CCFBF1;border-radius:2px"></div><div style="flex:1;height:11px;background:#FEF3C7;border-radius:2px"></div><div style="flex:1;height:11px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:2px"></div><div style="flex:1;height:11px;background:#CCFBF1;border-radius:2px"></div><div style="flex:1;height:11px;background:#102A43;border-radius:2px"></div><div style="flex:1;height:11px;background:#CCFBF1;border-radius:2px"></div><div style="flex:1;height:11px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:2px"></div></div></div>
+      </div>
+    </div>
+    <div style="font:11px 'Architects Daughter',cursive;color:#6B7280">risk: shows the machinery — test with real users</div>
+  </div></div>
+</div>
+
+<p class="dv-grouphd">Result — ตารางเวรที่จัดเสร็จ</p>
+<div class="dv-opts">
+  <div class="dv-opt" id="1p"><div class="dv-olabel"><a class="dv-oid" href="#1p">1p</a>Roster + fairness sidebar, export first</div>
+  <div class="dv-card" style="width:520px;padding:16px;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div><div style="font:600 15px Helvetica;color:#102A43">ตารางเวร ก.ย. 2026 · หอ 4B</div><div style="font:11px Helvetica;color:#10B981;margin-top:3px">✓ รับคำขอ 42/45 (93%) · กฎครบทุกข้อ</div></div>
+      <div style="display:flex;gap:6px"><div style="border:1px solid #102A43;border-radius:8px;padding:7px 10px;font:600 10px Helvetica;color:#102A43">แก้ไข</div><div style="background:#14B8A6;color:#fff;border-radius:8px;padding:7px 12px;font:600 10px Helvetica">ดาวน์โหลด</div></div>
+    </div>
+    <div style="display:flex;gap:12px">
+      <div style="flex:1">
+        <div style="display:grid;grid-template-columns:62px repeat(12,1fr);gap:2px;font:8px Helvetica;color:#9CA3AF;margin-bottom:2px"><div></div><div style="text-align:center">1</div><div style="text-align:center">2</div><div style="text-align:center">3</div><div style="text-align:center">4</div><div style="text-align:center">5</div><div style="text-align:center">6</div><div style="text-align:center">7</div><div style="text-align:center">8</div><div style="text-align:center">9</div><div style="text-align:center">10</div><div style="text-align:center">11</div><div style="text-align:center">12</div></div>
+        <div style="display:grid;grid-template-columns:62px repeat(12,1fr);gap:2px;margin-bottom:2px;align-items:center"><div style="font:9px Helvetica;color:#1F2937">สมศรี</div><div style="height:16px;background:#CCFBF1;border-radius:2px;font:600 8px/16px Helvetica;color:#102A43;text-align:center">ช</div><div style="height:16px;background:#CCFBF1;border-radius:2px;font:600 8px/16px Helvetica;color:#102A43;text-align:center">ช</div><div style="height:16px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:2px;font:8px/14px Helvetica;color:#9CA3AF;text-align:center">OFF</div><div style="height:16px;background:#FEF3C7;border-radius:2px;font:600 8px/16px Helvetica;color:#92400E;text-align:center">บ</div><div style="height:16px;background:#FEF3C7;border-radius:2px;font:600 8px/16px Helvetica;color:#92400E;text-align:center">บ</div><div style="height:16px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:2px"></div><div style="height:16px;background:#102A43;border-radius:2px;font:600 8px/16px Helvetica;color:#fff;text-align:center">ด</div><div style="height:16px;background:#102A43;border-radius:2px;font:600 8px/16px Helvetica;color:#fff;text-align:center">ด</div><div style="height:16px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:2px"></div><div style="height:16px;background:#CCFBF1;border-radius:2px;font:600 8px/16px Helvetica;color:#102A43;text-align:center">ช</div><div style="height:16px;background:#CCFBF1;border-radius:2px;font:600 8px/16px Helvetica;color:#102A43;text-align:center">ช</div><div style="height:16px;background:#FEF3C7;border-radius:2px;font:600 8px/16px Helvetica;color:#92400E;text-align:center">บ</div></div>
+        <div style="display:grid;grid-template-columns:62px repeat(12,1fr);gap:2px;margin-bottom:2px;align-items:center"><div style="font:9px Helvetica;color:#1F2937">มาลี</div><div style="height:16px;background:#FEF3C7;border-radius:2px;font:600 8px/16px Helvetica;color:#92400E;text-align:center">บ</div><div style="height:16px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:2px"></div><div style="height:16px;background:#CCFBF1;border-radius:2px;font:600 8px/16px Helvetica;color:#102A43;text-align:center">ช</div><div style="height:16px;background:#CCFBF1;border-radius:2px;font:600 8px/16px Helvetica;color:#102A43;text-align:center">ช</div><div style="height:16px;background:#F8FAFC;border:1.5px solid #14B8A6;border-radius:2px;font:8px/13px Helvetica;color:#14B8A6;text-align:center">OFF</div><div style="height:16px;background:#102A43;border-radius:2px;font:600 8px/16px Helvetica;color:#fff;text-align:center">ด</div><div style="height:16px;background:#102A43;border-radius:2px;font:600 8px/16px Helvetica;color:#fff;text-align:center">ด</div><div style="height:16px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:2px"></div><div style="height:16px;background:#CCFBF1;border-radius:2px;font:600 8px/16px Helvetica;color:#102A43;text-align:center">ช</div><div style="height:16px;background:#FEF3C7;border-radius:2px;font:600 8px/16px Helvetica;color:#92400E;text-align:center">บ</div><div style="height:16px;background:#FEF3C7;border-radius:2px;font:600 8px/16px Helvetica;color:#92400E;text-align:center">บ</div><div style="height:16px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:2px"></div></div>
+        <div style="display:grid;grid-template-columns:62px repeat(12,1fr);gap:2px;margin-bottom:2px;align-items:center"><div style="font:9px Helvetica;color:#1F2937">ประไพ</div><div style="height:16px;background:#102A43;border-radius:2px;font:600 8px/16px Helvetica;color:#fff;text-align:center">ด</div><div style="height:16px;background:#102A43;border-radius:2px;font:600 8px/16px Helvetica;color:#fff;text-align:center">ด</div><div style="height:16px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:2px"></div><div style="height:16px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:2px"></div><div style="height:16px;background:#CCFBF1;border-radius:2px;font:600 8px/16px Helvetica;color:#102A43;text-align:center">ช</div><div style="height:16px;background:#CCFBF1;border-radius:2px;font:600 8px/16px Helvetica;color:#102A43;text-align:center">ช</div><div style="height:16px;background:#FEF3C7;border-radius:2px;font:600 8px/16px Helvetica;color:#92400E;text-align:center">บ</div><div style="height:16px;background:#FEF3C7;border-radius:2px;font:600 8px/16px Helvetica;color:#92400E;text-align:center">บ</div><div style="height:16px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:2px"></div><div style="height:16px;background:#102A43;border-radius:2px;font:600 8px/16px Helvetica;color:#fff;text-align:center">ด</div><div style="height:16px;background:#102A43;border-radius:2px;font:600 8px/16px Helvetica;color:#fff;text-align:center">ด</div><div style="height:16px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:2px"></div></div>
+        <div style="display:grid;grid-template-columns:62px repeat(12,1fr);gap:2px;align-items:center"><div style="font:9px Helvetica;color:#9CA3AF">+15 คน</div><div style="height:16px;background:#F1F5F9;border-radius:2px"></div><div style="height:16px;background:#F1F5F9;border-radius:2px"></div><div style="height:16px;background:#F1F5F9;border-radius:2px"></div><div style="height:16px;background:#F1F5F9;border-radius:2px"></div><div style="height:16px;background:#F1F5F9;border-radius:2px"></div><div style="height:16px;background:#F1F5F9;border-radius:2px"></div><div style="height:16px;background:#F1F5F9;border-radius:2px"></div><div style="height:16px;background:#F1F5F9;border-radius:2px"></div><div style="height:16px;background:#F1F5F9;border-radius:2px"></div><div style="height:16px;background:#F1F5F9;border-radius:2px"></div><div style="height:16px;background:#F1F5F9;border-radius:2px"></div><div style="height:16px;background:#F1F5F9;border-radius:2px"></div></div>
+      </div>
+      <div style="width:132px;display:flex;flex-direction:column;gap:8px">
+        <div style="border:1px solid #E5E7EB;border-radius:10px;padding:10px"><div style="font:600 10px Helvetica;color:#102A43">ความยุติธรรม</div><div style="font:9px Helvetica;color:#6B7280;margin:5px 0 6px">เวรดึกต่อคน 6–7</div><div style="display:flex;gap:3px;align-items:flex-end;height:26px"><div style="flex:1;height:70%;background:#CCFBF1;border-radius:2px"></div><div style="flex:1;height:100%;background:#14B8A6;border-radius:2px"></div><div style="flex:1;height:85%;background:#CCFBF1;border-radius:2px"></div><div style="flex:1;height:90%;background:#CCFBF1;border-radius:2px"></div><div style="flex:1;height:75%;background:#CCFBF1;border-radius:2px"></div><div style="flex:1;height:95%;background:#CCFBF1;border-radius:2px"></div></div></div>
+        <div style="border:1px solid #E5E7EB;border-radius:10px;padding:10px"><div style="font:600 10px Helvetica;color:#102A43">คำขอที่ไม่ได้</div><div style="font:9px Helvetica;color:#6B7280;margin-top:5px">มาลี · 5<br>อารี · 12<br>สุดา · 20</div><div style="font:9px Helvetica;color:#14B8A6;margin-top:6px;font-weight:600">แจ้งพยาบาล</div></div>
+        <div style="border:1px solid #E5E7EB;border-radius:10px;padding:10px;font:9px Helvetica;color:#6B7280">ดาวน์โหลด: CSV · Excel · PDF ติดบอร์ด</div>
+      </div>
+    </div>
+  </div></div>
+
+  <div class="dv-opt" id="1q"><div class="dv-olabel"><a class="dv-oid" href="#1q">1q</a>Per-nurse view — what each person actually asks</div>
+  <div class="dv-card" style="width:400px;padding:16px;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;gap:6px"><div style="border:1px solid #E5E7EB;border-radius:7px;padding:6px 10px;font:10px Helvetica;color:#6B7280">ทั้งหอ</div><div style="border:1px solid #102A43;border-radius:7px;padding:6px 10px;font:600 10px Helvetica;color:#102A43">รายคน</div><div style="border:1px solid #E5E7EB;border-radius:7px;padding:6px 10px;font:10px Helvetica;color:#6B7280">รายวัน</div></div>
+    <div style="border:1.5px solid #102A43;border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;gap:9px;align-items:center"><div style="width:30px;height:30px;border-radius:50%;background:#E5E7EB"></div><div><div style="font:600 12px Helvetica;color:#102A43">มาลี กิจเจริญ</div><div style="font:10px Helvetica;color:#6B7280">พยาบาลวิชาชีพ</div></div></div><div style="font:10px Helvetica;color:#6B7280">3/18 ›</div></div>
+      <div style="display:flex;gap:8px">
+        <div style="flex:1;border:1px solid #E5E7EB;border-radius:9px;padding:9px;text-align:center"><div style="font:600 13px Helvetica;color:#102A43">8</div><div style="font:9px Helvetica;color:#6B7280">ช เช้า</div></div>
+        <div style="flex:1;border:1px solid #E5E7EB;border-radius:9px;padding:9px;text-align:center"><div style="font:600 13px Helvetica;color:#102A43">7</div><div style="font:9px Helvetica;color:#6B7280">บ บ่าย</div></div>
+        <div style="flex:1;border:1px solid #E5E7EB;border-radius:9px;padding:9px;text-align:center"><div style="font:600 13px Helvetica;color:#102A43">6</div><div style="font:9px Helvetica;color:#6B7280">ด ดึก</div></div>
+        <div style="flex:1;border:1px solid #E5E7EB;border-radius:9px;padding:9px;text-align:center"><div style="font:600 13px Helvetica;color:#102A43">9</div><div style="font:9px Helvetica;color:#6B7280">หยุด</div></div>
+      </div>
+      <div style="border-top:1px solid #E5E7EB;padding-top:9px"><div style="font:600 10px Helvetica;color:#102A43;margin-bottom:6px">คำขอ 3 รายการ</div>
+        <div style="display:flex;flex-direction:column;gap:5px;font:10px Helvetica">
+          <div style="display:flex;gap:7px;color:#1F2937"><span style="color:#10B981">✓</span>ขอหยุด 3 ก.ย. — ได้</div>
+          <div style="display:flex;gap:7px;color:#1F2937"><span style="color:#10B981">✓</span>ขอเวรเช้า 11 ก.ย. — ได้</div>
+          <div style="display:flex;gap:7px;color:#991B1B"><span style="color:#EF4444">✗</span>ขอหยุด 5 ก.ย. — ไม่ได้ (คนขอเกิน)</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:7px"><div style="flex:1;border:1px solid #E5E7EB;border-radius:8px;padding:8px;text-align:center;font:10px Helvetica;color:#6B7280">ดูตารางเต็ม</div><div style="flex:1;background:#14B8A6;color:#fff;border-radius:8px;padding:8px;text-align:center;font:600 10px Helvetica">ส่งให้พยาบาล</div></div>
+    </div>
+    <div style="font:11px 'Architects Daughter',cursive;color:#6B7280">answers "why did I get this?" before it's asked</div>
+  </div></div>
+
+  <div class="dv-opt" id="1r"><div class="dv-olabel"><a class="dv-oid" href="#1r">1r</a>Mobile — publish &amp; share to the ward</div>
+  <div class="dv-card" style="width:210px;padding:0;border-radius:20px">
+    <div style="padding:10px 12px;border-bottom:1px solid #E5E7EB;font:600 11px Helvetica;color:#102A43">ก.ย. 2026 · หอ 4B</div>
+    <div style="padding:12px;display:flex;flex-direction:column;gap:10px">
+      <div style="background:#D1FAE5;border-radius:10px;padding:10px;font:10px Helvetica;color:#065F46"><b>เสร็จแล้ว</b> · รับคำขอ 93%</div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <div style="display:flex;gap:2px;align-items:center"><div style="width:34px;font:8px Helvetica;color:#6B7280">สมศรี</div><div style="flex:1;display:flex;gap:2px"><div style="flex:1;height:13px;background:#CCFBF1;border-radius:2px"></div><div style="flex:1;height:13px;background:#CCFBF1;border-radius:2px"></div><div style="flex:1;height:13px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:2px"></div><div style="flex:1;height:13px;background:#FEF3C7;border-radius:2px"></div><div style="flex:1;height:13px;background:#102A43;border-radius:2px"></div><div style="flex:1;height:13px;background:#102A43;border-radius:2px"></div></div></div>
+        <div style="display:flex;gap:2px;align-items:center"><div style="width:34px;font:8px Helvetica;color:#6B7280">มาลี</div><div style="flex:1;display:flex;gap:2px"><div style="flex:1;height:13px;background:#FEF3C7;border-radius:2px"></div><div style="flex:1;height:13px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:2px"></div><div style="flex:1;height:13px;background:#CCFBF1;border-radius:2px"></div><div style="flex:1;height:13px;background:#CCFBF1;border-radius:2px"></div><div style="flex:1;height:13px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:2px"></div><div style="flex:1;height:13px;background:#102A43;border-radius:2px"></div></div></div>
+        <div style="display:flex;gap:2px;align-items:center"><div style="width:34px;font:8px Helvetica;color:#6B7280">ประไพ</div><div style="flex:1;display:flex;gap:2px"><div style="flex:1;height:13px;background:#102A43;border-radius:2px"></div><div style="flex:1;height:13px;background:#102A43;border-radius:2px"></div><div style="flex:1;height:13px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:2px"></div><div style="flex:1;height:13px;background:#CCFBF1;border-radius:2px"></div><div style="flex:1;height:13px;background:#CCFBF1;border-radius:2px"></div><div style="flex:1;height:13px;background:#FEF3C7;border-radius:2px"></div></div></div>
+        <div style="font:8px Helvetica;color:#9CA3AF;margin-top:3px">เลื่อนดูทั้ง 30 วัน →</div>
+      </div>
+      <div style="background:#14B8A6;color:#fff;border-radius:9px;padding:10px;text-align:center;font:600 10px Helvetica">เผยแพร่ให้ทีม</div>
+      <div style="display:flex;gap:6px"><div style="flex:1;border:1px solid #E5E7EB;border-radius:8px;padding:8px;text-align:center;font:9px Helvetica;color:#6B7280">PDF</div><div style="flex:1;border:1px solid #E5E7EB;border-radius:8px;padding:8px;text-align:center;font:9px Helvetica;color:#6B7280">LINE</div><div style="flex:1;border:1px solid #E5E7EB;border-radius:8px;padding:8px;text-align:center;font:9px Helvetica;color:#6B7280">CSV</div></div>
+    </div>
+  </div></div>
+</div>
+
+<p class="dv-grouphd">No feasible schedule — จัดไม่ได้ (error recovery)</p>
+<div class="dv-opts">
+  <div class="dv-opt" id="1s"><div class="dv-olabel"><a class="dv-oid" href="#1s">1s</a>Diagnosis — name the conflict, one-tap relax</div>
+  <div class="dv-card" style="width:420px;padding:18px;display:flex;flex-direction:column;gap:13px">
+    <div style="display:flex;gap:10px;align-items:flex-start"><div style="width:22px;height:22px;border-radius:50%;background:#FEE2E2;color:#991B1B;font:600 12px/22px Helvetica;text-align:center">!</div><div><div style="font:600 15px Helvetica;color:#102A43">จัดตารางไม่ได้</div><div style="font:11px Helvetica;color:#6B7280;margin-top:3px">กฎที่ตั้งไว้ขัดกันเอง — ไม่ใช่ความผิดของคุณ</div></div></div>
+    <div style="border:1.5px solid #EF4444;border-radius:12px;padding:13px;background:#FEF2F2">
+      <div style="font:600 11px Helvetica;color:#991B1B">สาเหตุที่น่าจะเป็นที่สุด</div>
+      <div style="font:11px Helvetica;color:#991B1B;margin-top:6px;line-height:1.5">วันที่ 5 ต้องมีพยาบาลเวรเช้า 5 คน แต่มี 4 คนขอหยุดวันนั้น เหลือคนไม่พอ</div>
+    </div>
+    <div style="font:600 11px Helvetica;color:#102A43">เลือกวิธีแก้ / pick a fix</div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="border:1.5px solid #14B8A6;border-radius:11px;padding:12px;display:flex;justify-content:space-between;align-items:center"><div><div style="font:600 11px Helvetica;color:#102A43">ปฏิเสธคำขอหยุด 2 รายการ</div><div style="font:10px Helvetica;color:#6B7280;margin-top:2px">มาลี, ประไพ · วันที่ 5</div></div><div style="background:#14B8A6;color:#fff;border-radius:7px;padding:6px 11px;font:600 10px Helvetica">ใช้</div></div>
+      <div style="border:1px solid #E5E7EB;border-radius:11px;padding:12px;display:flex;justify-content:space-between;align-items:center"><div><div style="font:600 11px Helvetica;color:#102A43">ลดอัตรากำลังเวรเช้า 5 → 4</div><div style="font:10px Helvetica;color:#6B7280;margin-top:2px">เฉพาะวันที่ 5</div></div><div style="border:1px solid #E5E7EB;border-radius:7px;padding:6px 11px;font:10px Helvetica;color:#6B7280">ใช้</div></div>
+      <div style="border:1px solid #E5E7EB;border-radius:11px;padding:12px;display:flex;justify-content:space-between;align-items:center"><div><div style="font:600 11px Helvetica;color:#102A43">ลดเกณฑ์คำขอเป็น 90%</div><div style="font:10px Helvetica;color:#6B7280;margin-top:2px">ให้ระบบเลือกตัดคำขอน้อยที่สุด</div></div><div style="border:1px solid #E5E7EB;border-radius:7px;padding:6px 11px;font:10px Helvetica;color:#6B7280">ใช้</div></div>
+    </div>
+    <div style="font:10px Helvetica;color:#9CA3AF">ดูบันทึกของระบบ (สำหรับผู้ดูแล) ⌄</div>
+  </div></div>
+
+  <div class="dv-opt" id="1t"><div class="dv-olabel"><a class="dv-oid" href="#1t">1t</a>Compare fixes — predicted outcome per option</div>
+  <div class="dv-card" style="width:420px;padding:18px;display:flex;flex-direction:column;gap:13px">
+    <div><div style="font:600 15px Helvetica;color:#102A43">ต้องผ่อนกฎ 1 ข้อ</div><div style="font:11px Helvetica;color:#6B7280;margin-top:3px">ทางเลือก 3 แบบ · ผลที่คาดว่าจะได้</div></div>
+    <div style="display:flex;gap:9px">
+      <div style="flex:1;border:1.5px solid #14B8A6;border-radius:12px;padding:11px;display:flex;flex-direction:column;gap:7px"><div style="font:600 10px Helvetica;color:#102A43">ปฏิเสธ 2 คำขอ</div><div style="font:600 15px Helvetica;color:#14B8A6">96%</div><div style="font:9px Helvetica;color:#6B7280">คำขอที่รับได้<br>อัตรากำลังครบ<br>สมดุลดี</div><div style="background:#14B8A6;color:#fff;border-radius:7px;padding:6px;text-align:center;font:600 9px Helvetica">เลือก</div></div>
+      <div style="flex:1;border:1px solid #E5E7EB;border-radius:12px;padding:11px;display:flex;flex-direction:column;gap:7px"><div style="font:600 10px Helvetica;color:#102A43">ลดอัตรากำลัง</div><div style="font:600 15px Helvetica;color:#102A43">100%</div><div style="font:9px Helvetica;color:#6B7280">คำขอที่รับได้<br><span style="color:#F59E0B">เวรเช้าเหลือ 4 คน</span><br>สมดุลดี</div><div style="border:1px solid #E5E7EB;border-radius:7px;padding:6px;text-align:center;font:9px Helvetica;color:#6B7280">เลือก</div></div>
+      <div style="flex:1;border:1px solid #E5E7EB;border-radius:12px;padding:11px;display:flex;flex-direction:column;gap:7px"><div style="font:600 10px Helvetica;color:#102A43">เปิดต่อเวร บ→ด</div><div style="font:600 15px Helvetica;color:#102A43">100%</div><div style="font:9px Helvetica;color:#6B7280">คำขอที่รับได้<br>อัตรากำลังครบ<br><span style="color:#EF4444">พยาบาลเหนื่อยขึ้น</span></div><div style="border:1px solid #E5E7EB;border-radius:7px;padding:6px;text-align:center;font:9px Helvetica;color:#6B7280">เลือก</div></div>
+    </div>
+    <div style="border:1px solid #E5E7EB;border-radius:11px;padding:12px;background:#F8FAFC;font:10px Helvetica;color:#6B7280">เราลองคำนวณทั้ง 3 แบบให้แล้ว — เลือกได้เลย ไม่ต้องรอใหม่</div>
+    <div style="font:11px 'Architects Daughter',cursive;color:#6B7280">needs the solver to pre-run relaxations</div>
+  </div></div>
+
+  <div class="dv-opt" id="1u"><div class="dv-olabel"><a class="dv-oid" href="#1u">1u</a>Guided retry — walk back through the blockers</div>
+  <div class="dv-card" style="width:400px;padding:18px;display:flex;flex-direction:column;gap:13px">
+    <div style="font:600 15px Helvetica;color:#102A43">มาแก้ไปด้วยกัน</div>
+    <div style="font:11px Helvetica;color:#6B7280">3 จุดที่ทำให้จัดตารางไม่ได้ · แก้ทีละข้อ</div>
+    <div style="border:1.5px solid #102A43;border-radius:12px;padding:13px;display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;justify-content:space-between;font:10px Helvetica;color:#6B7280"><span>จุดที่ 1 จาก 3</span><span>วันที่ 5</span></div>
+      <div style="font:600 12px Helvetica;color:#102A43">คนขอหยุดวันเดียวกันมากเกินไป</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center;border:1px solid #E5E7EB;border-radius:8px;padding:9px;font:10px Helvetica;color:#1F2937"><span>สมศรี <span style="color:#9CA3AF">· ขอครั้งแรก</span></span><span style="color:#14B8A6;font-weight:600">เก็บไว้</span></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;border:1px solid #E5E7EB;border-radius:8px;padding:9px;font:10px Helvetica;color:#1F2937"><span>มาลี <span style="color:#9CA3AF">· ขอครั้งที่ 3</span></span><span style="color:#14B8A6;font-weight:600">เก็บไว้</span></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;border:1px solid #EF4444;background:#FEF2F2;border-radius:8px;padding:9px;font:10px Helvetica;color:#991B1B"><span>ประไพ</span><span style="font-weight:600">ตัดออก</span></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;border:1px solid #EF4444;background:#FEF2F2;border-radius:8px;padding:9px;font:10px Helvetica;color:#991B1B"><span>อารี</span><span style="font-weight:600">ตัดออก</span></div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:7px"><div style="border:1px solid #E5E7EB;border-radius:8px;padding:8px 12px;font:10px Helvetica;color:#6B7280">ข้าม</div><div style="background:#14B8A6;color:#fff;border-radius:8px;padding:8px 14px;font:600 10px Helvetica">ต่อไป</div></div>
+    </div>
+    <div style="display:flex;gap:8px;font:10px Helvetica;color:#9CA3AF"><span style="border:1px solid #E5E7EB;border-radius:8px;padding:8px 10px">2 · อัตรากำลังเวรดึก</span><span style="border:1px solid #E5E7EB;border-radius:8px;padding:8px 10px">3 · หัวหน้าเวร</span></div>
+  </div></div>
+</div>
+
+<p class="dv-grouphd">Ward &amp; nurse setup — ตั้งค่าหอผู้ป่วยและรายชื่อพยาบาล</p>
+<div class="dv-opts">
+  <div class="dv-opt" id="1v"><div class="dv-olabel"><a class="dv-oid" href="#1v">1v</a>Editable table — fast for 18 rows</div>
+  <div class="dv-card" style="width:440px;padding:16px;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font:600 15px Helvetica;color:#102A43">พยาบาลในหอ 4B</div><div style="font:11px Helvetica;color:#6B7280;margin-top:3px">18 คน · แพ็กเกจ Ward+ รับได้ 25</div></div><div style="display:flex;gap:6px"><div style="border:1px solid #E5E7EB;border-radius:8px;padding:7px 10px;font:10px Helvetica;color:#6B7280">นำเข้า CSV</div><div style="background:#14B8A6;color:#fff;border-radius:8px;padding:7px 11px;font:600 10px Helvetica">+ เพิ่ม</div></div></div>
+    <div style="border:1px solid #E5E7EB;border-radius:12px;overflow:hidden">
+      <div style="display:grid;grid-template-columns:24px 1.5fr 1fr .9fr .5fr;gap:8px;padding:8px 11px;background:#F8FAFC;font:600 9px Helvetica;color:#6B7280"><div></div><div>ชื่อ / Name</div><div>ตำแหน่ง</div><div>สถานะ</div><div></div></div>
+      <div style="display:grid;grid-template-columns:24px 1.5fr 1fr .9fr .5fr;gap:8px;padding:9px 11px;border-top:1px solid #E5E7EB;align-items:center;font:10px Helvetica;color:#1F2937"><div style="width:14px;height:14px;border-radius:3px;background:#14B8A6"></div><div>สมศรี วงศ์ดี</div><div style="color:#6B7280">หัวหน้าเวร</div><div style="color:#10B981">ทำงาน</div><div style="color:#9CA3AF">⋯</div></div>
+      <div style="display:grid;grid-template-columns:24px 1.5fr 1fr .9fr .5fr;gap:8px;padding:9px 11px;border-top:1px solid #E5E7EB;align-items:center;font:10px Helvetica;color:#1F2937"><div style="width:14px;height:14px;border-radius:3px;background:#14B8A6"></div><div>มาลี กิจเจริญ</div><div style="color:#6B7280">พยาบาลวิชาชีพ</div><div style="color:#10B981">ทำงาน</div><div style="color:#9CA3AF">⋯</div></div>
+      <div style="display:grid;grid-template-columns:24px 1.5fr 1fr .9fr .5fr;gap:8px;padding:9px 11px;border-top:1px solid #E5E7EB;align-items:center;font:10px Helvetica;color:#9CA3AF"><div style="width:14px;height:14px;border-radius:3px;border:1.5px solid #E5E7EB"></div><div>ประไพ สุขใจ</div><div>พยาบาลวิชาชีพ</div><div>ลาคลอด</div><div>⋯</div></div>
+      <div style="display:grid;grid-template-columns:24px 1.5fr 1fr .9fr .5fr;gap:8px;padding:9px 11px;border-top:1px solid #E5E7EB;align-items:center;font:10px Helvetica;color:#1F2937"><div style="width:14px;height:14px;border-radius:3px;background:#14B8A6"></div><div>อารี ทองมา</div><div style="color:#6B7280">ผู้ช่วยพยาบาล</div><div style="color:#10B981">ทำงาน</div><div style="color:#9CA3AF">⋯</div></div>
+      <div style="display:grid;grid-template-columns:24px 1fr;gap:8px;padding:9px 11px;border-top:1px dashed #E5E7EB;align-items:center;font:10px Helvetica;color:#14B8A6"><div>+</div><div>เพิ่มพยาบาล (พิมพ์ชื่อแล้วกด Enter)</div></div>
+    </div>
+    <div style="font:10px Helvetica;color:#6B7280">ติ๊กออก = เก็บชื่อไว้แต่ไม่จัดเวรเดือนนี้</div>
+  </div></div>
+
+  <div class="dv-opt" id="1w"><div class="dv-olabel"><a class="dv-oid" href="#1w">1w</a>Ward profile + staff cards — set once</div>
+  <div class="dv-card" style="width:400px;padding:18px;display:flex;flex-direction:column;gap:13px">
+    <div style="font:600 15px Helvetica;color:#102A43">ตั้งค่าหอผู้ป่วย</div>
+    <div style="display:flex;gap:9px">
+      <div style="flex:1"><div style="font:10px Helvetica;color:#6B7280;margin-bottom:4px">ชื่อหอ</div><div style="border:1px solid #E5E7EB;border-radius:9px;padding:9px;font:11px Helvetica;color:#1F2937">หอผู้ป่วย 4B</div></div>
+      <div style="flex:1"><div style="font:10px Helvetica;color:#6B7280;margin-bottom:4px">โรงพยาบาล</div><div style="border:1px solid #E5E7EB;border-radius:9px;padding:9px;font:11px Helvetica;color:#1F2937">รพ.ตัวอย่าง</div></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;font:600 11px Helvetica;color:#102A43">ทีมพยาบาล 18 คน<span style="font-weight:400;color:#14B8A6">+ เพิ่ม</span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">
+      <div style="border:1.5px solid #102A43;border-radius:12px;padding:11px;display:flex;gap:9px;align-items:center"><div style="width:26px;height:26px;border-radius:50%;background:#E5E7EB"></div><div><div style="font:600 10px Helvetica;color:#102A43">สมศรี ว.</div><div style="font:9px Helvetica;color:#14B8A6">หัวหน้าเวร</div></div></div>
+      <div style="border:1px solid #E5E7EB;border-radius:12px;padding:11px;display:flex;gap:9px;align-items:center"><div style="width:26px;height:26px;border-radius:50%;background:#E5E7EB"></div><div><div style="font:600 10px Helvetica;color:#102A43">มาลี ก.</div><div style="font:9px Helvetica;color:#6B7280">วิชาชีพ</div></div></div>
+      <div style="border:1px solid #E5E7EB;border-radius:12px;padding:11px;display:flex;gap:9px;align-items:center;opacity:.55"><div style="width:26px;height:26px;border-radius:50%;background:#E5E7EB"></div><div><div style="font:600 10px Helvetica;color:#102A43">ประไพ ส.</div><div style="font:9px Helvetica;color:#6B7280">ลาคลอด</div></div></div>
+      <div style="border:1px solid #E5E7EB;border-radius:12px;padding:11px;display:flex;gap:9px;align-items:center"><div style="width:26px;height:26px;border-radius:50%;background:#E5E7EB"></div><div><div style="font:600 10px Helvetica;color:#102A43">อารี ท.</div><div style="font:9px Helvetica;color:#6B7280">ผู้ช่วย</div></div></div>
+      <div style="border:1px dashed #14B8A6;border-radius:12px;padding:11px;font:10px Helvetica;color:#14B8A6;display:flex;align-items:center">+ เพิ่มพยาบาล</div>
+      <div style="border:1px solid #E5E7EB;border-radius:12px;padding:11px;font:10px Helvetica;color:#6B7280;display:flex;align-items:center">ดูทั้ง 18 คน ›</div>
+    </div>
+    <div style="border:1px solid #E5E7EB;border-radius:11px;padding:11px;background:#F8FAFC;font:10px Helvetica;color:#6B7280">ตั้งครั้งเดียว ใช้ได้ทุกเดือน · เปลี่ยนได้เมื่อมีคนเข้า-ออก</div>
+  </div></div>
+
+  <div class="dv-opt" id="1x"><div class="dv-olabel"><a class="dv-oid" href="#1x">1x</a>Import review — confirm what the CSV brought in</div>
+  <div class="dv-card" style="width:420px;padding:18px;display:flex;flex-direction:column;gap:13px">
+    <div><div style="font:600 15px Helvetica;color:#102A43">ตรวจข้อมูลที่นำเข้า</div><div style="font:11px Helvetica;color:#6B7280;margin-top:3px">ward-4b-sep.csv · พบพยาบาล 18 คน</div></div>
+    <div style="display:flex;gap:9px">
+      <div style="flex:1;border:1px solid #E5E7EB;border-radius:11px;padding:11px"><div style="font:600 14px Helvetica;color:#10B981">16</div><div style="font:9px Helvetica;color:#6B7280;margin-top:2px">พร้อมใช้</div></div>
+      <div style="flex:1;border:1.5px solid #F59E0B;background:#FFFBEB;border-radius:11px;padding:11px"><div style="font:600 14px Helvetica;color:#92400E">2</div><div style="font:9px Helvetica;color:#92400E;margin-top:2px">ต้องตรวจ</div></div>
+      <div style="flex:1;border:1px solid #E5E7EB;border-radius:11px;padding:11px"><div style="font:600 14px Helvetica;color:#102A43">45</div><div style="font:9px Helvetica;color:#6B7280;margin-top:2px">คำขอ</div></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="border:1.5px solid #F59E0B;background:#FFFBEB;border-radius:11px;padding:11px;display:flex;justify-content:space-between;align-items:center"><div><div style="font:600 10px Helvetica;color:#92400E">แถวที่ 7 · ตำแหน่ง "RN2" ไม่รู้จัก</div><div style="font:9px Helvetica;color:#92400E;margin-top:2px">เลือกตำแหน่งที่ตรงกัน</div></div><div style="border:1px solid #92400E;border-radius:7px;padding:6px 10px;font:600 9px Helvetica;color:#92400E">เลือก</div></div>
+      <div style="border:1.5px solid #F59E0B;background:#FFFBEB;border-radius:11px;padding:11px;display:flex;justify-content:space-between;align-items:center"><div><div style="font:600 10px Helvetica;color:#92400E">แถวที่ 12 · ช่องวันที่ 8 เขียน "x"</div><div style="font:9px Helvetica;color:#92400E;margin-top:2px">หมายถึงขอหยุดหรือไม่?</div></div><div style="border:1px solid #92400E;border-radius:7px;padding:6px 10px;font:600 9px Helvetica;color:#92400E">ยืนยัน</div></div>
+    </div>
+    <div style="border:1px solid #E5E7EB;border-radius:11px;padding:11px;font:10px Helvetica;color:#6B7280">ช่องที่ระบบเข้าใจ: ช · บ · ด · off · mtg · ว่าง</div>
+    <div style="display:flex;gap:8px"><div style="flex:1;border:1px solid #E5E7EB;border-radius:9px;padding:10px;text-align:center;font:10px Helvetica;color:#6B7280">ยกเลิก</div><div style="flex:2;background:#14B8A6;color:#fff;border-radius:9px;padding:10px;text-align:center;font:600 11px Helvetica">ยืนยันและไปต่อ</div></div>
+  </div></div>
+</div>
+
+<p class="dv-next">Try next: "combine <a class="dv-oid" href="#1b">1b</a> dashboard with <a class="dv-oid" href="#1k">1k</a> request queue and take it to hi-fi" · "3 more variants of the grid editor only" · "show the whole flow as one clickable prototype"</p>
+</section>
+
+<section class="dv-turn" id="t0">
+<div class="dv-thd"><a class="dv-tid" href="#t0">0</a><span class="dv-tname">Today's app, recreated from webapp/web/templates — unstyled Jinja MVP, for before/after reference</span></div>
+<div class="dv-opts">
+  <div class="dv-opt" id="0a"><div class="dv-olabel"><a class="dv-oid" href="#0a">0a</a>dashboard.html</div>
+  <div class="dv-card" style="width:420px;padding:20px 16px;border-radius:0;font-family:system-ui,sans-serif;color:#1a1a1a">
+    <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #ddd;padding-bottom:.5rem;margin-bottom:1.5rem"><a href="#0a" style="text-decoration:none;color:#2450a4;font-weight:700;font-size:13px">ShiftWork</a><div style="display:flex;gap:8px;align-items:center"><span style="color:#666;font-size:11px">bim@example.com</span><span style="display:inline-block;padding:.4rem .8rem;background:#667;color:#fff;border-radius:4px;font-size:11px">Sign out</span></div></div>
+    <div style="font-size:1.4rem;font-weight:700;margin:0 0 8px">Dashboard</div>
+    <div style="display:inline-block;padding:.4rem .8rem;background:#2450a4;color:#fff;border-radius:4px;font-size:11px;margin-bottom:14px">New schedule</div>
+    <div style="font-size:1.1rem;font-weight:700;margin:14px 0 6px">Recent inputs</div>
+    <table style="border-collapse:collapse;width:100%;font-size:10px"><tr><th style="border:1px solid #ccc;padding:.25rem .4rem;text-align:left;background:#f4f6fa">ID</th><th style="border:1px solid #ccc;padding:.25rem .4rem;text-align:left;background:#f4f6fa">Ward</th><th style="border:1px solid #ccc;padding:.25rem .4rem;text-align:left;background:#f4f6fa">Hospital</th><th style="border:1px solid #ccc;padding:.25rem .4rem;text-align:left;background:#f4f6fa">Source</th><th style="border:1px solid #ccc;padding:.25rem .4rem;text-align:left;background:#f4f6fa">Nurses</th><th style="border:1px solid #ccc;padding:.25rem .4rem;text-align:left;background:#f4f6fa">Days</th><th style="border:1px solid #ccc;padding:.25rem .4rem;text-align:left;background:#f4f6fa">Created</th><th style="border:1px solid #ccc;padding:.25rem .4rem;background:#f4f6fa"></th></tr>
+    <tr><td style="border:1px solid #ccc;padding:.25rem .4rem">7</td><td style="border:1px solid #ccc;padding:.25rem .4rem">4B</td><td style="border:1px solid #ccc;padding:.25rem .4rem">Example</td><td style="border:1px solid #ccc;padding:.25rem .4rem">csv_upload</td><td style="border:1px solid #ccc;padding:.25rem .4rem">18</td><td style="border:1px solid #ccc;padding:.25rem .4rem">30</td><td style="border:1px solid #ccc;padding:.25rem .4rem;color:#666">2026-08-24 09:12</td><td style="border:1px solid #ccc;padding:.25rem .4rem"><span style="color:#2450a4">Edit / solve</span></td></tr>
+    <tr><td style="border:1px solid #ccc;padding:.25rem .4rem">6</td><td style="border:1px solid #ccc;padding:.25rem .4rem">4B</td><td style="border:1px solid #ccc;padding:.25rem .4rem">Example</td><td style="border:1px solid #ccc;padding:.25rem .4rem">grid</td><td style="border:1px solid #ccc;padding:.25rem .4rem">0</td><td style="border:1px solid #ccc;padding:.25rem .4rem">31</td><td style="border:1px solid #ccc;padding:.25rem .4rem;color:#666">2026-07-28 20:40</td><td style="border:1px solid #ccc;padding:.25rem .4rem"><span style="color:#2450a4">Edit / solve</span></td></tr></table>
+    <div style="font-size:1.1rem;font-weight:700;margin:16px 0 6px">Recent jobs</div>
+    <table style="border-collapse:collapse;width:100%;font-size:10px"><tr><th style="border:1px solid #ccc;padding:.25rem .4rem;text-align:left;background:#f4f6fa">Job</th><th style="border:1px solid #ccc;padding:.25rem .4rem;text-align:left;background:#f4f6fa">Ward</th><th style="border:1px solid #ccc;padding:.25rem .4rem;text-align:left;background:#f4f6fa">Hospital</th><th style="border:1px solid #ccc;padding:.25rem .4rem;text-align:left;background:#f4f6fa">Status</th><th style="border:1px solid #ccc;padding:.25rem .4rem;text-align:left;background:#f4f6fa">Solver</th><th style="border:1px solid #ccc;padding:.25rem .4rem;text-align:left;background:#f4f6fa">Created</th><th style="border:1px solid #ccc;padding:.25rem .4rem;background:#f4f6fa"></th></tr>
+    <tr><td style="border:1px solid #ccc;padding:.25rem .4rem">12</td><td style="border:1px solid #ccc;padding:.25rem .4rem">4B</td><td style="border:1px solid #ccc;padding:.25rem .4rem">Example</td><td style="border:1px solid #ccc;padding:.25rem .4rem">succeeded</td><td style="border:1px solid #ccc;padding:.25rem .4rem">OPTIMAL</td><td style="border:1px solid #ccc;padding:.25rem .4rem;color:#666">2026-08-24 09:14</td><td style="border:1px solid #ccc;padding:.25rem .4rem"><span style="color:#2450a4">View</span></td></tr>
+    <tr><td style="border:1px solid #ccc;padding:.25rem .4rem">11</td><td style="border:1px solid #ccc;padding:.25rem .4rem">4B</td><td style="border:1px solid #ccc;padding:.25rem .4rem">Example</td><td style="border:1px solid #ccc;padding:.25rem .4rem">failed</td><td style="border:1px solid #ccc;padding:.25rem .4rem">INFEASIBLE</td><td style="border:1px solid #ccc;padding:.25rem .4rem;color:#666">2026-07-29 08:02</td><td style="border:1px solid #ccc;padding:.25rem .4rem"><span style="color:#2450a4">View</span></td></tr></table>
+  </div></div>
+
+  <div class="dv-opt" id="0b"><div class="dv-olabel"><a class="dv-oid" href="#0b">0b</a>new_input.html</div>
+  <div class="dv-card" style="width:360px;padding:20px 16px;border-radius:0;font-family:system-ui,sans-serif;color:#1a1a1a">
+    <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #ddd;padding-bottom:.5rem;margin-bottom:1.5rem"><a href="#0b" style="text-decoration:none;color:#2450a4;font-weight:700;font-size:13px">ShiftWork</a><span style="display:inline-block;padding:.4rem .8rem;background:#667;color:#fff;border-radius:4px;font-size:11px">Sign out</span></div>
+    <div style="font-size:1.4rem;font-weight:700;margin:0 0 10px">New schedule</div>
+    <fieldset style="border:1px solid #ddd;border-radius:4px;margin:1rem 0;padding:8px 10px"><legend style="font-size:11px">Upload a CSV</legend><div style="color:#666;font-size:11px">Sectioned ShiftWork CSV ([ward] / [settings] / [schedule]).</div><div style="margin-top:8px;display:flex;gap:8px;align-items:center"><span style="border:1px solid #ccc;padding:3px 6px;font-size:10px;background:#f4f6fa">Choose file</span><span style="font-size:10px;color:#666">no file selected</span><span style="display:inline-block;padding:.4rem .8rem;background:#2450a4;color:#fff;border-radius:4px;font-size:11px">Upload</span></div></fieldset>
+    <fieldset style="border:1px solid #ddd;border-radius:4px;margin:1rem 0;padding:8px 10px"><legend style="font-size:11px">Start from a blank grid</legend><div style="color:#666;font-size:11px">Create an empty input with default settings and edit it in the browser.</div><div style="margin-top:8px"><span style="display:inline-block;padding:.4rem .8rem;background:#667;color:#fff;border-radius:4px;font-size:11px">Start blank grid</span></div></fieldset>
+  </div></div>
+
+  <div class="dv-opt" id="0c"><div class="dv-olabel"><a class="dv-oid" href="#0c">0c</a>edit_input.html — tier panel + constraint selector + grid</div>
+  <div class="dv-card" style="width:460px;padding:20px 16px;border-radius:0;font-family:system-ui,sans-serif;color:#1a1a1a">
+    <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #ddd;padding-bottom:.5rem;margin-bottom:1.2rem"><a href="#0c" style="text-decoration:none;color:#2450a4;font-weight:700;font-size:13px">ShiftWork</a><span style="display:inline-block;padding:.4rem .8rem;background:#667;color:#fff;border-radius:4px;font-size:11px">Sign out</span></div>
+    <div style="font-size:1.4rem;font-weight:700">Edit input #7</div>
+    <div style="color:#666;font-size:11px;margin:4px 0 10px">Source: csv_upload. Valid cell tokens: ช, บ, ด, off, mtg, or blank.</div>
+    <div style="border:1px solid #ddd;border-radius:8px;padding:.75rem 1rem;margin:1rem 0">
+      <div style="font-size:1.1rem;font-weight:700">Uploaded file</div>
+      <div style="font-size:11px;margin-top:6px">Ward: <strong>4B</strong> · Example Hospital · 2026-09</div>
+      <div style="font-size:11px;margin-top:4px">Tier: <strong>Ward+</strong> <span style="color:#666">(from ward)</span></div>
+      <ul style="margin:.3rem 0;padding-left:1.2rem;font-size:11px"><li>Nurses: 18 / 25</li><li>Max requested shifts per nurse: 4</li><li>Max requested holidays per nurse: 3</li><li>Meeting days: disabled</li></ul>
+      <div style="font-weight:700;font-size:1rem;margin:.8rem 0 .3rem">Constraint options on this tier</div>
+      <table style="border-collapse:collapse;font-size:10px"><tr><th style="border:1px solid #eee;padding:.25rem .6rem;text-align:left">Option</th><th style="border:1px solid #eee;padding:.25rem .6rem;text-align:left">Status</th><th style="border:1px solid #eee;padding:.25rem .6rem;text-align:left">Notes</th></tr>
+      <tr><td style="border:1px solid #eee;padding:.25rem .6rem">Evening → night</td><td style="border:1px solid #eee;padding:.25rem .6rem"><span style="color:#1a7f37;font-weight:600">✓ Available</span></td><td style="border:1px solid #eee;padding:.25rem .6rem;color:#666">Toggle below</td></tr>
+      <tr><td style="border:1px solid #eee;padding:.25rem .6rem">Head-nurse special shift</td><td style="border:1px solid #eee;padding:.25rem .6rem"><span style="color:#1a7f37;font-weight:600">✓ Available</span></td><td style="border:1px solid #eee;padding:.25rem .6rem;color:#666">Senior DAY/OFF rule</td></tr>
+      <tr><td style="border:1px solid #eee;padding:.25rem .6rem">Meeting days</td><td style="border:1px solid #eee;padding:.25rem .6rem"><span style="color:#a40e26;font-weight:600">✗ Unavailable</span></td><td style="border:1px solid #eee;padding:.25rem .6rem;color:#666">Ward Pro and above</td></tr></table>
+    </div>
+    <fieldset style="border:1px solid #ddd;border-radius:4px;margin:1rem 0;padding:8px 10px;font-size:11px"><legend>Month &amp; dates</legend>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><label>Month: <span style="border:1px solid #ccc;padding:2px 6px;display:inline-block;width:2.4rem">9</span></label><label>Year: <span style="border:1px solid #ccc;padding:2px 6px;display:inline-block;width:3.4rem">2026</span></label></div>
+      <div style="margin-top:6px">Extra holidays (day numbers, space-separated): <span style="border:1px solid #ccc;padding:2px 6px;display:inline-block;width:8rem"></span></div>
+      <div style="margin-top:8px"><span style="display:inline-block;padding:.4rem .8rem;background:#667;color:#fff;border-radius:4px;font-size:11px">Auto-fill days &amp; weekends from month</span></div>
+      <div style="color:#666;margin-top:6px">Public holidays this month: 12 (วันแม่), 28 (ชดเชย)</div>
+    </fieldset>
+    <fieldset style="border:1px solid #ddd;border-radius:4px;margin:1rem 0;padding:8px 10px;font-size:11px"><legend>Constraint selector</legend>
+      <div>Number of days: <span style="border:1px solid #ccc;padding:2px 6px;display:inline-block;width:2.4rem">30</span></div>
+      <div style="margin-top:5px">Weekend days (space separated, 1-based): <span style="border:1px solid #ccc;padding:2px 6px;display:inline-block;width:11rem">6 7 13 14 20 21</span></div>
+      <div style="margin-top:5px"><input type="checkbox" checked> Allow evening → night transition</div>
+      <div><input type="checkbox"> Allow night → day transition</div>
+      <div><input type="checkbox" checked> Head-nurse special shift (senior DAY/OFF rule)</div>
+      <div style="margin-top:5px">Minimum % of requests to accept: <span style="border:1px solid #ccc;padding:2px 6px;display:inline-block;width:2.8rem">100</span></div>
+      <div><input type="checkbox"> Also allow dropping requested days off</div>
+      <fieldset style="border:1px solid #ddd;border-radius:4px;margin:.5rem 0;padding:6px 8px"><legend>Coverage minimums (nurses required per shift)</legend>
+        <table style="border-collapse:collapse;font-size:10px"><tr><th style="border:1px solid #eee;padding:.25rem .6rem"></th><th style="border:1px solid #eee;padding:.25rem .6rem">Day</th><th style="border:1px solid #eee;padding:.25rem .6rem">Evening</th><th style="border:1px solid #eee;padding:.25rem .6rem">Night</th></tr>
+        <tr><td style="border:1px solid #eee;padding:.25rem .6rem">Weekday</td><td style="border:1px solid #eee;padding:.25rem .6rem"><span style="border:1px solid #ccc;padding:1px 5px;display:inline-block;width:2rem">5</span></td><td style="border:1px solid #eee;padding:.25rem .6rem"><span style="border:1px solid #ccc;padding:1px 5px;display:inline-block;width:2rem">3</span></td><td style="border:1px solid #eee;padding:.25rem .6rem"><span style="border:1px solid #ccc;padding:1px 5px;display:inline-block;width:2rem">3</span></td></tr>
+        <tr><td style="border:1px solid #eee;padding:.25rem .6rem">Weekend</td><td style="border:1px solid #eee;padding:.25rem .6rem"><span style="border:1px solid #ccc;padding:1px 5px;display:inline-block;width:2rem">4</span></td><td style="border:1px solid #eee;padding:.25rem .6rem"><span style="border:1px solid #ccc;padding:1px 5px;display:inline-block;width:2rem">2</span></td><td style="border:1px solid #eee;padding:.25rem .6rem"><span style="border:1px solid #ccc;padding:1px 5px;display:inline-block;width:2rem">2</span></td></tr></table>
+      </fieldset>
+      <div style="color:#666"><input type="checkbox" disabled> Meeting days — not available on the Ward+ tier (tier-derived, read-only)</div>
+    </fieldset>
+    <fieldset style="border:1px solid #ddd;border-radius:4px;margin:1rem 0;padding:8px 10px;font-size:11px"><legend>Schedule grid</legend>
+      <table style="border-collapse:collapse;width:100%;font-size:9px"><tr><th style="border:1px solid #ccc;padding:2px">Active</th><th style="border:1px solid #ccc;padding:2px">Name</th><th style="border:1px solid #ccc;padding:2px">Type</th><th style="border:1px solid #ccc;padding:2px">1</th><th style="border:1px solid #ccc;padding:2px">2</th><th style="border:1px solid #ccc;padding:2px">3</th><th style="border:1px solid #ccc;padding:2px">4</th><th style="border:1px solid #ccc;padding:2px">5</th><th style="border:1px solid #ccc;padding:2px">6</th><th style="border:1px solid #ccc;padding:2px">7</th></tr>
+      <tr><td style="border:1px solid #ccc;padding:2px;text-align:center"><input type="checkbox" checked></td><td style="border:1px solid #ccc;padding:2px"><span style="border:1px solid #ccc;padding:1px 4px;display:inline-block;width:4rem">สมศรี</span></td><td style="border:1px solid #ccc;padding:2px"><span style="border:1px solid #ccc;padding:1px 4px;display:inline-block;width:2rem">head</span></td><td style="border:1px solid #ccc;padding:2px"><span style="border:1px solid #ccc;display:inline-block;width:1.6rem;text-align:center">ช</span></td><td style="border:1px solid #ccc;padding:2px"><span style="border:1px solid #ccc;display:inline-block;width:1.6rem">&nbsp;</span></td><td style="border:1px solid #ccc;padding:2px"><span style="border:1px solid #ccc;display:inline-block;width:1.6rem;text-align:center">off</span></td><td style="border:1px solid #ccc;padding:2px"><span style="border:1px solid #ccc;display:inline-block;width:1.6rem">&nbsp;</span></td><td style="border:1px solid #ccc;padding:2px"><span style="border:1px solid #ccc;display:inline-block;width:1.6rem">&nbsp;</span></td><td style="border:1px solid #ccc;padding:2px"><span style="border:1px solid #ccc;display:inline-block;width:1.6rem">&nbsp;</span></td><td style="border:1px solid #ccc;padding:2px"><span style="border:1px solid #ccc;display:inline-block;width:1.6rem">&nbsp;</span></td></tr>
+      <tr><td style="border:1px solid #ccc;padding:2px;text-align:center"><input type="checkbox" checked></td><td style="border:1px solid #ccc;padding:2px"><span style="border:1px solid #ccc;padding:1px 4px;display:inline-block;width:4rem">มาลี</span></td><td style="border:1px solid #ccc;padding:2px"><span style="border:1px solid #ccc;padding:1px 4px;display:inline-block;width:2rem">rn</span></td><td style="border:1px solid #ccc;padding:2px"><span style="border:1px solid #ccc;display:inline-block;width:1.6rem">&nbsp;</span></td><td style="border:1px solid #ccc;padding:2px"><span style="border:1px solid #ccc;display:inline-block;width:1.6rem;text-align:center">บ</span></td><td style="border:1px solid #ccc;padding:2px"><span style="border:1px solid #ccc;display:inline-block;width:1.6rem">&nbsp;</span></td><td style="border:1px solid #ccc;padding:2px"><span style="border:1px solid #ccc;display:inline-block;width:1.6rem">&nbsp;</span></td><td style="border:1px solid #ccc;padding:2px"><span style="border:1px solid #ccc;display:inline-block;width:1.6rem;text-align:center">off</span></td><td style="border:1px solid #ccc;padding:2px"><span style="border:1px solid #ccc;display:inline-block;width:1.6rem">&nbsp;</span></td><td style="border:1px solid #ccc;padding:2px"><span style="border:1px solid #ccc;display:inline-block;width:1.6rem">&nbsp;</span></td></tr></table>
+    </fieldset>
+    <div style="display:flex;gap:8px"><span style="display:inline-block;padding:.4rem .8rem;background:#2450a4;color:#fff;border-radius:4px;font-size:11px">Save changes</span><span style="display:inline-block;padding:.4rem .8rem;background:#2450a4;color:#fff;border-radius:4px;font-size:11px">Solve</span></div>
+  </div></div>
+
+  <div class="dv-opt" id="0d"><div class="dv-olabel"><a class="dv-oid" href="#0d">0d</a>job.html + status_fragment.html (running / result)</div>
+  <div class="dv-card" style="width:420px;padding:20px 16px;border-radius:0;font-family:system-ui,sans-serif;color:#1a1a1a">
+    <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #ddd;padding-bottom:.5rem;margin-bottom:1.2rem"><a href="#0d" style="text-decoration:none;color:#2450a4;font-weight:700;font-size:13px">ShiftWork</a><span style="display:inline-block;padding:.4rem .8rem;background:#667;color:#fff;border-radius:4px;font-size:11px">Sign out</span></div>
+    <div style="font-size:1.4rem;font-weight:700">Solve job #12</div>
+    <div style="color:#666;font-size:11px;margin:4px 0 10px">Input #7 · time limit 120s</div>
+    <div style="color:#2450a4;font-size:12px">⚙️ Running the solver…</div>
+    <div style="border-top:1px dashed #ccc;margin:14px 0;padding-top:10px">
+      <div style="font-size:1.1rem;font-weight:700">Schedule (OPTIMAL)</div>
+      <div style="margin:8px 0"><span style="display:inline-block;padding:.4rem .8rem;background:#2450a4;color:#fff;border-radius:4px;font-size:11px">Download CSV</span></div>
+      <div style="font-size:11px">Accepted <strong>42/45</strong> requests (<strong>93%</strong>).</div>
+      <div style="font-size:11px;margin:6px 0">▸ 3 request(s) not accepted</div>
+      <table style="border-collapse:collapse;width:100%;font-size:9px;margin-top:6px"><tr><th style="border:1px solid #ccc;padding:2px;background:#f4f6fa">Nurse</th><th style="border:1px solid #ccc;padding:2px;background:#f4f6fa">1</th><th style="border:1px solid #ccc;padding:2px;background:#f4f6fa">2</th><th style="border:1px solid #ccc;padding:2px;background:#f4f6fa">3</th><th style="border:1px solid #ccc;padding:2px;background:#f4f6fa">4</th><th style="border:1px solid #ccc;padding:2px;background:#f4f6fa">5</th><th style="border:1px solid #ccc;padding:2px;background:#f4f6fa">6</th><th style="border:1px solid #ccc;padding:2px;background:#f4f6fa">7</th><th style="border:1px solid #ccc;padding:2px;background:#f4f6fa">8</th></tr>
+      <tr><td style="border:1px solid #ccc;padding:2px">สมศรี</td><td style="border:1px solid #ccc;padding:2px;text-align:center">ช</td><td style="border:1px solid #ccc;padding:2px;text-align:center">ช</td><td style="border:1px solid #ccc;padding:2px;text-align:center">OFF</td><td style="border:1px solid #ccc;padding:2px;text-align:center">บ</td><td style="border:1px solid #ccc;padding:2px;text-align:center">บ</td><td style="border:1px solid #ccc;padding:2px;text-align:center">OFF</td><td style="border:1px solid #ccc;padding:2px;text-align:center">ด</td><td style="border:1px solid #ccc;padding:2px;text-align:center">ด</td></tr>
+      <tr><td style="border:1px solid #ccc;padding:2px">มาลี</td><td style="border:1px solid #ccc;padding:2px;text-align:center">บ</td><td style="border:1px solid #ccc;padding:2px;text-align:center">OFF</td><td style="border:1px solid #ccc;padding:2px;text-align:center">ช</td><td style="border:1px solid #ccc;padding:2px;text-align:center">ช</td><td style="border:1px solid #ccc;padding:2px;text-align:center">OFF</td><td style="border:1px solid #ccc;padding:2px;text-align:center">ด</td><td style="border:1px solid #ccc;padding:2px;text-align:center">ด</td><td style="border:1px solid #ccc;padding:2px;text-align:center">OFF</td></tr>
+      <tr><td style="border:1px solid #ccc;padding:2px">ประไพ</td><td style="border:1px solid #ccc;padding:2px;text-align:center">ด</td><td style="border:1px solid #ccc;padding:2px;text-align:center">ด</td><td style="border:1px solid #ccc;padding:2px;text-align:center">OFF</td><td style="border:1px solid #ccc;padding:2px;text-align:center">OFF</td><td style="border:1px solid #ccc;padding:2px;text-align:center">ช</td><td style="border:1px solid #ccc;padding:2px;text-align:center">ช</td><td style="border:1px solid #ccc;padding:2px;text-align:center">บ</td><td style="border:1px solid #ccc;padding:2px;text-align:center">บ</td></tr></table>
+    </div>
+  </div></div>
+
+  <div class="dv-opt" id="0e"><div class="dv-olabel"><a class="dv-oid" href="#0e">0e</a>status_fragment.html — INFEASIBLE / failed</div>
+  <div class="dv-card" style="width:380px;padding:20px 16px;border-radius:0;font-family:system-ui,sans-serif;color:#1a1a1a">
+    <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #ddd;padding-bottom:.5rem;margin-bottom:1.2rem"><a href="#0e" style="text-decoration:none;color:#2450a4;font-weight:700;font-size:13px">ShiftWork</a><span style="display:inline-block;padding:.4rem .8rem;background:#667;color:#fff;border-radius:4px;font-size:11px">Sign out</span></div>
+    <div style="font-size:1.4rem;font-weight:700">Solve job #11</div>
+    <div style="color:#666;font-size:11px;margin:4px 0 12px">Input #6 · time limit 120s</div>
+    <div style="font-size:1.1rem;font-weight:700">No feasible schedule</div>
+    <div style="font-size:11px;line-height:1.5;margin-top:6px">The solver <strong>proved</strong> there is no schedule that satisfies all the constraints. Try relaxing a constraint (e.g. turn off a transition rule), enabling more nurses, or loosening requested shifts/holidays.</div>
+    <div style="font-size:11px;margin-top:8px">▸ Solver log</div>
+    <div style="border-top:1px dashed #ccc;margin:14px 0;padding-top:10px">
+      <div style="font-size:1.1rem;font-weight:700">Solve failed</div>
+      <div style="background:#fde8e8;border:1px solid #f5a3a3;padding:.6rem .8rem;border-radius:4px;color:#8a1f1f;margin:8px 0;font-size:11px">Worker exited unexpectedly.</div>
+      <div style="font-size:11px">▸ Solver log</div>
+    </div>
+  </div></div>
+</div>
+<p class="dv-next">These five are the current templates as they render today — reference only, nothing new added.</p>
+</section>
+</x-dc>
+</body>
+</html>

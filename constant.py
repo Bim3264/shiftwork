@@ -9,6 +9,7 @@ class Shift(Enum):
 
 class LocaleShift(Enum):
     OFF = "off"
+    VACATION = "vac"
     DAY = "ช"
     EVENING = "บ"
     NIGHT = "ด"

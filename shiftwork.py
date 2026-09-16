@@ -36,6 +36,11 @@ class Solver():
         self.new_nurse_indices: set = set()   # nurses flagged as "new" in the CSV
         self.meeting_days: dict = {}          # {nurse_index: [0-based day, ...]}
 
+        # Soft-request handling (see handleHolidaysAndReq). Populated only when
+        # MIN_REQUEST_PERCENT < 100; each entry reifies one relaxable request.
+        self.request_soft: list = []          # [{n, day, shift, kind, sat}]
+        self.request_report = None            # filled after a successful solve
+
         self.initShiftSettings()
 
         self.loadReqShifts(filename, 5, 5)
@@ -61,22 +66,14 @@ class Solver():
         self.days = []
         for day in range(self.num_days):
             is_weekend = day in self.weekends
-            if is_weekend:
-                self.days.append({
-                    'shifts': [Shift.NIGHT, Shift.DAY, Shift.EVENING, Shift.OFF],
-                    'min_shifts': {Shift.NIGHT: 2,
-                                   Shift.DAY: 4,
-                                   Shift.EVENING: 2,
-                                   Shift.OFF: 0}
-                })
-            else:
-                self.days.append({
-                    'shifts': [Shift.NIGHT, Shift.DAY, Shift.EVENING, Shift.OFF],
-                    'min_shifts': {Shift.NIGHT: 3,
-                                   Shift.DAY: 5,
-                                   Shift.EVENING: 3,
-                                   Shift.OFF: 0}
-                })
+            band = self.coverage['weekend'] if is_weekend else self.coverage['weekday']
+            self.days.append({
+                'shifts': [Shift.NIGHT, Shift.DAY, Shift.EVENING, Shift.OFF],
+                'min_shifts': {Shift.NIGHT:   band[Shift.NIGHT],
+                               Shift.DAY:     band[Shift.DAY],
+                               Shift.EVENING: band[Shift.EVENING],
+                               Shift.OFF: 0}
+            })
 
     def initShiftSettings(self):
 
@@ -92,6 +89,29 @@ class Solver():
         self.DEPUTY_NURSE_INDEX = 1
         self.HEAD_NURSE_SPEACIAL_SHIFT = True
         self.enable_meetings = True
+
+        # Partial request acceptance. 100 = every request is a hard constraint
+        # (all-or-nothing, original behaviour). Below 100, requests become soft:
+        # the solver keeps as many as possible and may drop the rest down to this
+        # floor, otherwise the whole model is infeasible. RELAX_DAYS_OFF decides
+        # whether requested days off are droppable too (shifts always are).
+        self.MIN_REQUEST_PERCENT = 100
+        self.RELAX_DAYS_OFF = False
+        # When True, every requested vacation ('vac') is a hard constraint the
+        # solver can never drop (approved leave). When False, vacations become
+        # droppable in soft mode like ordinary off-requests. Unlike 'off', which
+        # is only requested, an enforced vacation is guaranteed.
+        self.ENFORCE_VACATION = True
+        # {nurse_index: set(0-based vacation days)} — populated by loadReqShifts.
+        self.vacation_days = {}
+
+        # Per-shift coverage minimums (nurses required per shift), by day band.
+        # Defaults preserve the original hard-coded values. loadReqShifts()
+        # overrides these from the file's [settings] before _rebuild_days().
+        self.coverage = {
+            'weekday': {Shift.DAY: 5, Shift.EVENING: 3, Shift.NIGHT: 3},
+            'weekend': {Shift.DAY: 4, Shift.EVENING: 2, Shift.NIGHT: 2},
+        }
 
         # Apply caller overrides (from GUI or CLI; may be further overridden by file)
         self.ALLOW_SHIFT_E_N = self._init_allow_e_n
@@ -132,7 +152,18 @@ class Solver():
         self.ALLOW_SHIFT_N_D       = s['allow_night_to_day']
         self.HEAD_NURSE_SPEACIAL_SHIFT = s['head_nurse_special_shift']
         self.enable_meetings       = s['enable_meetings']
-        self._rebuild_days()       # refresh with updated num_days + weekends
+        self.MIN_REQUEST_PERCENT   = max(0, min(100, int(s.get('min_request_percent', 100))))
+        self.RELAX_DAYS_OFF        = bool(s.get('relax_days_off', False))
+        self.ENFORCE_VACATION      = bool(s.get('enforce_vacation', True))
+        self.coverage = {
+            'weekday': {Shift.DAY:     s.get('coverage_weekday_day', 5),
+                        Shift.EVENING: s.get('coverage_weekday_evening', 3),
+                        Shift.NIGHT:   s.get('coverage_weekday_night', 3)},
+            'weekend': {Shift.DAY:     s.get('coverage_weekend_day', 4),
+                        Shift.EVENING: s.get('coverage_weekend_evening', 2),
+                        Shift.NIGHT:   s.get('coverage_weekend_night', 2)},
+        }
+        self._rebuild_days()       # refresh with updated num_days + weekends + coverage
 
         # Store ward identity for output naming and logging
         self.ward_info: dict = data.ward_info
@@ -147,10 +178,19 @@ class Solver():
 
         if len(data.reqShifts) == len(data.reqDayOff):
             for n in range(len(data.reqShifts)):
+                vacs = data.reqVacations[n] if n < len(data.reqVacations) else []
                 self.nurses.append({
                     'requested_holidays': data.reqDayOff[n],   # 0-based days
-                    'requested_shifts': data.reqShifts[n]      # {day: shift}
+                    'requested_shifts': data.reqShifts[n],     # {day: shift}
+                    'requested_vacations': vacs                # 0-based days (approved leave)
                 })
+
+        # Reverse map used by the fairness objective and the output renderer.
+        self.vacation_days = {
+            n: set(nurse['requested_vacations'])
+            for n, nurse in enumerate(self.nurses)
+            if nurse.get('requested_vacations')
+        }
 
         self.new_nurse_indices = set(data.newNurseIndices)
         self.meeting_days = {n: days for n, days in enumerate(data.reqMeetings) if days}
@@ -264,11 +304,31 @@ class Solver():
         if self.HEAD_NURSE_SPEACIAL_SHIFT:
             senior_indices = {self.HEAD_NURSE_INDEX, self.DEPUTY_NURSE_INDEX}
 
+        soft = self.MIN_REQUEST_PERCENT < 100
+        self.request_soft = []
+
+        def _add_request(n, d, shift, kind, relaxable):
+            """Force assignments[n][d][shift]==1. In soft mode a relaxable request
+            is reified with a 'satisfied' var so the solver may drop it (and we
+            track it for the report); otherwise it stays a hard constraint."""
+            if soft and relaxable:
+                sat = self.model.NewBoolVar(f'req_{kind}_{n}_{d}')
+                self.model.Add(self.assignments[n][d][shift] == 1).OnlyEnforceIf(sat)
+                self.request_soft.append(
+                    {'n': n, 'day': d, 'shift': shift, 'kind': kind, 'sat': sat}
+                )
+            else:
+                self.model.Add(self.assignments[n][d][shift] == 1)
+
         for n in range(self.num_nurses):
             if n < len(self.nurses):
                 nurse = self.nurses[n]
                 for d in nurse['requested_holidays']:
-                    self.model.Add(self.assignments[n][d][Shift.OFF] == 1)
+                    _add_request(n, d, Shift.OFF, 'holiday', self.RELAX_DAYS_OFF)
+                for d in nurse.get('requested_vacations', []):
+                    # Enforced vacations are never relaxable (hard OFF); otherwise
+                    # they drop like off-requests in soft mode.
+                    _add_request(n, d, Shift.OFF, 'vacation', not self.ENFORCE_VACATION)
                 for d, req_shift in nurse['requested_shifts'].items():
                     if n in senior_indices:
                         is_weekend = d in self.weekends
@@ -278,12 +338,22 @@ class Solver():
                             print(f'[Info] Nurse {n} {req_shift.value} request on day {d+1} '
                                   f'skipped (conflicts with senior nurse rule).')
                             continue
-                    self.model.Add(self.assignments[n][d][req_shift] == 1)
+                    _add_request(n, d, req_shift, 'shift', True)
 
-        # Meeting days: nurse is assigned DAY but excluded from minimum coverage count
+        # Meeting days: nurse is assigned DAY but excluded from minimum coverage
+        # count. Meetings are commitments and are never dropped.
         for n, days in self.meeting_days.items():
             for d in days:
                 self.model.Add(self.assignments[n][d][Shift.DAY] == 1)
+
+        # Floor: at least MIN_REQUEST_PERCENT of the relaxable requests must be
+        # satisfied, else the model is (correctly) infeasible.
+        if soft and self.request_soft:
+            import math
+            floor = math.ceil(self.MIN_REQUEST_PERCENT / 100.0 * len(self.request_soft))
+            self.model.Add(sum(e['sat'] for e in self.request_soft) >= floor)
+            print(f'[Requests] Soft mode: {len(self.request_soft)} relaxable requests, '
+                  f'floor {floor} ({self.MIN_REQUEST_PERCENT}%).')
 
 
     def _constraintMinimumNurse(self):
@@ -368,11 +438,23 @@ class Solver():
         overall_imbalance = cp_model.LinearExpr.Sum(imbalance_vars)
 
         # --- Holiday (OFF) imbalance ---
-        off_counts = [shift_counts[n][Shift.OFF] for n in range(self.num_nurses)]
+        # Balance *discretionary* days off only: OFF days a nurse takes as
+        # approved vacation are excluded so leave isn't counted against their
+        # fair share (and doesn't force extra days off onto everyone else).
+        disc_off = []
+        for n in range(self.num_nurses):
+            vac_days = self.vacation_days.get(n)
+            if vac_days:
+                vac_off = sum(self.assignments[n][d][Shift.OFF] for d in vac_days)
+                do = self.model.NewIntVar(0, self.num_days, f'disc_off_{n}')
+                self.model.Add(do == shift_counts[n][Shift.OFF] - vac_off)
+                disc_off.append(do)
+            else:
+                disc_off.append(shift_counts[n][Shift.OFF])
         max_off = self.model.NewIntVar(0, self.num_days, 'max_off')
         min_off = self.model.NewIntVar(0, self.num_days, 'min_off')
-        self.model.AddMaxEquality(max_off, off_counts)
-        self.model.AddMinEquality(min_off, off_counts)
+        self.model.AddMaxEquality(max_off, disc_off)
+        self.model.AddMinEquality(min_off, disc_off)
         holiday_imb = self.model.NewIntVar(0, self.num_days, 'holiday_imb')
         self.model.Add(holiday_imb == max_off - min_off)
 
@@ -383,11 +465,18 @@ class Solver():
         # Combined objective:
         #   Shift imbalance and holiday imbalance are top priority (weight 10)
         #   Double shifts minimised last
-        self.model.Minimize(
-            10 * overall_imbalance +
-            10 * holiday_imb +
-            total_dbl
-        )
+        objective = 10 * overall_imbalance + 10 * holiday_imb + total_dbl
+
+        # In soft-request mode, keep as many requests as possible: penalise each
+        # dropped request far more than any fairness term, so acceptance is the
+        # overriding priority (fairness only breaks ties among equal-acceptance
+        # solutions).
+        if self.request_soft:
+            reject_weight = 100000
+            satisfied = cp_model.LinearExpr.Sum([e['sat'] for e in self.request_soft])
+            objective = objective + reject_weight * (len(self.request_soft) - satisfied)
+
+        self.model.Minimize(objective)
 
 
     def _build_warm_start(self):
@@ -414,7 +503,7 @@ class Solver():
 
         for n in range(self.num_nurses):
             nurse = self.nurses[n] if n < len(self.nurses) else {}
-            off_days  = set(nurse.get('requested_holidays', []))
+            off_days  = set(nurse.get('requested_holidays', [])) | set(nurse.get('requested_vacations', []))
             req_shifts = nurse.get('requested_shifts', {})
 
             for d in range(self.num_days):
@@ -470,11 +559,37 @@ class Solver():
 
         if self.status == cp_model.OPTIMAL or self.status == cp_model.FEASIBLE:
             print(f"Solution found ({(time.time() - self.startTime) * 10**3:.0f} ms):")
+            self._build_request_report()
             self._write_schedule()
         else:
+            self.request_report = None
             print("No solution found.")
 
         return self.status
+
+    def _build_request_report(self):
+        """After a successful solve, record which soft requests were accepted vs
+        dropped (only meaningful in soft mode; None otherwise)."""
+        if not self.request_soft:
+            self.request_report = None
+            return
+        accepted, dropped = [], []
+        for e in self.request_soft:
+            rec = {'nurse_index': e['n'], 'day': e['day'] + 1,
+                   'shift': e['shift'].value, 'kind': e['kind']}
+            if self.solver.Value(e['sat']) == 1:
+                accepted.append(rec)
+            else:
+                dropped.append(rec)
+        total = len(self.request_soft)
+        self.request_report = {
+            'total': total,
+            'accepted': len(accepted),
+            'dropped': dropped,
+            'percent': round(100.0 * len(accepted) / total, 1),
+        }
+        print(f"[Requests] Accepted {len(accepted)}/{total} "
+              f"({self.request_report['percent']}%); dropped {len(dropped)}.")
 
     def run(self, max_time_seconds: float = 120):
         """Convenience: build the model then solve it. Returns the status."""
@@ -514,7 +629,11 @@ class Solver():
                 elif is_night:
                     symbol = LocaleShift.NIGHT.value
                 elif is_off:
-                    symbol = LocaleShift.OFF.value
+                    # A granted OFF on a requested-vacation day is shown as 'vac'.
+                    if d in self.vacation_days.get(n, ()):
+                        symbol = LocaleShift.VACATION.value
+                    else:
+                        symbol = LocaleShift.OFF.value
                 else:
                     symbol = "ERROR"
 
