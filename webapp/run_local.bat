@@ -37,12 +37,15 @@ set SESSION_SECRET=dev
 REM Run solves in-process so no Redis/worker is needed locally. The page waits
 REM while it solves; cap the search so it returns reasonably fast.
 set SOLVE_INLINE=1
-set SOLVER_MAX_TIME_SECONDS=30
+REM Give the solver enough time to find a schedule for a real ward. Inline mode
+REM blocks the page while solving, so this is also the max you'll wait.
+set SOLVER_MAX_TIME_SECONDS=90
 echo.
 echo [3/3] Starting server at http://127.0.0.1:8000   (press Ctrl+C to stop)
 echo        You are the local "dev@localhost" user - no login needed.
 echo.
-python -m uvicorn webapp.web.app:app --port 8000
+REM --reload picks up code edits without a manual restart (dev only).
+python -m uvicorn webapp.web.app:app --port 8000 --reload
 
 echo.
 echo === server stopped ===

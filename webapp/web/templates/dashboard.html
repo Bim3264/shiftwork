@@ -1,43 +1,63 @@
 {% extends "base.html" %}
 {% block title %}Dashboard — ShiftWork{% endblock %}
 {% block content %}
-<h1>Dashboard</h1>
-<p><a class="btn" href="/inputs/new">New schedule</a></p>
+<div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap">
+  <div>
+    <h1>ตารางเวร / Schedules</h1>
+    <div class="muted">Dashboard</div>
+  </div>
+  <a class="btn" href="/inputs/new">+ สร้างใหม่ / New</a>
+</div>
 
-<h2>Recent inputs</h2>
-{% if inputs %}
-<table>
-  <tr><th>ID</th><th>Source</th><th>Nurses</th><th>Days</th><th>Created</th><th></th></tr>
-  {% for row in inputs %}
-  <tr>
-    <td>{{ row.id }}</td>
-    <td>{{ row.source }}</td>
-    <td>{{ row.data.get("nurses", [])|length }}</td>
-    <td>{{ row.data.get("settings", {}).get("num_days", "") }}</td>
-    <td class="muted">{{ row.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
-    <td><a href="/inputs/{{ row.id }}/edit">Edit / solve</a></td>
-  </tr>
-  {% endfor %}
-</table>
-{% else %}
-<p class="muted">No inputs yet. Create one to get started.</p>
-{% endif %}
+<div class="gap-note">Wireframe <strong>1a</strong> shows one row per month
+  (ร่าง / เสร็จ / ไม่สำเร็จ). That needs a per-month Schedule entity (FEATURE-GAPS §1),
+  so for now inputs and jobs are listed separately.</div>
 
-<h2>Recent jobs</h2>
-{% if jobs %}
-<table>
-  <tr><th>Job</th><th>Status</th><th>Solver</th><th>Created</th><th></th></tr>
-  {% for job in jobs %}
-  <tr>
-    <td>{{ job.id }}</td>
-    <td>{{ job.status.value }}</td>
-    <td>{{ job.solver_status or "" }}</td>
-    <td class="muted">{{ job.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
-    <td><a href="/jobs/{{ job.id }}">View</a></td>
-  </tr>
-  {% endfor %}
-</table>
-{% else %}
-<p class="muted">No solve jobs yet.</p>
-{% endif %}
+<div class="card">
+  <h2>Recent inputs</h2>
+  {% if inputs %}
+  <table>
+    <tr><th>ID</th><th>Ward / หอผู้ป่วย</th><th>Hospital</th><th>Source</th>
+        <th>Nurses</th><th>Days</th><th>Created</th><th></th></tr>
+    {% for row in inputs %}
+    <tr>
+      <td>{{ row.id }}</td>
+      <td>{{ row.data.get("ward_meta", {}).get("ward_name") or "—" }}</td>
+      <td>{{ row.data.get("ward_meta", {}).get("hospital") or "—" }}</td>
+      <td>{{ row.source }}</td>
+      <td>{{ row.data.get("nurses", [])|length }}</td>
+      <td>{{ row.data.get("settings", {}).get("num_days", "") }}</td>
+      <td class="muted">{{ row.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+      <td><a href="/inputs/{{ row.id }}/edit">แก้ไข / Edit</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">No inputs yet. Create one to get started.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Recent jobs</h2>
+  {% if jobs %}
+  {% set pill = {"succeeded":"done","failed":"fail","running":"run","queued":"draft"} %}
+  <table>
+    <tr><th>Job</th><th>Ward / หอผู้ป่วย</th><th>Hospital</th><th>Status / สถานะ</th>
+        <th>Solver</th><th>Created</th><th></th></tr>
+    {% for job in jobs %}
+    <tr>
+      <td>{{ job.id }}</td>
+      <td>{{ job_wards.get(job.id, {}).get("ward_name") or "—" }}</td>
+      <td>{{ job_wards.get(job.id, {}).get("hospital") or "—" }}</td>
+      <td><span class="pill {{ pill.get(job.status.value, 'draft') }}">{{ job.status.value }}</span></td>
+      <td class="muted">{{ job.solver_status or "" }}</td>
+      <td class="muted">{{ job.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+      <td><a href="/jobs/{{ job.id }}">เปิด / View</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">No solve jobs yet.</p>
+  {% endif %}
+</div>
 {% endblock %}

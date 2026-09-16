@@ -179,6 +179,7 @@ class DataImporter():
 
         self.reqShifts       = []
         self.reqDayOff       = []
+        self.reqVacations    = []
         self.reqMeetings     = []
         self.newNurseIndices = []
 
@@ -220,6 +221,15 @@ class DataImporter():
             'allow_night_to_day':       raw_settings.get('allow_night_to_day',     'false').lower() == 'true',
             'head_nurse_special_shift': raw_settings.get('head_nurse_special_shift', 'true').lower() == 'true',
             'enable_meetings':          self.enable_meetings,
+            'min_request_percent':      int(str(raw_settings.get('min_request_percent', 100)).strip() or 100),
+            'relax_days_off':           raw_settings.get('relax_days_off', 'false').lower() == 'true',
+            'enforce_vacation':         raw_settings.get('enforce_vacation', 'true').lower() == 'true',
+            'coverage_weekday_day':     int(str(raw_settings.get('coverage_weekday_day', 5)).strip() or 5),
+            'coverage_weekday_evening': int(str(raw_settings.get('coverage_weekday_evening', 3)).strip() or 3),
+            'coverage_weekday_night':   int(str(raw_settings.get('coverage_weekday_night', 3)).strip() or 3),
+            'coverage_weekend_day':     int(str(raw_settings.get('coverage_weekend_day', 4)).strip() or 4),
+            'coverage_weekend_evening': int(str(raw_settings.get('coverage_weekend_evening', 2)).strip() or 2),
+            'coverage_weekend_night':   int(str(raw_settings.get('coverage_weekend_night', 2)).strip() or 2),
         }
 
         # Build schedule DataFrame from [schedule] section (or whole file for legacy)
@@ -276,7 +286,7 @@ class DataImporter():
         _night_val = LocaleShift.NIGHT.value
 
         for index, row in self.df.iterrows():
-            days_off, meeting_days = [], []
+            days_off, vacations, meeting_days = [], [], []
             day_shift, evening_shift, night_shift = [], [], []
 
             for col in day_cols:
@@ -288,6 +298,8 @@ class DataImporter():
 
                 if val_lower == "off":
                     days_off.append(day_idx)
+                elif val_lower == "vac":
+                    vacations.append(day_idx)
                 elif val_lower == "mtg":
                     if self.enable_meetings:
                         meeting_days.append(day_idx)
@@ -310,6 +322,8 @@ class DataImporter():
                 self.reqShifts[index].append({day: Shift.NIGHT})
 
             self.reqDayOff.append(self.sample(days_off, self.maxDayOff))
+            # Vacations are approved leave: never randomly down-sampled like off-requests.
+            self.reqVacations.append(vacations)
             self.reqMeetings.append(meeting_days)
 
         for n in range(len(self.reqShifts)):

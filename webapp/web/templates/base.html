@@ -6,31 +6,72 @@
   <title>{% block title %}ShiftWork{% endblock %}</title>
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <style>
-    body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 960px;
-           padding: 0 1rem; color: #1a1a1a; }
-    header { display: flex; justify-content: space-between; align-items: center;
-             border-bottom: 1px solid #ddd; padding-bottom: .5rem; margin-bottom: 1.5rem; }
-    header a { text-decoration: none; color: #2450a4; }
-    h1 { font-size: 1.4rem; } h2 { font-size: 1.1rem; margin-top: 1.5rem; }
-    table { border-collapse: collapse; width: 100%; margin: .5rem 0; }
-    th, td { border: 1px solid #ccc; padding: .25rem .4rem; text-align: left; font-size: .85rem; }
-    th { background: #f4f6fa; }
-    input[type=text], input[type=number] { padding: .2rem; }
-    .cell { width: 3.2rem; text-align: center; }
-    .btn { display: inline-block; padding: .4rem .8rem; background: #2450a4; color: #fff;
-           border: none; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: .9rem; }
-    .btn.secondary { background: #667; }
-    .error { background: #fde8e8; border: 1px solid #f5a3a3; padding: .6rem .8rem;
-             border-radius: 4px; color: #8a1f1f; margin: 1rem 0; }
-    .muted { color: #666; font-size: .85rem; }
-    .spinner { color: #2450a4; }
-    label { display: inline-block; margin: .2rem 0; }
-    fieldset { border: 1px solid #ddd; border-radius: 4px; margin: 1rem 0; }
+    /* ── ShiftWork design system (from wireframe: navy/teal, cards, pills) ── */
+    :root{
+      --navy:#102A43; --teal:#14B8A6; --teal-d:#0E9384;
+      --bg:#f0eee9; --card:#fff; --line:#E5E7EB; --line-hd:#F8FAFC;
+      --ink:#1F2937; --muted:#6B7280; --faint:#9CA3AF;
+      --ok-bg:#D1FAE5; --ok-fg:#065F46; --warn-bg:#FEF3C7; --warn-fg:#92400E;
+      --err-bg:#FEE2E2; --err-fg:#991B1B; --run-bg:#E0F2FE; --run-fg:#075985;
+      --radius:12px;
+    }
+    *{box-sizing:border-box}
+    body{font-family:Helvetica,system-ui,sans-serif;margin:0;background:var(--bg);color:var(--ink)}
+    /* Full-width fluid layout — fills the screen; the grid scrolls internally
+       instead of pushing the page. A generous cap keeps text readable on
+       ultra-wide monitors without leaving big side gaps on normal screens. */
+    .wrap{max-width:1600px;margin:0 auto;padding:8px 20px 48px}
+    header.app{display:flex;justify-content:space-between;align-items:center;
+      background:var(--card);border-bottom:1.5px solid var(--navy);padding:12px 16px}
+    .logo{font:600 16px Helvetica;color:var(--navy);text-decoration:none}
+    .logo span{color:var(--teal)}
+    h1{font:600 22px Helvetica;color:var(--navy);margin:20px 0 4px}
+    h2{font:600 15px Helvetica;color:var(--navy);margin:22px 0 8px}
+    h3{font:600 13px Helvetica;color:var(--navy);margin:14px 0 6px}
+    a{color:var(--teal);text-decoration:none}
+    a:hover{text-decoration:underline}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+      box-shadow:0 1px 3px rgba(0,0,0,.06);padding:16px;margin:14px 0}
+    .btn{display:inline-block;padding:9px 14px;background:var(--teal);color:#fff;border:none;
+      border-radius:8px;cursor:pointer;text-decoration:none;font:600 13px Helvetica}
+    .btn:hover{background:var(--teal-d);text-decoration:none}
+    .btn.secondary{background:#fff;color:var(--navy);border:1px solid var(--line)}
+    .btn.ghost{background:transparent;color:var(--teal);padding:6px 8px}
+    table{border-collapse:collapse;width:100%;margin:8px 0;font-size:13px}
+    th,td{border-bottom:1px solid var(--line);padding:8px 10px;text-align:left}
+    th{background:var(--line-hd);color:var(--muted);font:600 11px Helvetica}
+    .pill{display:inline-block;padding:3px 9px;border-radius:20px;font:600 11px Helvetica}
+    .pill.done{background:var(--ok-bg);color:var(--ok-fg)}
+    .pill.draft{background:var(--warn-bg);color:var(--warn-fg)}
+    .pill.fail{background:var(--err-bg);color:var(--err-fg)}
+    .pill.run{background:var(--run-bg);color:var(--run-fg)}
+    input,select{font:13px Helvetica;padding:7px 8px;border:1px solid var(--line);
+      border-radius:8px;background:#fff;color:var(--ink)}
+    input[type=checkbox]{width:auto}
+    .cell{width:3rem;text-align:center;padding:3px}
+    label{display:inline-block;margin:.25rem .6rem .25rem 0;color:var(--ink)}
+    fieldset{border:1px solid var(--line);border-radius:var(--radius);margin:14px 0;padding:14px;background:var(--card)}
+    legend{font:600 12px Helvetica;color:var(--navy);padding:0 6px}
+    button{cursor:pointer}
+    .error{background:var(--err-bg);border:1px solid #F5A3A3;padding:10px 12px;border-radius:8px;
+      color:var(--err-fg);margin:12px 0}
+    .muted{color:var(--muted);font-size:12px}
+    .spinner{color:var(--teal)}
+    /* Marks a feature drawn in the wireframe that has no backend yet. */
+    .gap-note{background:var(--line-hd);border:1px dashed var(--line);border-radius:8px;
+      padding:8px 10px;color:var(--faint);font-size:12px;margin:8px 0}
+    .gap-note::before{content:"◔ ";}
+    @media (max-width:640px){
+      .wrap{padding:6px 10px 36px}
+      table{font-size:12px} th,td{padding:6px 6px}
+      .btn{padding:10px 14px;font-size:14px}
+      header.app{padding:10px 12px}
+    }
   </style>
 </head>
 <body>
-  <header>
-    <a href="/"><strong>ShiftWork</strong></a>
+  <header class="app">
+    <a class="logo" href="/">Shift<span>Work</span></a>
     <div>
       {% if user %}
         <span class="muted">{{ user.email }}</span>
@@ -40,6 +81,8 @@
       {% endif %}
     </div>
   </header>
-  {% block content %}{% endblock %}
+  <main class="wrap">
+    {% block content %}{% endblock %}
+  </main>
 </body>
 </html>

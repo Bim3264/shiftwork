@@ -46,6 +46,7 @@ class SolveResult:
     grid: Optional[dict]          # rendered schedule, or None if unsolved
     csv_text: Optional[str]       # raw output CSV for download, or None
     log: str                      # captured solver stdout
+    request_report: Optional[dict] = None  # soft-request acceptance summary
 
 
 def run_schedule(
@@ -80,8 +81,14 @@ def run_schedule(
 
         solved = status_int in _SOLVED_STATUSES
         grid, csv_text = (None, None)
+        report = None
         if solved:
             csv_text, grid = _read_output(workdir, schedule_input)
+            report = _name_request_report(
+                getattr(solver, "request_report", None), schedule_input
+            )
+            if grid is not None and report is not None:
+                grid["request_report"] = report
     finally:
         os.chdir(prev_cwd)
         _rmtree_quiet(workdir)
@@ -92,7 +99,32 @@ def run_schedule(
         grid=grid,
         csv_text=csv_text,
         log=log_buf.getvalue(),
+        request_report=report,
     )
+
+
+def _name_request_report(report, schedule_input):
+    """Attach nurse names to a solver request_report (which uses indices).
+
+    The solver's nurse index matches the active-nurse ordering fed to it, so map
+    dropped-request indices back through that list."""
+    if not report:
+        return None
+    solved_nurses = schedule_input.active_nurses()
+
+    def _name(i):
+        return solved_nurses[i].name if i < len(solved_nurses) else f"Nurse {i}"
+
+    return {
+        "total": report["total"],
+        "accepted": report["accepted"],
+        "percent": report["percent"],
+        "dropped": [
+            {"name": _name(r["nurse_index"]), "day": r["day"],
+             "shift": r["shift"], "kind": r["kind"]}
+            for r in report["dropped"]
+        ],
+    }
 
 
 def _read_output(
@@ -114,11 +146,14 @@ def _read_output(
 
     df = pd.read_csv(out_path, index_col=0, encoding="utf-8-sig")
     day_labels = [int(c) for c in df.columns]
+    # Only active nurses were sent to the solver, in this order, so map the
+    # output rows back to that same list.
+    solved_nurses = schedule_input.active_nurses()
     rows: list[dict[str, Any]] = []
     for pos, (_idx, series) in enumerate(df.iterrows()):
         name = (
-            schedule_input.nurses[pos].name
-            if pos < len(schedule_input.nurses)
+            solved_nurses[pos].name
+            if pos < len(solved_nurses)
             else f"Nurse {pos}"
         )
         rows.append({

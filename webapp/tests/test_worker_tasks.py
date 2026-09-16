@@ -121,7 +121,7 @@ class WorkerTaskTest(unittest.TestCase):
 
         job = self._reload(job_id)
         self.assertEqual(job.status, JobStatus.failed)
-        self.assertIn("2 nurses", job.error)
+        self.assertIn("2 active nurses", job.error)
         self.assertIsNone(job.result_grid)
         self.assertIsNotNone(job.finished_at)
 
