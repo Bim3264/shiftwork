@@ -29,6 +29,7 @@ from webapp.core.schedule_input import (
     Nurse,
     ScheduleInput,
 )
+from webapp.core import presolve
 from webapp.core.tiers import tier_view
 from webapp.core.fairness import fairness_stats
 from webapp.db.models import (
@@ -347,6 +348,12 @@ def solve_input(input_id: int, request: Request, user=Depends(require_user), db:
         return _render_edit(request, user, row, schedule_input,
                             error=str(exc), status_code=400)
 
+    report = presolve.check(schedule_input)
+    if not report.ok:
+        return _render_edit(request, user, row, schedule_input,
+                            error="Fix the blockers below before solving.",
+                            check=report, status_code=400)
+
     job = SolveJob(
         input_id=row.id,
         ward_id=row.ward_id,
@@ -359,6 +366,25 @@ def solve_input(input_id: int, request: Request, user=Depends(require_user), db:
     job_id = job.id
     enqueue_solve(job_id)
     return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
+
+
+@app.post("/inputs/{input_id}/check")
+async def check_input(input_id: int, request: Request, user=Depends(require_user), db: Session = Depends(get_db)):
+    """Save the form (like autofill) and run the pre-solve checklist without
+    queuing a solve — the "ตรวจสอบ / Check" button."""
+    row = _load_input(db, user, input_id)
+    form = await request.form(max_fields=100_000)
+    schedule_input = _schedule_input_from_form(form, row)
+    row.data = schedule_input.to_dict()
+    db.commit()
+    try:
+        schedule_input.validate()
+    except ValueError as exc:
+        return _render_edit(request, user, row, schedule_input,
+                            error=str(exc), status_code=400)
+
+    report = presolve.check(schedule_input)
+    return _render_edit(request, user, row, schedule_input, error=None, check=report)
 
 
 def _fairness_for_job(job) -> dict | None:
@@ -410,7 +436,7 @@ def job_download(job_id: int, request: Request, user=Depends(require_user), db: 
 
 
 # ── Shared render for the edit page ───────────────────────────────────────────
-def _render_edit(request, user, row, schedule_input, error, status_code=200):
+def _render_edit(request, user, row, schedule_input, error, check=None, status_code=200):
     num_days = schedule_input.settings["num_days"]
     days = list(range(1, num_days + 1))
 
@@ -443,6 +469,7 @@ def _render_edit(request, user, row, schedule_input, error, status_code=200):
             "ward_meta": schedule_input.ward_meta,
             "tier": tier_view(schedule_input),
             "error": error,
+            "check": check,
         },
         status_code=status_code,
     )
