@@ -76,6 +76,24 @@
 
 {% if error %}<div class="error">{{ error }}</div>{% endif %}
 
+{% if check %}
+<div class="card" style="border-color:{{ '#a40e26' if not check.ok else '#1a7f37' }}">
+  <h3>พร้อมจัดตารางหรือยัง? / Ready to solve?</h3>
+  <p class="muted">{{ check.checks_passed }} of {{ check.checks_total }} checks passed</p>
+  <ul style="list-style:none;padding-left:0;margin:.3rem 0">
+    {% for issue in check.errors %}
+      <li class="error">✗ {{ issue.message }}</li>
+    {% endfor %}
+    {% for issue in check.warnings %}
+      <li class="warn">! {{ issue.message }}</li>
+    {% endfor %}
+    {% for line in check.passed %}
+      <li>✓ {{ line }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
 <form action="/inputs/{{ row.id }}" method="post">
   <div class="settings-grid">
   <div class="card">
@@ -259,9 +277,6 @@
       <p class="muted">This input has no nurses yet. (Blank-grid row add/remove is
       minimal in the MVP — upload a CSV to populate the grid, then adjust here.)</p>
     {% endif %}
-    <div class="gap-note">Live per-day off-request count is shown in the footer.
-      Auto "exceeds capacity" pre-solve validation (wireframe 1j) isn't wired yet
-      (FEATURE-GAPS §2).</div>
   </fieldset>
 
   <script>
@@ -303,6 +318,8 @@
   </script>
 
   <button class="btn secondary" type="submit">บันทึก / Save changes</button>
+  <button class="btn secondary" type="submit"
+          formaction="/inputs/{{ row.id }}/check">ตรวจสอบ / Check</button>
 </form>
 
 <form action="/inputs/{{ row.id }}/solve" method="post" style="margin-top:1rem">
