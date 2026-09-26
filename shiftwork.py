@@ -181,7 +181,7 @@ class Solver():
                 vacs = data.reqVacations[n] if n < len(data.reqVacations) else []
                 self.nurses.append({
                     'requested_holidays': data.reqDayOff[n],   # 0-based days
-                    'requested_shifts': data.reqShifts[n],     # {day: shift}
+                    'requested_shifts': data.reqShifts[n],     # {day: [Shift, ...]}
                     'requested_vacations': vacs                # 0-based days (approved leave)
                 })
 
@@ -307,18 +307,24 @@ class Solver():
         soft = self.MIN_REQUEST_PERCENT < 100
         self.request_soft = []
 
-        def _add_request(n, d, shift, kind, relaxable):
-            """Force assignments[n][d][shift]==1. In soft mode a relaxable request
-            is reified with a 'satisfied' var so the solver may drop it (and we
-            track it for the report); otherwise it stays a hard constraint."""
+        def _add_request(n, d, shifts, kind, relaxable):
+            """Force assignments[n][d][s]==1 for every s in `shifts` (one request
+            cell; a double shift like ช/บ is two shifts). In soft mode a relaxable
+            request is reified with ONE 'satisfied' var so the whole cell is kept
+            or dropped together (and tracked for the report); otherwise it stays a
+            hard constraint."""
+            shifts = list(shifts) if isinstance(shifts, (list, tuple, set)) else [shifts]
             if soft and relaxable:
                 sat = self.model.NewBoolVar(f'req_{kind}_{n}_{d}')
-                self.model.Add(self.assignments[n][d][shift] == 1).OnlyEnforceIf(sat)
+                for s in shifts:
+                    self.model.Add(self.assignments[n][d][s] == 1).OnlyEnforceIf(sat)
                 self.request_soft.append(
-                    {'n': n, 'day': d, 'shift': shift, 'kind': kind, 'sat': sat}
+                    {'n': n, 'day': d, 'shift': shifts[0], 'shifts': shifts,
+                     'kind': kind, 'sat': sat}
                 )
             else:
-                self.model.Add(self.assignments[n][d][shift] == 1)
+                for s in shifts:
+                    self.model.Add(self.assignments[n][d][s] == 1)
 
         for n in range(self.num_nurses):
             if n < len(self.nurses):
@@ -329,16 +335,23 @@ class Solver():
                     # Enforced vacations are never relaxable (hard OFF); otherwise
                     # they drop like off-requests in soft mode.
                     _add_request(n, d, Shift.OFF, 'vacation', not self.ENFORCE_VACATION)
-                for d, req_shift in nurse['requested_shifts'].items():
+                for d, req_shifts in nurse['requested_shifts'].items():
+                    req_set = set(req_shifts)
+                    label = '+'.join(s.value for s in req_shifts)
                     if n in senior_indices:
                         is_weekend = d in self.weekends
-                        if is_weekend or req_shift in {Shift.EVENING, Shift.NIGHT}:
+                        if is_weekend or req_set & {Shift.EVENING, Shift.NIGHT}:
                             # Senior nurses must be DAY/OFF on weekdays and OFF on weekends.
                             # Drop any request that conflicts with this.
-                            print(f'[Info] Nurse {n} {req_shift.value} request on day {d+1} '
+                            print(f'[Info] Nurse {n} {label} request on day {d+1} '
                                   f'skipped (conflicts with senior nurse rule).')
                             continue
-                    _add_request(n, d, req_shift, 'shift', True)
+                    if n in self.new_nurse_indices and {Shift.EVENING, Shift.NIGHT} <= req_set:
+                        # New nurses may not work Evening+Night the same day (§14).
+                        print(f'[Info] Nurse {n} {label} request on day {d+1} '
+                              f'skipped (new nurse cannot work Evening + Night).')
+                        continue
+                    _add_request(n, d, req_shifts, 'shift', True)
 
         # Meeting days: nurse is assigned DAY but excluded from minimum coverage
         # count. Meetings are commitments and are never dropped.
@@ -491,7 +504,7 @@ class Solver():
           - Senior nurse on a weekend  → OFF
           - Senior nurse on a weekday  → DAY
           - Nurse has a requested OFF  → OFF  (honour the data)
-          - Nurse has a requested shift → that shift (honour the data)
+          - Nurse has a requested shift → that shift / both shifts of a double
           - All others                 → cycle (DAY, EVENING, NIGHT, OFF)
                                          via (nurse_index + day_index) % 4
         """
@@ -508,16 +521,16 @@ class Solver():
 
             for d in range(self.num_days):
                 if n in senior_indices:
-                    hint = Shift.OFF if d in self.weekends else Shift.DAY
+                    hints = {Shift.OFF if d in self.weekends else Shift.DAY}
                 elif d in off_days:
-                    hint = Shift.OFF
+                    hints = {Shift.OFF}
                 elif d in req_shifts:
-                    hint = req_shifts[d]
+                    hints = set(req_shifts[d])      # both shifts for a double request
                 else:
-                    hint = _cycle[(n + d) % 4]
+                    hints = {_cycle[(n + d) % 4]}
 
                 for s in Shift:
-                    self.model.AddHint(self.assignments[n][d][s], 1 if s == hint else 0)
+                    self.model.AddHint(self.assignments[n][d][s], 1 if s in hints else 0)
 
     def build(self):
         """Assemble the CP model: hard constraints, fairness objective, and the
@@ -575,8 +588,9 @@ class Solver():
             return
         accepted, dropped = [], []
         for e in self.request_soft:
+            shifts = e.get('shifts') or [e['shift']]
             rec = {'nurse_index': e['n'], 'day': e['day'] + 1,
-                   'shift': e['shift'].value, 'kind': e['kind']}
+                   'shift': '+'.join(s.value for s in shifts), 'kind': e['kind']}
             if self.solver.Value(e['sat']) == 1:
                 accepted.append(rec)
             else:

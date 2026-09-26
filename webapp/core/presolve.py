@@ -18,7 +18,7 @@ Mirrored as of 2026-09-26:
   §14 new nurse, §15 meetings (tier-gated), §16/§17 head+deputy,
   handleHolidaysAndReq hard-vs-soft classification, DataImporter.transform()
   token parsing, random down-sampling (sampled requests are treated as unknown)
-  and the shift-request merge (see _TOKEN_SHIFTS).
+  and double-shift cells (see _TOKEN_SHIFTS).
 """
 
 from __future__ import annotations
@@ -34,16 +34,12 @@ D, E, N = "D", "E", "N"
 _SHIFTS = (D, E, N)
 _SYMBOL = {D: "ช", E: "บ", N: "ด"}
 
-# Shifts a request cell FORCES, exactly as DataImporter.transform() + the
-# {day: shift} merge leave them when not down-sampled:
-#   'ช/บ' produces DAY and EVENING entries, and the merge keeps EVENING only;
-#   'ด/บ' produces no entry at all.
-# Keep this in lock-step with dataimporter.py (see FEATURE-GAPS / double-token bug).
+# Shifts a request cell FORCES — mirrors DataImporter.transform()'s _cell_shifts.
+# A double-shift cell is ONE request (one quota slot) for TWO shifts.
+# Keep this in lock-step with dataimporter.py (Known failure mode 9).
 _TOKEN_SHIFTS: dict[str, tuple[str, ...]] = {
-    "ช": (D,), "บ": (E,), "ด": (N,), "ช/บ": (E,), "ด/บ": (),
+    "ช": (D,), "บ": (E,), "ด": (N,), "ช/บ": (D, E), "ด/บ": (N, E),
 }
-# How many request entries a cell counts against max_req_shifts (pre-merge).
-_TOKEN_ENTRIES: dict[str, int] = {"ช": 1, "บ": 1, "ด": 1, "ช/บ": 2, "ด/บ": 0}
 
 _NEW_FLAGS = {"new", "junior", "น้องใหม่"}
 _HEAD, _DEPUTY = 0, 1
@@ -105,6 +101,8 @@ def check(si) -> PresolveReport:
             f"{len(nurses)} active nurses — within the {tier} plan"
             + (f" ({cap} max)" if cap is not None else ""))
 
+    new_idx = {n for n, x in enumerate(nurses) if x.type.strip().lower() in _NEW_FLAGS}
+
     # ── 2. Request quotas (warnings only) ────────────────────────────────────
     n_warn_before = len(rep.warnings)
     fixed: list[dict[int, _NurseDay]] = []
@@ -112,7 +110,7 @@ def check(si) -> PresolveReport:
         per_day: dict[int, _NurseDay] = {}
         offs = [d for d, t in nurse.shifts.items() if t == "off"]
         shift_cells = {d: t for d, t in nurse.shifts.items() if t in _TOKEN_SHIFTS}
-        entries = sum(_TOKEN_ENTRIES[t] for t in shift_cells.values())
+        entries = len(shift_cells)          # 1 cell = 1 request
 
         offs_sampled = len(offs) > limits["max_holidays"]
         if offs_sampled:
@@ -158,6 +156,13 @@ def check(si) -> PresolveReport:
                         f"weekends, so it will be ignored.",
                         days=[d], nurse=nurse.name))
                     continue
+                if n in new_idx and {E, N} <= forced:
+                    rep.warnings.append(Issue(
+                        "new_request",
+                        f"{nurse.name} (new nurse) asked for {tok} on day {d}; new "
+                        f"nurses can't work บ+ด the same day, so it will be ignored.",
+                        days=[d], nurse=nurse.name))
+                    continue
                 if not soft and not shifts_sampled:
                     nd.forced |= forced
         fixed.append(per_day)
@@ -197,7 +202,6 @@ def check(si) -> PresolveReport:
 
     # ── 4. Coverage: exact per-day, then consecutive-day windows ─────────────
     n_err_before = len(rep.errors)
-    new_idx = {n for n, x in enumerate(nurses) if x.type.strip().lower() in _NEW_FLAGS}
     ctx = dict(s=s, nurses=nurses, fixed=fixed, weekends=weekends,
                seniors=seniors, new_idx=new_idx)
     bad_days = set()

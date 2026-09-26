@@ -83,9 +83,9 @@ Then, in rough order of effort:
 
 ---
 
-## 5. Known bugs (found 2026-09-26, next up)
+## 5. Known bugs (found 2026-09-26)
 
-- **Double-shift requests lose a shift** — `DataImporter.transform()` emits `ช/บ` as
+- ~~**Double-shift requests lose a shift**~~ — **FIXED 2026-09-27** (`test_double_shift`). Was: `DataImporter.transform()` emits `ช/บ` as
   DAY + EVENING entries that the `{day: shift}` merge collapses to EVENING only;
   `ด/บ` emits nothing. Fix = own spec (solver-output change); update
   `presolve._TOKEN_SHIFTS/_TOKEN_ENTRIES` in the same change.
