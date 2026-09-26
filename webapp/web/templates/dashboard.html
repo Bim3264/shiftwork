@@ -9,12 +9,40 @@
   <a class="btn" href="/inputs/new">+ สร้างใหม่ / New</a>
 </div>
 
-<div class="gap-note">Wireframe <strong>1a</strong> shows one row per month
-  (ร่าง / เสร็จ / ไม่สำเร็จ). That needs a per-month Schedule entity (FEATURE-GAPS §1),
-  so for now inputs and jobs are listed separately.</div>
-
 <div class="card">
-  <h2>Recent inputs</h2>
+  <h2>เดือน / Months</h2>
+  {% if months %}
+  <table>
+    <tr><th>เดือน / Month</th><th>Ward / หอผู้ป่วย</th><th>Hospital</th>
+        <th>Nurses</th><th>Versions</th><th>Requests</th><th>Status / สถานะ</th><th></th></tr>
+    {% for row in months %}
+    <tr>
+      <td>{{ row.label }}</td>
+      <td>{{ row.ward_name or "—" }}</td>
+      <td>{{ row.hospital or "—" }}</td>
+      <td>{{ row.nurse_count }}</td>
+      <td data-versions="{{ row.versions }}">{{ row.versions }}</td>
+      <td class="muted">{{ row.requests or "—" }}</td>
+      <td><span class="pill {{ STATE_PILL.get(row.status, 'draft') }}">{{ STATE_LABELS.get(row.status, row.status) }}</span></td>
+      <td>
+        <a href="/inputs/{{ row.input_id }}/edit">แก้ไข / Edit</a>
+        {% if row.job_id %}
+        · <a href="/jobs/{{ row.job_id }}">เปิด / View</a>
+        {% endif %}
+        <form method="post" action="/inputs/{{ row.input_id }}/duplicate" style="display:inline">
+          · <button type="submit" class="link-btn">เดือนถัดไป / Next month</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">No schedules yet. Create one to get started.</p>
+  {% endif %}
+</div>
+
+<details class="card">
+  <summary><h2 style="display:inline">ข้อมูลทั้งหมด / All inputs ({{ inputs|length }})</h2></summary>
   {% if inputs %}
   <table>
     <tr><th>ID</th><th>Ward / หอผู้ป่วย</th><th>Hospital</th><th>Source</th>
@@ -35,10 +63,10 @@
   {% else %}
   <p class="muted">No inputs yet. Create one to get started.</p>
   {% endif %}
-</div>
+</details>
 
-<div class="card">
-  <h2>Recent jobs</h2>
+<details class="card">
+  <summary><h2 style="display:inline">Recent jobs</h2></summary>
   {% if jobs %}
   {% set pill = {"succeeded":"done","failed":"fail","running":"run","queued":"draft"} %}
   <table>
@@ -59,5 +87,5 @@
   {% else %}
   <p class="muted">No solve jobs yet.</p>
   {% endif %}
-</div>
+</details>
 {% endblock %}
