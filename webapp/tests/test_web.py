@@ -206,7 +206,7 @@ class MonthDashboardTests(WebTestBase):
         self._make_input(csv_text=self._CSV_WITH_MONTH)
         r = self.client.get("/")
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.text.count("\u0e01\u0e31\u0e19\u0e22\u0e32\u0e22\u0e19 2026"), 1)
+        self.assertEqual(r.text.count("กันยายน 2026"), 1)
         self.assertIn('data-versions="2"', r.text)
 
     def test_dashboard_status_pill_infeasible(self):
@@ -214,7 +214,7 @@ class MonthDashboardTests(WebTestBase):
         self._make_job(status=JobStatus.succeeded, solver_status="INFEASIBLE", input_id=input_id)
         r = self.client.get("/")
         self.assertEqual(r.status_code, 200)
-        self.assertIn("\u0e44\u0e21\u0e48\u0e2a\u0e33\u0e40\u0e23\u0e47\u0e08 / Infeasible", r.text)
+        self.assertIn("ไม่สำเร็จ / Infeasible", r.text)
 
     def test_dashboard_links_next_month(self):
         input_id = self._make_input(csv_text=self._CSV_WITH_MONTH)

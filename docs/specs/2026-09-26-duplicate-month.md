@@ -1,5 +1,5 @@
 # Duplicate last month ("Next month from this")
-Status: approved · Size: S · Date: 2026-09-26 · Owner: lead-engineer
+Status: done · Size: S · Date: 2026-09-26 · Owner: lead-engineer
 
 ## 1. Objective & interpretation
 One click creates next month's input from an existing one (wireframe 1f): same ward info, roster
@@ -65,4 +65,4 @@ Built in parallel — `2026-09-26-parallel-build.md` overrides: `next_month_inpu
 - `month_dates` or `parse_month_year` signature differs; anything reads `source` expecting only the three old values.
 
 ## 10. Report format / 11. Done log — as TEMPLATE.
-- [ ] Tests green · [ ] CODEBASE.md + FEATURE-GAPS.md updated · [ ] Status → done
+- [x] Tests green · [x] CODEBASE.md + FEATURE-GAPS.md updated · [x] Status → done

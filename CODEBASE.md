@@ -97,6 +97,19 @@ Solver params in `solve()`: `num_search_workers=os.cpu_count()`, `linearization_
 ### `core/fairness.py`
 - `fairness_stats(grid, weekend_days=None, senior_indices=None) -> dict | None` — pure derivation from a solved `result_grid` (no solver run, works on old jobs). Per-nurse Day/Evening/Night/total/off/**vac_days**/weekend counts (double cells `ช/บ`,`ด/บ` count both slots). `vac` cells (approved leave) are counted as `vac_days`, kept OUT of `off_days` (so working+off+vac == num_days), summed in `totals`, and flagged by `has_vacations`; `off_days` therefore means *discretionary* off, matching the solver. UI shows a Vac column + total only when `has_vacations`; `spread` (min/max/range/mean) computed over NON-senior nurses so day-only head/deputy don't skew the range; `totals` over everyone. Wired into `job_page`+`job_status` via `_fairness_for_job` (reads `job.input.data["settings"]` for weekends + `head_nurse_special_shift`).
 
+### `core/months.py`
+- `parse_month_year(ward_meta) -> (year, month) | None` (strings "9"/"09"; month 1..12, year > 0), `THAI_MONTHS`/`EN_MONTHS`.
+- `job_state(job)` → draft|running|done|infeasible|timeout|error (+`STATE_LABELS`, `STATE_PILL`); `month_rows(inputs, latest_job_by_input) -> [MonthRow]` — **derived** month view (no Schedule table): groups by `(ward_name.lower(), year, month)`; row = latest input (max created_at,id) + its latest job; undated inputs never merge.
+
+### `core/duplicate.py`
+- `next_month_input(si)` — "Next month from this": roster (name/type/active/order) + all settings kept, **every request cell cleared**, month+1 (Dec→Jan+1), `num_days`/`weekends` via `month_dates(y, m, [])`, `extra_holidays=[]`; undated → meta/settings copied unchanged. Pure, no mutation.
+
+### `core/presolve.py` — pre-flight checklist
+- `check(si) -> PresolveReport(errors, warnings, passed, checks_total=4)`; `Issue(code, message, days, nurse)`.
+- **Errors are sound** (solver guaranteed INFEASIBLE / crash): `tier_nurses`, `senior_meeting_weekend`, `request_transition`, `coverage_day` (exact 1-day CP-SAT relaxation), `coverage_pair` (2-day window, only when a transition rule is on). Only a PROVEN infeasible window blocks.
+- Warnings never block: `quota_off`, `quota_shift` (sampled requests treated as unknown), `tier_meetings`, `senior_request`.
+- Mirrors the solver's hard rules + importer token parsing (`_TOKEN_SHIFTS`) — see Known failure mode 9. ~0.5 s at 12 nurses × 31 days.
+
 ### `db/models.py` (SQLAlchemy 2.0)
 - `Base`, `JobStatus`(queued/running/succeeded/failed).
 - `User`(google_sub, email, name, role), `Ward`, `WardMember`(ward_id,user_id).
@@ -117,14 +130,14 @@ Solver params in `solve()`: `num_search_workers=os.cpu_count()`, `linearization_
 - `require_user` (FastAPI dependency; redirects to /login via `AuthRedirect` when logged out), `is_email_allowed`, `get_or_create_default_ward`, `user_ward_ids`, `ensure_ward_access`, `install_auth(app)` (SessionMiddleware https_only + same_site=lax; registers Google client only when auth on), `router` (/login, /auth/callback, /logout).
 
 ### `web/app.py` — FastAPI app + routes (design §12)
-`/` dashboard (inputs+jobs, ward/hospital columns; job ward resolved in-route), `/inputs/new`, `POST /inputs` (upload detects CSV vs Excel by extension + magic bytes `PK\x03\x04`: xlsx→from_xlsx (source `xlsx_upload`), csv→from_csv; grid→from_grid; size-capped; friendly ValueError), `/inputs/{id}/edit` (grid + constraint selector + tier panel), `POST /inputs/{id}` (**`request.form(max_fields=100_000)`** — grid is many fields), `POST /inputs/{id}/solve` (validate → SolveJob queued → enqueue_solve), `/jobs/{id}`, `/jobs/{id}/status` (HTMX poll fragment), `/jobs/{id}/download` (CSV **with UTF-8 BOM** for Excel/Thai), `/healthz`.
-Helpers: `_settings_from_form`, `_nurses_from_form` (reads `active_{r}`, `cell_{r}_{d}`), `_load_input`/`_load_job` (ward-scoped, 404 on foreign), `_render_edit` (passes `tier`, `ward_meta`), global `@app.exception_handler(Exception)` → logs + 500 page.
+`/` dashboard (**one row per ward+month** via `months.month_rows`; all inputs + recent jobs in `<details>`), `/inputs/new`, `POST /inputs` (upload detects CSV vs Excel by extension + magic bytes `PK\x03\x04`: xlsx→from_xlsx (source `xlsx_upload`), csv→from_csv; grid→from_grid; size-capped; friendly ValueError), `/inputs/{id}/edit` (grid + constraint selector + tier panel), `POST /inputs/{id}` (**`request.form(max_fields=100_000)`** — grid is many fields), `POST /inputs/{id}/duplicate` (next month → new row source `duplicate` → edit), `POST /inputs/{id}/check` (save form → validate → `presolve.check` → edit page with checklist), `POST /inputs/{id}/solve` (validate → **`presolve.check`: errors block with 400 + checklist, warnings don't** → SolveJob queued → enqueue_solve), `/jobs/{id}`, `/jobs/{id}/status` (HTMX poll fragment), `/jobs/{id}/download` (CSV **with UTF-8 BOM** for Excel/Thai), `/healthz`.
+Helpers: `_settings_from_form`, `_nurses_from_form` (reads `active_{r}`, `cell_{r}_{d}`), `_load_input`/`_load_job` (ward-scoped, 404 on foreign), `_render_edit` (passes `tier`, `ward_meta`, `check`), global `@app.exception_handler(Exception)` → logs + 500 page.
 
 ### `web/templates/`
-`base.html`, `dashboard.html` (ward/hospital columns), `new_input.html`, `edit_input.html` (tier panel, constraint selector incl. min_request_percent + relax_days_off, grid with Active checkbox — **cell name `cell_{{r}}_{{d}}` where `r` is captured nurse index**), `job.html`, `status_fragment.html` (grid + acceptance report; distinguishes INFEASIBLE vs timeout).
+`base.html`, `dashboard.html` (month table + Next-month button), `new_input.html`, `edit_input.html` (tier panel, constraint selector incl. min_request_percent + relax_days_off, grid with Active checkbox — **cell name `cell_{{r}}_{{d}}` where `r` is captured nurse index**), `job.html`, `status_fragment.html` (grid + acceptance report; distinguishes INFEASIBLE vs timeout).
 
 ### `webapp/tests/`
-`test_schedule_input`, `test_solver_runner`, `test_worker_tasks`, `test_web`, `test_tiers`, `test_logging`, `test_db_url`.
+`test_schedule_input`, `test_solver_runner`, `test_worker_tasks`, `test_web`, `test_tiers`, `test_logging`, `test_db_url`, `test_fairness`, `test_calendar_util`, `test_months`, `test_duplicate`, `test_presolve` (cross-checks errors against the real solver).
 Run: `python3 -m unittest discover -s webapp/tests -p "test_*.py"` (from repo root). Solver-backed tests take ~8s each.
 
 ---
@@ -172,6 +185,7 @@ Every spec's Risks section names the ones it touches; every change touching one 
 6. **Input contract**: CSV and Excel must round-trip identically through `ScheduleInput.to_solver_csv()`. Changing columns/cell semantics is an escalation.
 7. **Half-wired settings**: a setting must pass through every layer of the shiftwork-dev "add a setting" checklist (solver → dataimporter → schedule_input → app form → template → display → tests), or it silently doesn't propagate.
 8. **No redundant model structure**: completeness is already enforced by OFF implications + `must_assign`; don't re-force it (old `_assignShifts` = 1,116 redundant vars).
+9. **Pre-solve mirror drift**: `webapp/core/presolve.py` re-states the solver's HARD rules and the importer's token parsing. Any change to a hard rule, request hardness, sampling, or token semantics in `shiftwork.py`/`dataimporter.py` must update presolve in the same change, or it raises false blockers. Guarded by `test_presolve.test_no_false_blockers_vs_real_solver` / `test_errors_agree_with_real_solver`.
 
 ## Gotchas (bugs already fixed — don't reintroduce)
 - **Grid cell names**: must use captured nurse-row index (`{% set r = loop.index0 %}`), not `loop.index0` inside the day loop.

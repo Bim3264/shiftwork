@@ -1,5 +1,5 @@
 # Parallel build plan — month dashboard · duplicate month · pre-solve
-Status: approved (specs) · build not started · Date: 2026-09-26 · Owner: lead-engineer
+Status: done (specs) · build not started · Date: 2026-09-26 · Owner: lead-engineer
 
 All three features are built **at the same time**, one agent per feature, each in its own git worktree
 and branch, then merged by the lead. The three specs stay the source of truth; this file only fixes the
