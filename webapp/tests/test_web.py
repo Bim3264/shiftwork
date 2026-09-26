@@ -175,6 +175,35 @@ class HealthAndAuthRoutes(WebTestBase):
         self.assertIn("Siriraj Hospital", r.text)
 
 
+class MonthDashboardTests(WebTestBase):
+
+    _CSV_WITH_MONTH = _SAMPLE_CSV.replace(
+        "hospital,Siriraj Hospital\n",
+        "hospital,Siriraj Hospital\nmonth,9\nyear,2026\n",
+    )
+
+    def test_dashboard_one_row_per_month(self):
+        self._make_input(csv_text=self._CSV_WITH_MONTH)
+        self._make_input(csv_text=self._CSV_WITH_MONTH)
+        r = self.client.get("/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.text.count("\u0e01\u0e31\u0e19\u0e22\u0e32\u0e22\u0e19 2026"), 1)
+        self.assertIn('data-versions="2"', r.text)
+
+    def test_dashboard_status_pill_infeasible(self):
+        input_id = self._make_input(csv_text=self._CSV_WITH_MONTH)
+        self._make_job(status=JobStatus.succeeded, solver_status="INFEASIBLE", input_id=input_id)
+        r = self.client.get("/")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("\u0e44\u0e21\u0e48\u0e2a\u0e33\u0e40\u0e23\u0e47\u0e08 / Infeasible", r.text)
+
+    def test_dashboard_links_next_month(self):
+        input_id = self._make_input(csv_text=self._CSV_WITH_MONTH)
+        r = self.client.get("/")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn(f"/inputs/{input_id}/duplicate", r.text)
+
+
 class InputRoutes(WebTestBase):
 
     def test_upload_csv_creates_input_and_redirects(self):
