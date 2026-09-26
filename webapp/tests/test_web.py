@@ -437,6 +437,49 @@ class InputRoutes(WebTestBase):
         self.assertEqual(r.status_code, 404)
 
 
+class DuplicateMonthTests(WebTestBase):
+
+    def test_duplicate_creates_next_month_and_redirects(self):
+        input_id = self._make_input(csv_text=(
+            "[ward]\nmonth,9\nyear,2026\n\n"
+            "[settings]\nnum_days,7\nweekends,6 7\n\n"
+            "[schedule]\nName,Type,1,2,3,4,5,6,7\nA,senior,ช,,,,,,\n"
+        ))
+        with self.Session() as db:
+            before = db.get(ScheduleInputRow, input_id).data
+        r = self.client.post(f"/inputs/{input_id}/duplicate")
+        self.assertEqual(r.status_code, 303)
+        self.assertRegex(r.headers["location"], r"^/inputs/\d+/edit$")
+        new_id = int(r.headers["location"].split("/")[2])
+        self.assertNotEqual(new_id, input_id)
+        with self.Session() as db:
+            rows = db.query(ScheduleInputRow).all()
+            self.assertEqual(len(rows), 2)
+            new_row = db.get(ScheduleInputRow, new_id)
+            self.assertEqual(new_row.source, "duplicate")
+            self.assertEqual(new_row.data["ward_meta"]["month"], "10")
+            self.assertEqual(new_row.data["ward_meta"]["year"], "2026")
+            # Source row untouched.
+            self.assertEqual(db.get(ScheduleInputRow, input_id).data, before)
+
+    def test_duplicate_other_ward_404(self):
+        with self.Session() as db:
+            other = Ward(name="Other Ward", created_by=self.user_id)
+            db.add(other)
+            db.commit()
+            other_id = other.id
+        foreign_input = self._make_input(ward_id=other_id)
+        r = self.client.post(f"/inputs/{foreign_input}/duplicate")
+        self.assertEqual(r.status_code, 404)
+        with self.Session() as db:
+            self.assertEqual(db.query(ScheduleInputRow).count(), 1)
+
+    def test_edit_shows_next_month_button(self):
+        input_id = self._make_input()
+        r = self.client.get(f"/inputs/{input_id}/edit")
+        self.assertIn(f"/inputs/{input_id}/duplicate", r.text)
+
+
 class SolveAndJobRoutes(WebTestBase):
 
     def test_solve_creates_job_and_redirects_to_job_page(self):
