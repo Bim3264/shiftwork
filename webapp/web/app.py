@@ -24,6 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from webapp import config
+from webapp.core.duplicate import next_month_input
 from webapp.core.schedule_input import (
     VALID_CELL_TOKENS,
     Nurse,
@@ -335,6 +336,25 @@ async def autofill_dates(input_id: int, request: Request, user=Depends(require_u
     row.data = schedule_input.to_dict()
     db.commit()
     return RedirectResponse(url=f"/inputs/{row.id}/edit", status_code=303)
+
+
+@app.post("/inputs/{input_id}/duplicate")
+def duplicate_input(input_id: int, request: Request, user=Depends(require_user), db: Session = Depends(get_db)):
+    """Create next month's input from this one (roster + settings kept,
+    requests cleared, month advanced and dates recomputed when dated)."""
+    row = _load_input(db, user, input_id)
+    schedule_input = ScheduleInput.from_dict(row.data)
+    new_input = next_month_input(schedule_input)
+    new_row = ScheduleInputRow(
+        ward_id=row.ward_id,
+        created_by=user.id,
+        source="duplicate",
+        data=new_input.to_dict(),
+        original_csv=new_input.to_solver_csv(),
+    )
+    db.add(new_row)
+    db.commit()
+    return RedirectResponse(url=f"/inputs/{new_row.id}/edit", status_code=303)
 
 
 @app.post("/inputs/{input_id}/solve")
