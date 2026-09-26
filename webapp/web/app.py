@@ -31,6 +31,7 @@ from webapp.core.schedule_input import (
 )
 from webapp.core.tiers import tier_view
 from webapp.core.fairness import fairness_stats
+from webapp.core.months import STATE_LABELS, STATE_PILL, month_rows
 from webapp.db.models import (
     JobStatus,
     ScheduleInputRow,
@@ -182,7 +183,7 @@ def dashboard(request: Request, user=Depends(require_user), db: Session = Depend
             select(ScheduleInputRow)
             .where(ScheduleInputRow.ward_id.in_(ward_ids))
             .order_by(ScheduleInputRow.created_at.desc())
-            .limit(20)
+            .limit(500)
         ).scalars().all()
         jobs = db.execute(
             select(SolveJob)
@@ -210,10 +211,29 @@ def dashboard(request: Request, user=Depends(require_user), db: Session = Depend
                 "hospital": m.get("hospital", ""),
             }
 
+    # Latest job per input (all of this ward's inputs, not just the 20 most
+    # recent jobs) so month_rows can resolve each month's status correctly.
+    latest_job_by_input: dict[int, SolveJob] = {}
+    if ward_ids and inputs:
+        all_input_ids = [i.id for i in inputs]
+        all_jobs = db.execute(
+            select(SolveJob)
+            .where(SolveJob.input_id.in_(all_input_ids))
+            .order_by(SolveJob.created_at.desc(), SolveJob.id.desc())
+        ).scalars().all()
+        for j in all_jobs:
+            if j.input_id not in latest_job_by_input:
+                latest_job_by_input[j.input_id] = j
+
+    months = month_rows(inputs, latest_job_by_input)
+
     return templates.TemplateResponse(
         request,
         "dashboard.html",
-        {"user": user, "inputs": inputs, "jobs": jobs, "job_wards": job_wards},
+        {
+            "user": user, "inputs": inputs, "jobs": jobs, "job_wards": job_wards,
+            "months": months, "STATE_LABELS": STATE_LABELS, "STATE_PILL": STATE_PILL,
+        },
     )
 
 
