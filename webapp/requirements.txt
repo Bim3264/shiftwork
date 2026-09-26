@@ -1,4 +1,12 @@
-# ShiftWork web MVP dependencies (in addition to the solver's ortools + pandas).
+# ShiftWork web dependencies. run_local.bat installs ONLY this file, so it must
+# also list the solver's own deps (ortools, pandas) and openpyxl (Excel upload).
+
+# Solver
+ortools>=9.8
+pandas>=2.0
+openpyxl>=3.1
+
+# Web
 fastapi>=0.141
 uvicorn[standard]>=0.30
 jinja2>=3.1.6

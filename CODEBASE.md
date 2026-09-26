@@ -51,7 +51,7 @@ Solver params in `solve()`: `num_search_workers=os.cpu_count()`, `linearization_
 `__main__` processes every file in `input/` via `Solver(...).run()`.
 
 ### `dataimporter.py`
-- `DataImporter(filename, maxDayOff, maxReqShift)` → `.transform()`. Parses sectioned CSV `[ward]`/`[settings]`/`[schedule]` (legacy = grid only). Produces `reqShifts` (dict per nurse, **sampled down** to tier `max_req_shifts`), `reqDayOff`, `reqMeetings`, `newNurseIndices`. Enforces tier `max_nurses` (raises ValueError if exceeded). `.settings` dict, `.ward_info`, `.tier`.
+- `DataImporter(filename, maxDayOff, maxReqShift)` → `.transform()`. Parses sectioned CSV `[ward]`/`[settings]`/`[schedule]` (legacy = grid only). Produces `reqShifts` (`{day: [Shift, ...]}` per nurse — `ช/บ`/`ด/บ` = one cell, two shifts; **sampled down per cell** to tier `max_req_shifts`), `reqDayOff`, `reqMeetings`, `newNurseIndices`. Enforces tier `max_nurses` (raises ValueError if exceeded). `.settings` dict, `.ward_info`, `.tier`.
 - `TIER_LIMITS` / `LICENSE_REGISTRY` — tier definitions + Phase-0 license keys.
 - Static parsers: `_parse_sections`, `_parse_kv_section`, `_parse_weekends` (1-based→0-based; **empty string → DEFAULT weekends, not empty**).
 - `SettingLoader` (legacy defaults), `FileLoader` (scans a folder).
