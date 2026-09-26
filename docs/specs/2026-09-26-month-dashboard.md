@@ -1,5 +1,5 @@
 # Month-centric dashboard
-Status: approved · Size: M · Date: 2026-09-26 · Owner: lead-engineer
+Status: done · Size: M · Date: 2026-09-26 · Owner: lead-engineer
 
 ## 1. Objective & interpretation
 Dashboard shows **one row per (ward, month)** with a status (wireframe 1a), instead of two flat lists.
@@ -95,4 +95,5 @@ Suites: `python3 -m unittest discover -s webapp/tests -p "test_*.py"` and `pytho
 Files changed · test commands + pass/fail counts · deviations + why · open questions. No diffs.
 
 ## 11. Done / deviations log
-- [ ] Acceptance tests + suites green (run by the lead) · [ ] CODEBASE.md + FEATURE-GAPS.md updated · [ ] Status → done
+- [x] Acceptance tests + suites green (run by the lead) · [x] CODEBASE.md + FEATURE-GAPS.md updated · [x] Status → done
+- Deviations: extra query for latest job per input over all dashboard inputs (needed for correct status). Lead cleanup: Thai literals instead of \u escapes, `.link-btn` style in base.html.

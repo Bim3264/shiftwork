@@ -7,6 +7,8 @@ extends this module; duplication imports ``parse_month_year`` only.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 THAI_MONTHS: list[str] = [
     "", "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
     "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม",
@@ -34,16 +36,14 @@ def parse_month_year(ward_meta: dict | None) -> tuple[int, int] | None:
     return year, month
 
 
-from dataclasses import dataclass
-
 
 STATE_LABELS: dict[str, str] = {
-    "draft": "\u0e23\u0e48\u0e32\u0e07 / Draft",
-    "running": "\u0e01\u0e33\u0e25\u0e31\u0e07\u0e08\u0e31\u0e14 / Running",
-    "done": "\u0e40\u0e2a\u0e23\u0e47\u0e08 / Done",
-    "infeasible": "\u0e44\u0e21\u0e48\u0e2a\u0e33\u0e40\u0e23\u0e47\u0e08 / Infeasible",
-    "timeout": "\u0e2b\u0e21\u0e14\u0e40\u0e27\u0e25\u0e32 / Timed out",
-    "error": "\u0e1c\u0e34\u0e14\u0e1e\u0e25\u0e32\u0e14 / Error",
+    "draft": "ร่าง / Draft",
+    "running": "กำลังจัด / Running",
+    "done": "เสร็จ / Done",
+    "infeasible": "ไม่สำเร็จ / Infeasible",
+    "timeout": "หมดเวลา / Timed out",
+    "error": "ผิดพลาด / Error",
 }
 
 STATE_PILL: dict[str, str] = {
@@ -175,7 +175,7 @@ def month_rows(inputs, latest_job_by_input: dict) -> list["MonthRow"]:
         job = latest_job_by_input.get(inp.id)
         status = job_state(job)
         rows.append(MonthRow(
-            label="\u0e22\u0e31\u0e07\u0e44\u0e21\u0e48\u0e23\u0e30\u0e1a\u0e38\u0e40\u0e14\u0e37\u0e2d\u0e19 / No month set",
+            label="ยังไม่ระบุเดือน / No month set",
             ward_name=ward_name,
             hospital=hospital,
             year=None,

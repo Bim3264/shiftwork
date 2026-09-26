@@ -16,16 +16,17 @@ Wireframe ids (`1a`, `1k`, …) refer to options in `ShiftWork Wireframes.dc.htm
 |---|---|---|
 | **No Nurse table** | Nurses live only inside `schedule_inputs.data` JSON | `1v`, `1w` — roster CRUD, positions, leave status (ลาคลอด) |
 | **No Request entity** | Requests are cell tokens in the grid | `1k`, `1l`, `1u` — reason text, submitted-by, approved/denied state |
-| **No Schedule/month entity** | A month is `ward_meta.month` inside an input | `1a`, `1b` — one row per month; status vocabulary (draft / running / done / infeasible) |
+| **No Schedule/month entity** (dashboard now *derives* month rows — `core/months.py`) | A month is `ward_meta.month` inside an input | `1a`, `1b` — one row per month; status vocabulary (draft / running / done / infeasible) |
 | **No user ↔ nurse link** | `ward_members` maps users to wards; nothing maps a user to a nurse row | `1l` (nurse submits own request), `1q` (send schedule to a nurse) |
 
 ---
 
 ## 2. Missing routes / logic
 
-- **Duplicate last month** (`1f`) — no clone-input route.
-- **Pre-solve validation** (`1i`) — nothing checks staff-vs-coverage feasibility or
-  request quotas before solving. Today you find out by getting `INFEASIBLE`.
+- ~~**Duplicate last month** (`1f`)~~ — **DONE**. `POST /inputs/{id}/duplicate` via `core/duplicate.py` (roster + settings kept, requests cleared, dates recomputed).
+- ~~**Pre-solve validation** (`1i`)~~ — **DONE**. `core/presolve.py` checklist on
+  Check/Solve; sound errors block, quota/meeting/senior warnings don't. Not yet: live
+  per-cell highlighting and the "upgrade" call-to-action.
 - **Infeasibility diagnosis** (`1s`, `1u`) — solver returns `INFEASIBLE` + a log.
   Naming the conflicting day/constraint needs an unsat-core or assumption-based pass.
 - **Pre-run relaxations** (`1t`) — needs N solver runs with different relaxations,
@@ -65,9 +66,9 @@ Wireframe ids (`1a`, `1k`, …) refer to options in `ShiftWork Wireframes.dc.htm
 
 Cheapest high-value first — all four use data you already have:
 
-1. Month-centric dashboard (collapse inputs + jobs into one month row)
-2. Duplicate last month
-3. Pre-solve validation
+1. ~~Month-centric dashboard~~ (DONE, derived view)
+2. ~~Duplicate last month~~ (DONE)
+3. ~~Pre-solve validation~~ (DONE)
 4. ~~Fairness stats on the result screen~~ (DONE)
 
 Then, in rough order of effort:
@@ -79,3 +80,12 @@ Then, in rough order of effort:
 9. Notifications, publish/share, exports
 10. Billing / tier upgrade
 11. Pre-run relaxations, best-so-far streaming (heaviest solver work)
+
+---
+
+## 5. Known bugs (found 2026-09-26, next up)
+
+- **Double-shift requests lose a shift** — `DataImporter.transform()` emits `ช/บ` as
+  DAY + EVENING entries that the `{day: shift}` merge collapses to EVENING only;
+  `ด/บ` emits nothing. Fix = own spec (solver-output change); update
+  `presolve._TOKEN_SHIFTS/_TOKEN_ENTRIES` in the same change.

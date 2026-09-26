@@ -1,5 +1,5 @@
 # Pre-solve validation (pre-flight checklist)
-Status: approved · Size: M · Date: 2026-09-26 · Owner: lead-engineer
+Status: done · Size: M · Date: 2026-09-26 · Owner: lead-engineer
 
 ## 1. Objective & interpretation
 Before a solve is queued, run fast checks (≈0.5 s for 12 nurses × 31 days) and show a checklist
@@ -83,4 +83,5 @@ Suites: `python3 -m unittest discover -s webapp/tests -p "test_*.py"` and `pytho
 - A feasible fixture produces an error.
 
 ## 10. Report format / 11. Done log — as TEMPLATE.
-- [ ] Tests green · [ ] CODEBASE.md + FEATURE-GAPS.md updated · [ ] Status → done
+- [x] Tests green · [x] CODEBASE.md + FEATURE-GAPS.md updated · [x] Status → done
+- Deviations: `_FEASIBLE_CSV` also sets `head_nurse_special_shift,false` — the spec's recipe was itself infeasible (2 seniors of 3 nurses leave 1 nurse for 3 weekend shifts); lead's spec error, agent's fix accepted.
