@@ -57,6 +57,25 @@ NurseB,senior,ช,,,,off,,
 NurseC,,,,ด,,,,
 """
 
+# _SAMPLE_CSV with default coverage 5/3/3 weekday is certainly infeasible with
+# only 3 nurses (presolve now blocks it). Feasible variant for tests that need
+# solve_input to actually proceed: all six coverage keys down to 1 and
+# allow_night_to_day true (per spec). head_nurse_special_shift is also turned
+# off here: with only 3 nurses, 2 of them senior (NurseA/NurseB), the senior
+# weekend-off rule would leave a single nurse to cover 3 required weekend
+# shifts alone, which is genuinely infeasible (verified against the real
+# solver) regardless of coverage or transition settings.
+_FEASIBLE_CSV = _SAMPLE_CSV.replace(
+    "head_nurse_special_shift,true\n",
+    "head_nurse_special_shift,false\n"
+    "coverage_weekday_day,1\n"
+    "coverage_weekday_evening,1\n"
+    "coverage_weekday_night,1\n"
+    "coverage_weekend_day,1\n"
+    "coverage_weekend_evening,1\n"
+    "coverage_weekend_night,1\n",
+)
+
 
 class WebTestBase(unittest.TestCase):
     """Shared fixture: temp DB, a user in a shared ward, dependency overrides."""
@@ -483,7 +502,7 @@ class DuplicateMonthTests(WebTestBase):
 class SolveAndJobRoutes(WebTestBase):
 
     def test_solve_creates_job_and_redirects_to_job_page(self):
-        input_id = self._make_input()
+        input_id = self._make_input(csv_text=_FEASIBLE_CSV)
         r = self.client.post(f"/inputs/{input_id}/solve")
         self.assertEqual(r.status_code, 303)
         self.assertRegex(r.headers["location"], r"^/jobs/\d+$")
@@ -646,6 +665,71 @@ class SolveAndJobRoutes(WebTestBase):
         job_id = self._make_job(status=JobStatus.queued, ward_id=other_id)
         r = self.client.get(f"/jobs/{job_id}/status")
         self.assertEqual(r.status_code, 404)
+
+
+class PresolveRouteTests(WebTestBase):
+
+    def test_solve_blocked_by_presolve_error(self):
+        # _SAMPLE_CSV: 3 nurses vs default coverage 5/3/3 -> certainly infeasible.
+        input_id = self._make_input()
+        r = self.client.post(f"/inputs/{input_id}/solve")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("Ready to solve", r.text)
+        self.assertIn("Day 1", r.text)
+        with self.Session() as db:
+            self.assertEqual(db.query(SolveJob).count(), 0)
+        self.assertEqual(self.enqueued, [])
+
+    def test_check_route_saves_and_renders_checklist(self):
+        input_id = self._make_input()
+        r = self.client.post(
+            f"/inputs/{input_id}/check",
+            data={
+                "num_days": "7", "weekends": "6 7",
+                "allow_night_to_day": "on",
+                "head_nurse_special_shift": "on",
+                "row_count": "3",
+                "name_0": "NurseA", "type_0": "senior", "active_0": "on", "cell_0_2": "off",
+                "name_1": "NurseB", "type_1": "senior", "active_1": "on",
+                "cell_1_1": "ช", "cell_1_5": "off",
+                "name_2": "NurseC", "type_2": "", "active_2": "on", "cell_2_3": "ด",
+            },
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("checks passed", r.text)
+        with self.Session() as db:
+            data = db.get(ScheduleInputRow, input_id).data
+        self.assertEqual(data["settings"]["num_days"], 7)
+        self.assertEqual(len(data["nurses"]), 3)
+
+    def test_solve_with_warnings_only_proceeds(self):
+        # tier free (no tier declared), one nurse with 3 offs (over the free
+        # plan's 2-day quota -> quota_off warning, not hard), coverage 1/1/1,
+        # 4 nurses -> no errors, solve proceeds.
+        feasible_csv = """[settings]
+num_days,5
+weekends,
+
+coverage_weekday_day,1
+coverage_weekday_evening,1
+coverage_weekday_night,1
+coverage_weekend_day,1
+coverage_weekend_evening,1
+coverage_weekend_night,1
+
+[schedule]
+Name,Type,1,2,3,4,5
+Nurse1,,off,off,off,,
+Nurse2,,,,,,
+Nurse3,,,,,,
+Nurse4,,,,,,
+"""
+        input_id = self._make_input(csv_text=feasible_csv, source="grid")
+        r = self.client.post(f"/inputs/{input_id}/solve")
+        self.assertEqual(r.status_code, 303)
+        self.assertRegex(r.headers["location"], r"^/jobs/\d+$")
+        with self.Session() as db:
+            self.assertEqual(db.query(SolveJob).count(), 1)
 
 
 class AllowlistUnit(unittest.TestCase):
