@@ -162,6 +162,17 @@ free(8 nurses,2 req,2 hol,no mtg) · ward(15,5,5,mtg) · ward+(25) · ward pro(4
 - Local, no auth/Redis: `webapp/run_local.bat` (sets `DEV_AUTH_BYPASS=1`, `SOLVE_INLINE=1`, `SOLVER_MAX_TIME_SECONDS=90`).
 - Prod: Railway (`DEPLOY_RAILWAY.md`), `Procfile` (web + worker), `requirements.txt`, `.python-version`=3.12. Postgres via `DATABASE_URL`; Redis via `REDIS_URL`; set `AUTH_ENABLED`/`SESSION_HTTPS_ONLY`.
 
+## Known failure modes (canonical list — skills and agents point here; update ONLY here)
+Every spec's Risks section names the ones it touches; every change touching one needs its regression test.
+1. **Constraint vs request conflict → silent infeasibility.** A rule restricting which shifts a nurse may work contradicts a CSV `== 1` request → "No solution found". Add a skip-guard in `handleHolidaysAndReq`.
+2. **Senior-nurse rules cover BOTH head (index 0) AND deputy (index 1)** — `senior_indices = {HEAD_NURSE_INDEX, DEPUTY_NURSE_INDEX}` (constraint.md §16/§17).
+3. **`mtg` days**: nurse forced to Day but EXCLUDED from minimum-coverage counts.
+4. **`vac` is protected**: assigned internally as `Shift.OFF`, not down-sampled by `maxDayOff`, excluded from discretionary-off fairness (`working + off + vac == num_days`); hardness governed by `enforce_vacation` (default True).
+5. **Tier resolution**: `license_key` > declared `tier` > free; only meetings are tier-gated in code, rule toggles are all-tier.
+6. **Input contract**: CSV and Excel must round-trip identically through `ScheduleInput.to_solver_csv()`. Changing columns/cell semantics is an escalation.
+7. **Half-wired settings**: a setting must pass through every layer of the shiftwork-dev "add a setting" checklist (solver → dataimporter → schedule_input → app form → template → display → tests), or it silently doesn't propagate.
+8. **No redundant model structure**: completeness is already enforced by OFF implications + `must_assign`; don't re-force it (old `_assignShifts` = 1,116 redundant vars).
+
 ## Gotchas (bugs already fixed — don't reintroduce)
 - **Grid cell names**: must use captured nurse-row index (`{% set r = loop.index0 %}`), not `loop.index0` inside the day loop.
 - **Form field limit**: grid POST needs `request.form(max_fields=...)` (default 1000 truncates big grids).
@@ -172,4 +183,4 @@ free(8 nurses,2 req,2 hol,no mtg) · ward(15,5,5,mtg) · ward+(25) · ward pro(4
 - **weekends empty string → DEFAULT** (can't express "no weekends" via CSV).
 
 ## Design docs
-`WEB_MVP_DESIGN.md` (architecture), `DEPLOY_RAILWAY.md` (deploy). Solver dev workflow also in the `shiftwork-dev` skill (partially stale re: `main()` → now `build()/solve()/run()`).
+`WEB_MVP_DESIGN.md` (architecture), `DEPLOY_RAILWAY.md` (deploy), `docs/specs/` (one spec per feature; `TEMPLATE.md` is the format — see the lead-engineer skill). Solver dev workflow also in the `shiftwork-dev` skill (partially stale re: `main()` → now `build()/solve()/run()`).
