@@ -116,13 +116,19 @@ Max holidays a nurse may request: `MAX_REQ_HOLIDAYS = 5` (excess is randomly sam
 
 ## 8. Requested shifts
 
-**Rule:** If a nurse requests a specific shift on day `d`, that shift must be assigned.
+**Rule:** If a nurse requests a shift cell on day `d`, every shift in that cell must be assigned.
+A double-shift cell is ONE request for TWO shifts: `ช/บ` = DAY + EVENING, `ด/บ` = NIGHT + EVENING.
 
 ```
-a[n][d][req_shift] == 1    for each (d, req_shift) in nurse[n].requested_shifts
+a[n][d][s] == 1    for each (d, shifts) in nurse[n].requested_shifts, for each s in shifts
 ```
 
-Max shift requests per nurse: `MAX_REQ_SHIFT = 5` (excess is randomly sampled down).
+`requested_shifts` is `{day: [Shift, ...]}`. Max shift requests per nurse = tier `max_req_shifts`
+(≤ `MAX_REQ_SHIFT = 5`), counted **per cell**; excess cells are randomly sampled down whole.
+Soft mode (`min_request_percent < 100`): one `sat` var per cell — both shifts kept or dropped together.
+
+**Skip-guards** (request dropped, not a contradiction): head/deputy (§16/§17) asking for any cell
+on a weekend or any cell containing EVENING/NIGHT; a new nurse (§14) asking for `ด/บ`.
 
 **Location:** `handleHolidaysAndReq()`
 

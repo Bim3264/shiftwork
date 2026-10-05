@@ -57,6 +57,25 @@ NurseB,senior,ช,,,,off,,
 NurseC,,,,ด,,,,
 """
 
+# _SAMPLE_CSV with default coverage 5/3/3 weekday is certainly infeasible with
+# only 3 nurses (presolve now blocks it). Feasible variant for tests that need
+# solve_input to actually proceed: all six coverage keys down to 1 and
+# allow_night_to_day true (per spec). head_nurse_special_shift is also turned
+# off here: with only 3 nurses, 2 of them senior (NurseA/NurseB), the senior
+# weekend-off rule would leave a single nurse to cover 3 required weekend
+# shifts alone, which is genuinely infeasible (verified against the real
+# solver) regardless of coverage or transition settings.
+_FEASIBLE_CSV = _SAMPLE_CSV.replace(
+    "head_nurse_special_shift,true\n",
+    "head_nurse_special_shift,false\n"
+    "coverage_weekday_day,1\n"
+    "coverage_weekday_evening,1\n"
+    "coverage_weekday_night,1\n"
+    "coverage_weekend_day,1\n"
+    "coverage_weekend_evening,1\n"
+    "coverage_weekend_night,1\n",
+)
+
 
 class WebTestBase(unittest.TestCase):
     """Shared fixture: temp DB, a user in a shared ward, dependency overrides."""
@@ -163,6 +182,46 @@ class HealthAndAuthRoutes(WebTestBase):
         self.assertIn("Dashboard", r.text)
         self.assertIn("tester@example.com", r.text)
 
+    def test_dashboard_shows_ward_and_hospital(self):
+        # _SAMPLE_CSV carries ward "Ward 4B" / "Siriraj Hospital". Both the
+        # inputs table (from data) and the jobs table (resolved in the route)
+        # should display them.
+        input_id = self._make_input()
+        self._make_job(status=JobStatus.succeeded, input_id=input_id)
+        r = self.client.get("/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.text.count("Ward 4B") >= 2, True)  # inputs + jobs rows
+        self.assertIn("Siriraj Hospital", r.text)
+
+
+class MonthDashboardTests(WebTestBase):
+
+    _CSV_WITH_MONTH = _SAMPLE_CSV.replace(
+        "hospital,Siriraj Hospital\n",
+        "hospital,Siriraj Hospital\nmonth,9\nyear,2026\n",
+    )
+
+    def test_dashboard_one_row_per_month(self):
+        self._make_input(csv_text=self._CSV_WITH_MONTH)
+        self._make_input(csv_text=self._CSV_WITH_MONTH)
+        r = self.client.get("/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.text.count("กันยายน 2026"), 1)
+        self.assertIn('data-versions="2"', r.text)
+
+    def test_dashboard_status_pill_infeasible(self):
+        input_id = self._make_input(csv_text=self._CSV_WITH_MONTH)
+        self._make_job(status=JobStatus.succeeded, solver_status="INFEASIBLE", input_id=input_id)
+        r = self.client.get("/")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("ไม่สำเร็จ / Infeasible", r.text)
+
+    def test_dashboard_links_next_month(self):
+        input_id = self._make_input(csv_text=self._CSV_WITH_MONTH)
+        r = self.client.get("/")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn(f"/inputs/{input_id}/duplicate", r.text)
+
 
 class InputRoutes(WebTestBase):
 
@@ -182,6 +241,34 @@ class InputRoutes(WebTestBase):
             self.assertEqual(rows[0].ward_id, self.ward_id)
             self.assertEqual(rows[0].data["settings"]["num_days"], 7)
             self.assertEqual(len(rows[0].data["nurses"]), 3)
+
+    def test_upload_xlsx_creates_input_and_redirects(self):
+        import io, openpyxl
+        wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Roster"
+        ws["A5"]="Ward name / x"; ws["C5"]="XlsxWard"
+        ws["A11"]="Plan / x";     ws["C11"]="ward"
+        ws["H5"]="Days in month / x"; ws["P5"]=5
+        ws["A16"]="Nurse"; ws["B16"]="Type"
+        for i, d in enumerate(range(1, 6)):
+            ws.cell(row=16, column=3+i, value=d)
+        ws["A18"]="Alice"; ws["B18"]="senior"; ws["E18"]="vac"
+        ws["A19"]="Bob";   ws["B19"]="new";    ws["D19"]="off"
+        buf=io.BytesIO(); wb.save(buf)
+        r = self.client.post(
+            "/inputs",
+            data={"source": "csv_upload"},
+            files={"file": ("roster.xlsx", buf.getvalue(),
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        )
+        self.assertEqual(r.status_code, 303)
+        self.assertRegex(r.headers["location"], r"^/inputs/\d+/edit$")
+        with self.Session() as db:
+            rows = db.query(ScheduleInputRow).all()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0].source, "xlsx_upload")
+            self.assertEqual(rows[0].data["settings"]["num_days"], 5)
+            self.assertEqual([n["name"] for n in rows[0].data["nurses"]], ["Alice", "Bob"])
+            self.assertEqual(rows[0].data["nurses"][0]["shifts"]["3"], "vac")
 
     def test_upload_without_file_shows_friendly_error(self):
         r = self.client.post("/inputs", data={"source": "csv_upload"})
@@ -204,6 +291,69 @@ class InputRoutes(WebTestBase):
         self.assertNotIn("checked", evening_to_night)
         # enable_meetings is present but read-only/disabled, never a live field.
         self.assertNotIn('name="enable_meetings"', r.text)
+        # Soft-request option is present.
+        self.assertIn('name="min_request_percent"', r.text)
+        self.assertIn('name="relax_days_off"', r.text)
+
+    def test_autofill_from_month_sets_days_and_weekends(self):
+        input_id = self._make_input()
+        r = self.client.post(
+            f"/inputs/{input_id}/autofill",
+            data={"month": "4", "year": "2026", "num_days": "31",
+                  "weekends": "", "row_count": "0"},
+        )
+        self.assertEqual(r.status_code, 303)
+        with self.Session() as db:
+            s = db.get(ScheduleInputRow, input_id).data["settings"]
+        self.assertEqual(s["num_days"], 30)      # April 2026 has 30 days
+        self.assertIn(6, s["weekends"])          # Chakri Memorial Day merged in
+
+    def test_autofill_requires_valid_month_year(self):
+        input_id = self._make_input()
+        r = self.client.post(
+            f"/inputs/{input_id}/autofill",
+            data={"month": "", "year": "", "num_days": "31", "row_count": "0"},
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("valid month", r.text)
+
+    def test_edit_page_shows_coverage_inputs(self):
+        input_id = self._make_input()
+        r = self.client.get(f"/inputs/{input_id}/edit")
+        for name in ("coverage_weekday_day", "coverage_weekday_night",
+                     "coverage_weekend_evening"):
+            self.assertIn(f'name="{name}"', r.text)
+        self.assertIn('value="5"', r.text)   # default weekday day
+
+    def test_update_saves_coverage_settings(self):
+        input_id = self._make_input()
+        r = self.client.post(
+            f"/inputs/{input_id}",
+            data={"num_days": "7", "weekends": "6 7",
+                  "head_nurse_special_shift": "on",
+                  "coverage_weekday_day": "6", "coverage_weekend_night": "1",
+                  "row_count": "0"},
+        )
+        self.assertEqual(r.status_code, 303)
+        with self.Session() as db:
+            s = db.get(ScheduleInputRow, input_id).data["settings"]
+        self.assertEqual(s["coverage_weekday_day"], 6)
+        self.assertEqual(s["coverage_weekend_night"], 1)
+
+    def test_update_saves_soft_request_settings(self):
+        input_id = self._make_input()
+        r = self.client.post(
+            f"/inputs/{input_id}",
+            data={"num_days": "7", "weekends": "6 7",
+                  "head_nurse_special_shift": "on",
+                  "min_request_percent": "80", "relax_days_off": "on",
+                  "row_count": "0"},
+        )
+        self.assertEqual(r.status_code, 303)
+        with self.Session() as db:
+            s = db.get(ScheduleInputRow, input_id).data["settings"]
+        self.assertEqual(s["min_request_percent"], 80)
+        self.assertTrue(s["relax_days_off"])
 
     def test_update_input_persists_settings_and_grid(self):
         input_id = self._make_input()
@@ -226,6 +376,74 @@ class InputRoutes(WebTestBase):
         self.assertEqual(len(data["nurses"]), 2)
         self.assertEqual(data["nurses"][0]["shifts"]["1"], "off")
 
+    def test_edit_page_shows_tier_panel(self):
+        input_id = self._make_input()  # _SAMPLE_CSV has no tier -> free
+        r = self.client.get(f"/inputs/{input_id}/edit")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("Constraint options on this tier", r.text)
+        self.assertIn("Tier:", r.text)
+        self.assertIn("free", r.text)                 # resolved tier
+        self.assertIn("Unavailable", r.text)          # meetings gated on free
+
+    _GRID_CSV = (
+        "[settings]\nnum_days,7\nweekends,6 7\nhead_nurse_special_shift,true\n"
+        "[schedule]\nName,Type,1,2,3,4,5,6,7\n"
+        "A,senior,,ช,,,,,\nB,senior,,,,,,,\nC,,,,,,,,off\n"
+    )
+
+    def test_edit_grid_cell_names_are_per_nurse_per_day(self):
+        # Regression: cell inputs must be named cell_<nurse>_<day>, unique per
+        # nurse. The old bug used the day-loop index, so with 3 nurses it emitted
+        # cell_6_7 (a 7th row that doesn't exist) and never cell_0_7 / cell_2_7.
+        input_id = self._make_input(csv_text=self._GRID_CSV, source="csv_upload")
+        r = self.client.get(f"/inputs/{input_id}/edit")
+        for good in ('name="cell_0_1"', 'name="cell_0_7"',
+                     'name="cell_1_1"', 'name="cell_2_7"',
+                     'name="active_0"', 'name="active_2"'):
+            self.assertIn(good, r.text, f"missing {good}")
+        self.assertNotIn('name="cell_6_7"', r.text)   # buggy day-indexed artifact
+
+    def test_edit_form_round_trip_preserves_data(self):
+        # Render the page, resubmit exactly what it rendered, and confirm the
+        # shifts survive — the real browser path the direct-POST tests skipped.
+        input_id = self._make_input(csv_text=self._GRID_CSV, source="csv_upload")
+        rendered = self.client.get(f"/inputs/{input_id}/edit").text
+        fields = _extract_form_fields(rendered)
+        r = self.client.post(f"/inputs/{input_id}", data=fields)
+        self.assertEqual(r.status_code, 303)
+        with self.Session() as db:
+            data = db.get(ScheduleInputRow, input_id).data
+        by = {n["name"]: n for n in data["nurses"]}
+        self.assertEqual(by["A"]["shifts"].get("2"), "ช")   # preserved
+        self.assertEqual(by["C"]["shifts"].get("7"), "off")
+        # All three still active (checkboxes were rendered checked).
+        self.assertTrue(all(by[n]["active"] for n in ("A", "B", "C")))
+
+    def test_save_can_disable_a_nurse_without_deleting(self):
+        input_id = self._make_input()  # NurseA, NurseB, NurseC
+        r = self.client.post(
+            f"/inputs/{input_id}",
+            data={
+                "num_days": "7", "weekends": "6 7",
+                "head_nurse_special_shift": "on",
+                "row_count": "3",
+                "name_0": "NurseA", "type_0": "senior", "active_0": "on",
+                "name_1": "NurseB", "type_1": "senior", "active_1": "on",
+                # NurseC: name kept, but active checkbox omitted => disabled.
+                "name_2": "NurseC", "type_2": "",
+            },
+        )
+        self.assertEqual(r.status_code, 303)
+        with self.Session() as db:
+            nurses = db.get(ScheduleInputRow, input_id).data["nurses"]
+        by_name = {n["name"]: n for n in nurses}
+        self.assertTrue(by_name["NurseA"]["active"])
+        self.assertIn("NurseC", by_name)                 # not deleted
+        self.assertFalse(by_name["NurseC"]["active"])     # just disabled
+        # The tier panel's nurse count reflects active nurses (2 of 3 now).
+        panel = self.client.get(f"/inputs/{input_id}/edit").text
+        self.assertIn("Nurses: 2 /", panel)
+
     def test_edit_page_ward_scoped_404_for_other_ward(self):
         # Input in a ward the user is NOT a member of.
         with self.Session() as db:
@@ -238,10 +456,53 @@ class InputRoutes(WebTestBase):
         self.assertEqual(r.status_code, 404)
 
 
+class DuplicateMonthTests(WebTestBase):
+
+    def test_duplicate_creates_next_month_and_redirects(self):
+        input_id = self._make_input(csv_text=(
+            "[ward]\nmonth,9\nyear,2026\n\n"
+            "[settings]\nnum_days,7\nweekends,6 7\n\n"
+            "[schedule]\nName,Type,1,2,3,4,5,6,7\nA,senior,ช,,,,,,\n"
+        ))
+        with self.Session() as db:
+            before = db.get(ScheduleInputRow, input_id).data
+        r = self.client.post(f"/inputs/{input_id}/duplicate")
+        self.assertEqual(r.status_code, 303)
+        self.assertRegex(r.headers["location"], r"^/inputs/\d+/edit$")
+        new_id = int(r.headers["location"].split("/")[2])
+        self.assertNotEqual(new_id, input_id)
+        with self.Session() as db:
+            rows = db.query(ScheduleInputRow).all()
+            self.assertEqual(len(rows), 2)
+            new_row = db.get(ScheduleInputRow, new_id)
+            self.assertEqual(new_row.source, "duplicate")
+            self.assertEqual(new_row.data["ward_meta"]["month"], "10")
+            self.assertEqual(new_row.data["ward_meta"]["year"], "2026")
+            # Source row untouched.
+            self.assertEqual(db.get(ScheduleInputRow, input_id).data, before)
+
+    def test_duplicate_other_ward_404(self):
+        with self.Session() as db:
+            other = Ward(name="Other Ward", created_by=self.user_id)
+            db.add(other)
+            db.commit()
+            other_id = other.id
+        foreign_input = self._make_input(ward_id=other_id)
+        r = self.client.post(f"/inputs/{foreign_input}/duplicate")
+        self.assertEqual(r.status_code, 404)
+        with self.Session() as db:
+            self.assertEqual(db.query(ScheduleInputRow).count(), 1)
+
+    def test_edit_shows_next_month_button(self):
+        input_id = self._make_input()
+        r = self.client.get(f"/inputs/{input_id}/edit")
+        self.assertIn(f"/inputs/{input_id}/duplicate", r.text)
+
+
 class SolveAndJobRoutes(WebTestBase):
 
     def test_solve_creates_job_and_redirects_to_job_page(self):
-        input_id = self._make_input()
+        input_id = self._make_input(csv_text=_FEASIBLE_CSV)
         r = self.client.post(f"/inputs/{input_id}/solve")
         self.assertEqual(r.status_code, 303)
         self.assertRegex(r.headers["location"], r"^/jobs/\d+$")
@@ -263,7 +524,7 @@ class SolveAndJobRoutes(WebTestBase):
         input_id = self._make_input(csv_text=bad_csv, source="grid")
         r = self.client.post(f"/inputs/{input_id}/solve")
         self.assertEqual(r.status_code, 400)
-        self.assertIn("at least 2 nurses", r.text)
+        self.assertIn("at least 2 active nurses", r.text)
         with self.Session() as db:
             self.assertEqual(db.query(SolveJob).count(), 0)
 
@@ -290,6 +551,49 @@ class SolveAndJobRoutes(WebTestBase):
         # Terminal state => no further polling attribute.
         self.assertNotIn("every 2s", r.text)
 
+    def test_status_fragment_shows_fairness_stats(self):
+        # 4 nurses: 0/1 are day-only seniors (excluded from the range by the
+        # default head_nurse_special_shift rule); 2/3 differ in night load.
+        grid = {"days": [1, 2], "rows": [
+            {"nurse_index": 0, "name": "Head",   "cells": ["ช", "ช"]},
+            {"nurse_index": 1, "name": "Deputy", "cells": ["ช", "ช"]},
+            {"nurse_index": 2, "name": "NurseC", "cells": ["ด", "ด"]},
+            {"nurse_index": 3, "name": "NurseD", "cells": ["ด", "off"]},
+        ]}
+        job_id = self._make_job(
+            status=JobStatus.succeeded, solver_status="OPTIMAL",
+            result_grid=grid, result_csv="idx,1,2\n",
+        )
+        r = self.client.get(f"/jobs/{job_id}/status")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("Fairness", r.text)
+        self.assertIn("ช Day", r.text)                 # per-nurse table header
+        self.assertIn("· senior", r.text)              # seniors tagged in table
+        self.assertIn("excludes 2 day-only seniors", r.text)  # spread caption
+
+    def test_status_fragment_shows_request_acceptance_report(self):
+        grid = {
+            "days": [1, 2],
+            "rows": [{"nurse_index": 0, "name": "A", "cells": ["ช", "off"]}],
+            "request_report": {
+                "total": 4, "accepted": 2, "percent": 50.0,
+                "dropped": [
+                    {"name": "N1", "day": 1, "shift": "off", "kind": "holiday"},
+                    {"name": "N2", "day": 1, "shift": "off", "kind": "holiday"},
+                ],
+            },
+        }
+        job_id = self._make_job(
+            status=JobStatus.succeeded, solver_status="OPTIMAL",
+            result_grid=grid, result_csv="x",
+        )
+        r = self.client.get(f"/jobs/{job_id}/status")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("Accepted", r.text)
+        self.assertIn("2/4", r.text)
+        self.assertIn("50", r.text)
+        self.assertIn("N1", r.text)          # a dropped request is listed
+
     def test_status_fragment_infeasible(self):
         job_id = self._make_job(
             status=JobStatus.succeeded, solver_status="INFEASIBLE",
@@ -298,8 +602,21 @@ class SolveAndJobRoutes(WebTestBase):
         r = self.client.get(f"/jobs/{job_id}/status")
         self.assertEqual(r.status_code, 200)
         self.assertIn("No feasible schedule", r.text)
-        self.assertIn("INFEASIBLE", r.text)
+        self.assertIn("proved", r.text)            # distinguishes from a timeout
+        self.assertNotIn("ran out of time", r.text)
         self.assertNotIn("every 2s", r.text)
+
+    def test_status_fragment_timeout_is_not_called_infeasible(self):
+        # UNKNOWN = ran out of time, NOT a proven contradiction. Must be shown
+        # differently from INFEASIBLE so the user knows to raise the time limit.
+        job_id = self._make_job(
+            status=JobStatus.succeeded, solver_status="UNKNOWN",
+            result_grid=None,
+        )
+        r = self.client.get(f"/jobs/{job_id}/status")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("ran out of time", r.text)
+        self.assertNotIn("No feasible schedule", r.text)
 
     def test_status_fragment_failed(self):
         job_id = self._make_job(
@@ -350,6 +667,71 @@ class SolveAndJobRoutes(WebTestBase):
         self.assertEqual(r.status_code, 404)
 
 
+class PresolveRouteTests(WebTestBase):
+
+    def test_solve_blocked_by_presolve_error(self):
+        # _SAMPLE_CSV: 3 nurses vs default coverage 5/3/3 -> certainly infeasible.
+        input_id = self._make_input()
+        r = self.client.post(f"/inputs/{input_id}/solve")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("Ready to solve", r.text)
+        self.assertIn("Day 1", r.text)
+        with self.Session() as db:
+            self.assertEqual(db.query(SolveJob).count(), 0)
+        self.assertEqual(self.enqueued, [])
+
+    def test_check_route_saves_and_renders_checklist(self):
+        input_id = self._make_input()
+        r = self.client.post(
+            f"/inputs/{input_id}/check",
+            data={
+                "num_days": "7", "weekends": "6 7",
+                "allow_night_to_day": "on",
+                "head_nurse_special_shift": "on",
+                "row_count": "3",
+                "name_0": "NurseA", "type_0": "senior", "active_0": "on", "cell_0_2": "off",
+                "name_1": "NurseB", "type_1": "senior", "active_1": "on",
+                "cell_1_1": "ช", "cell_1_5": "off",
+                "name_2": "NurseC", "type_2": "", "active_2": "on", "cell_2_3": "ด",
+            },
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("checks passed", r.text)
+        with self.Session() as db:
+            data = db.get(ScheduleInputRow, input_id).data
+        self.assertEqual(data["settings"]["num_days"], 7)
+        self.assertEqual(len(data["nurses"]), 3)
+
+    def test_solve_with_warnings_only_proceeds(self):
+        # tier free (no tier declared), one nurse with 3 offs (over the free
+        # plan's 2-day quota -> quota_off warning, not hard), coverage 1/1/1,
+        # 4 nurses -> no errors, solve proceeds.
+        feasible_csv = """[settings]
+num_days,5
+weekends,
+
+coverage_weekday_day,1
+coverage_weekday_evening,1
+coverage_weekday_night,1
+coverage_weekend_day,1
+coverage_weekend_evening,1
+coverage_weekend_night,1
+
+[schedule]
+Name,Type,1,2,3,4,5
+Nurse1,,off,off,off,,
+Nurse2,,,,,,
+Nurse3,,,,,,
+Nurse4,,,,,,
+"""
+        input_id = self._make_input(csv_text=feasible_csv, source="grid")
+        r = self.client.post(f"/inputs/{input_id}/solve")
+        self.assertEqual(r.status_code, 303)
+        self.assertRegex(r.headers["location"], r"^/jobs/\d+$")
+        with self.Session() as db:
+            self.assertEqual(db.query(SolveJob).count(), 1)
+
+
 class AllowlistUnit(unittest.TestCase):
     """Pure unit tests for the allowlist gate."""
 
@@ -382,6 +764,30 @@ class AllowlistUnit(unittest.TestCase):
         config.ALLOWED_EMAILS = {"ok@example.com"}
         config.ALLOWED_DOMAIN = ""
         self.assertFalse(auth_module.is_email_allowed(""))
+
+
+def _extract_form_fields(html: str) -> dict:
+    """Parse <input> fields from rendered HTML into a form-data dict, the way a
+    browser would submit them: text/number/hidden by value, checkboxes only when
+    checked, and never disabled/nameless inputs."""
+    import re
+    fields: dict = {}
+    for tag in re.findall(r"<input\b[^>]*>", html):
+        if "disabled" in tag:
+            continue
+        m = re.search(r'name="([^"]*)"', tag)
+        if not m:
+            continue
+        name = m.group(1)
+        itype = (re.search(r'type="([^"]*)"', tag) or [None, "text"])[1] \
+            if re.search(r'type="([^"]*)"', tag) else "text"
+        if itype == "checkbox":
+            if re.search(r"\bchecked\b", tag):
+                fields[name] = "on"
+        else:
+            v = re.search(r'value="([^"]*)"', tag)
+            fields[name] = v.group(1) if v else ""
+    return fields
 
 
 def _checkbox_block(html: str, name: str) -> str:
