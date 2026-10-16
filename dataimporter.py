@@ -179,6 +179,7 @@ class DataImporter():
 
         self.reqShifts       = []
         self.reqDayOff       = []
+        self.reqVacations    = []
         self.reqMeetings     = []
         self.newNurseIndices = []
 
@@ -220,6 +221,15 @@ class DataImporter():
             'allow_night_to_day':       raw_settings.get('allow_night_to_day',     'false').lower() == 'true',
             'head_nurse_special_shift': raw_settings.get('head_nurse_special_shift', 'true').lower() == 'true',
             'enable_meetings':          self.enable_meetings,
+            'min_request_percent':      int(str(raw_settings.get('min_request_percent', 100)).strip() or 100),
+            'relax_days_off':           raw_settings.get('relax_days_off', 'false').lower() == 'true',
+            'enforce_vacation':         raw_settings.get('enforce_vacation', 'true').lower() == 'true',
+            'coverage_weekday_day':     int(str(raw_settings.get('coverage_weekday_day', 5)).strip() or 5),
+            'coverage_weekday_evening': int(str(raw_settings.get('coverage_weekday_evening', 3)).strip() or 3),
+            'coverage_weekday_night':   int(str(raw_settings.get('coverage_weekday_night', 3)).strip() or 3),
+            'coverage_weekend_day':     int(str(raw_settings.get('coverage_weekend_day', 4)).strip() or 4),
+            'coverage_weekend_evening': int(str(raw_settings.get('coverage_weekend_evening', 2)).strip() or 2),
+            'coverage_weekend_night':   int(str(raw_settings.get('coverage_weekend_night', 2)).strip() or 2),
         }
 
         # Build schedule DataFrame from [schedule] section (or whole file for legacy)
@@ -258,7 +268,8 @@ class DataImporter():
     def transform(self):
         """Transform the schedule grid into structured inputs for the solver.
 
-        Populates reqShifts, reqDayOff, reqMeetings, and newNurseIndices.
+        Populates reqShifts ({day: [Shift, ...]} per nurse), reqDayOff, reqMeetings,
+        and newNurseIndices.
         Meeting cells ('mtg') are silently ignored on the Free tier.
         Excess requests beyond configured maximums are randomly sampled down.
         """
@@ -270,14 +281,20 @@ class DataImporter():
                 if self.clean(row.get("Type", "")).lower() in _new_flags:
                     self.newNurseIndices.append(idx)
 
-        _day_vals  = {self.clean(LocaleShift.DAY.value),
-                      self.clean(LocaleShift.DAY_EVENING.value)}
-        _eve_vals  = {LocaleShift.EVENING.value, LocaleShift.DAY_EVENING.value}
-        _night_val = LocaleShift.NIGHT.value
+        # Shifts each request cell asks for. A double-shift cell (ช/บ, ด/บ) is ONE
+        # request for TWO shifts: it is sampled against the quota as one cell and
+        # the solver honours (or, in soft mode, drops) both shifts together.
+        _cell_shifts = {
+            LocaleShift.DAY.value:           [Shift.DAY],
+            LocaleShift.EVENING.value:       [Shift.EVENING],
+            LocaleShift.NIGHT.value:         [Shift.NIGHT],
+            LocaleShift.DAY_EVENING.value:   [Shift.DAY, Shift.EVENING],
+            LocaleShift.NIGHT_EVENING.value: [Shift.NIGHT, Shift.EVENING],
+        }
 
         for index, row in self.df.iterrows():
-            days_off, meeting_days = [], []
-            day_shift, evening_shift, night_shift = [], [], []
+            days_off, vacations, meeting_days = [], [], []
+            shift_cells = []   # [(day_idx, [Shift, ...])], one entry per request cell
 
             for col in day_cols:
                 val = self.clean(row[col])
@@ -288,36 +305,24 @@ class DataImporter():
 
                 if val_lower == "off":
                     days_off.append(day_idx)
+                elif val_lower == "vac":
+                    vacations.append(day_idx)
                 elif val_lower == "mtg":
                     if self.enable_meetings:
                         meeting_days.append(day_idx)
                     # Free tier: mtg treated as blank
-                else:
-                    if val in _day_vals:
-                        day_shift.append(day_idx)
-                    if val in _eve_vals:
-                        evening_shift.append(day_idx)
-                    if val == _night_val:
-                        night_shift.append(day_idx)
+                elif val in _cell_shifts:
+                    shift_cells.append((day_idx, list(_cell_shifts[val])))
 
-            group = []
-            for day in day_shift:
-                group.append({day: Shift.DAY})
-            self.reqShifts.append(group)
-            for day in evening_shift:
-                self.reqShifts[index].append({day: Shift.EVENING})
-            for day in night_shift:
-                self.reqShifts[index].append({day: Shift.NIGHT})
+            # Excess shift requests are sampled down per CELL (1 cell = 1 request).
+            sampled = self.sample(shift_cells, self.maxReqShift)
+            self.reqShifts.append({day: shifts for day, shifts in sampled})
 
             self.reqDayOff.append(self.sample(days_off, self.maxDayOff))
+            # Vacations are approved leave: never randomly down-sampled like off-requests.
+            self.reqVacations.append(vacations)
             self.reqMeetings.append(meeting_days)
 
-        for n in range(len(self.reqShifts)):
-            sampled = self.sample(self.reqShifts[n], self.maxReqShift)
-            merged = {}
-            for d in sampled:
-                merged.update(d)
-            self.reqShifts[n] = merged
 
         return self
 

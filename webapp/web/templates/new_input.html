@@ -1,25 +1,27 @@
 {% extends "base.html" %}
 {% block title %}New schedule — ShiftWork{% endblock %}
 {% block content %}
-<h1>New schedule</h1>
+<h1>สร้างตารางใหม่ / New schedule</h1>
 {% if error %}<div class="error">{{ error }}</div>{% endif %}
 
-<fieldset>
-  <legend>Upload a CSV</legend>
-  <p class="muted">Sectioned ShiftWork CSV ([ward] / [settings] / [schedule]).</p>
+<div class="card" style="border-color:var(--teal)">
+  <h2>อัปโหลด CSV หรือ Excel / Upload a CSV or Excel file</h2>
+  <p class="muted">A ShiftWork roster template (.xlsx) or a sectioned CSV ([ward] / [settings] / [schedule]).</p>
   <form action="/inputs" method="post" enctype="multipart/form-data">
     <input type="hidden" name="source" value="csv_upload">
-    <input type="file" name="file" accept=".csv">
-    <button class="btn" type="submit">Upload</button>
+    <input type="file" name="file" accept=".csv,.xlsx,.xlsm">
+    <button class="btn" type="submit">อัปโหลด / Upload</button>
   </form>
-</fieldset>
+</div>
 
-<fieldset>
-  <legend>Start from a blank grid</legend>
+<div class="card">
+  <h2>เริ่มจากตารางว่าง / Start from a blank grid</h2>
   <p class="muted">Create an empty input with default settings and edit it in the browser.</p>
+  <div class="gap-note">In-browser add/remove of nurse rows (wireframe 1v) is
+    minimal — uploading a CSV populates the grid best for now (FEATURE-GAPS §2).</div>
   <form action="/inputs" method="post">
     <input type="hidden" name="source" value="grid">
     <button class="btn secondary" type="submit">Start blank grid</button>
   </form>
-</fieldset>
+</div>
 {% endblock %}

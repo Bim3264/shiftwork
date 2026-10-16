@@ -24,11 +24,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from webapp import config
+from webapp.core.duplicate import next_month_input
 from webapp.core.schedule_input import (
     VALID_CELL_TOKENS,
     Nurse,
     ScheduleInput,
 )
+from webapp.core import presolve
+from webapp.core.tiers import tier_view
+from webapp.core.fairness import fairness_stats
+from webapp.core.months import STATE_LABELS, STATE_PILL, month_rows
 from webapp.db.models import (
     JobStatus,
     ScheduleInputRow,
@@ -105,7 +110,37 @@ def _settings_from_form(form) -> dict:
         "allow_evening_to_night": form.get("allow_evening_to_night") is not None,
         "allow_night_to_day": form.get("allow_night_to_day") is not None,
         "head_nurse_special_shift": form.get("head_nurse_special_shift") is not None,
+        "min_request_percent": form.get("min_request_percent", "100"),
+        "relax_days_off": form.get("relax_days_off") is not None,
+        "enforce_vacation": form.get("enforce_vacation") is not None,
+        "coverage_weekday_day": form.get("coverage_weekday_day", "5"),
+        "coverage_weekday_evening": form.get("coverage_weekday_evening", "3"),
+        "coverage_weekday_night": form.get("coverage_weekday_night", "3"),
+        "coverage_weekend_day": form.get("coverage_weekend_day", "4"),
+        "coverage_weekend_evening": form.get("coverage_weekend_evening", "2"),
+        "coverage_weekend_night": form.get("coverage_weekend_night", "2"),
+        "extra_holidays": form.get("extra_holidays", ""),
     }
+
+
+def _schedule_input_from_form(form, row) -> ScheduleInput:
+    """Build a ScheduleInput from a submitted edit form (settings + grid + the
+    month/year in ward_meta). Shared by save and auto-fill."""
+    raw_settings = _settings_from_form(form)
+    try:
+        num_days = int(raw_settings["num_days"])
+    except (TypeError, ValueError):
+        num_days = ScheduleInput.from_dict(row.data).settings["num_days"]
+        raw_settings["num_days"] = num_days
+    nurses = _nurses_from_form(form, num_days)
+    ward_meta = dict(ScheduleInput.from_dict(row.data).ward_meta)
+    for key in ("month", "year"):
+        v = form.get(key)
+        if v is not None and str(v).strip() != "":
+            ward_meta[key] = str(v).strip()
+    return ScheduleInput.from_grid(
+        ward_meta=ward_meta, settings=raw_settings, nurses=nurses
+    )
 
 
 def _nurses_from_form(form, num_days: int) -> list[Nurse]:
@@ -120,6 +155,8 @@ def _nurses_from_form(form, num_days: int) -> list[Nurse]:
         if not name:
             continue
         ntype = (form.get(f"type_{r}") or "").strip()
+        # Checkbox present-iff-checked; a disabled nurse is kept but not solved.
+        active = form.get(f"active_{r}") is not None
         shifts: dict[int, str] = {}
         for d in range(1, num_days + 1):
             raw = (form.get(f"cell_{r}_{d}") or "").strip()
@@ -128,7 +165,7 @@ def _nurses_from_form(form, num_days: int) -> list[Nurse]:
             # Match the CSV path: control words are lowercased, symbols kept.
             token = raw.lower() if raw.lower() in {"off", "mtg"} else raw
             shifts[d] = token
-        nurses.append(Nurse(name=name, type=ntype, shifts=shifts))
+        nurses.append(Nurse(name=name, type=ntype, shifts=shifts, active=active))
     return nurses
 
 
@@ -148,7 +185,7 @@ def dashboard(request: Request, user=Depends(require_user), db: Session = Depend
             select(ScheduleInputRow)
             .where(ScheduleInputRow.ward_id.in_(ward_ids))
             .order_by(ScheduleInputRow.created_at.desc())
-            .limit(20)
+            .limit(500)
         ).scalars().all()
         jobs = db.execute(
             select(SolveJob)
@@ -156,10 +193,49 @@ def dashboard(request: Request, user=Depends(require_user), db: Session = Depend
             .order_by(SolveJob.created_at.desc())
             .limit(20)
         ).scalars().all()
+
+    # Resolve ward name/hospital for each job from its input's stored metadata
+    # (jobs don't carry it directly). Done here, not in the template, to avoid
+    # lazy relationship loads during rendering.
+    job_wards: dict[int, dict] = {}
+    job_input_ids = {j.input_id for j in jobs}
+    if job_input_ids:
+        meta_by_input = {
+            r.id: (r.data or {}).get("ward_meta", {})
+            for r in db.execute(
+                select(ScheduleInputRow).where(ScheduleInputRow.id.in_(job_input_ids))
+            ).scalars().all()
+        }
+        for j in jobs:
+            m = meta_by_input.get(j.input_id, {})
+            job_wards[j.id] = {
+                "ward_name": m.get("ward_name", ""),
+                "hospital": m.get("hospital", ""),
+            }
+
+    # Latest job per input (all of this ward's inputs, not just the 20 most
+    # recent jobs) so month_rows can resolve each month's status correctly.
+    latest_job_by_input: dict[int, SolveJob] = {}
+    if ward_ids and inputs:
+        all_input_ids = [i.id for i in inputs]
+        all_jobs = db.execute(
+            select(SolveJob)
+            .where(SolveJob.input_id.in_(all_input_ids))
+            .order_by(SolveJob.created_at.desc(), SolveJob.id.desc())
+        ).scalars().all()
+        for j in all_jobs:
+            if j.input_id not in latest_job_by_input:
+                latest_job_by_input[j.input_id] = j
+
+    months = month_rows(inputs, latest_job_by_input)
+
     return templates.TemplateResponse(
         request,
         "dashboard.html",
-        {"user": user, "inputs": inputs, "jobs": jobs},
+        {
+            "user": user, "inputs": inputs, "jobs": jobs, "job_wards": job_wards,
+            "months": months, "STATE_LABELS": STATE_LABELS, "STATE_PILL": STATE_PILL,
+        },
     )
 
 
@@ -187,7 +263,7 @@ async def create_input(request: Request, user=Depends(require_user), db: Session
             return templates.TemplateResponse(
                 request,
                 "new_input.html",
-                {"user": user, "error": "Please choose a CSV file to upload."},
+                {"user": user, "error": "Please choose a CSV or Excel file to upload."},
                 status_code=400,
             )
         contents = await upload.read()
@@ -199,18 +275,30 @@ async def create_input(request: Request, user=Depends(require_user), db: Session
                  "error": f"File is too large (limit {config.MAX_UPLOAD_BYTES} bytes)."},
                 status_code=400,
             )
+        # Accept both the sectioned CSV and the Excel roster template. Detect by
+        # filename, falling back to the file's magic bytes (xlsx is a zip: "PK").
+        filename = (getattr(upload, "filename", "") or "").lower()
+        is_xlsx = filename.endswith((".xlsx", ".xlsm")) or contents[:4] == b"PK\x03\x04"
         try:
-            text = contents.decode("utf-8-sig")
-            schedule_input = ScheduleInput.from_csv(text)
+            if filename.endswith(".xls") and not is_xlsx:
+                raise ValueError("Legacy .xls isn't supported — please save as .xlsx.")
+            if is_xlsx:
+                schedule_input = ScheduleInput.from_xlsx(contents)
+                # Store the equivalent sectioned CSV as the canonical "original".
+                original_csv = schedule_input.to_solver_csv()
+                db_source = "xlsx_upload"
+            else:
+                text = contents.decode("utf-8-sig")
+                schedule_input = ScheduleInput.from_csv(text)
+                original_csv = text
+                db_source = "csv_upload"
         except (UnicodeDecodeError, ValueError) as exc:
             return templates.TemplateResponse(
                 request,
                 "new_input.html",
-                {"user": user, "error": f"Could not read that CSV: {exc}"},
+                {"user": user, "error": f"Could not read that file: {exc}"},
                 status_code=400,
             )
-        original_csv = text
-        db_source = "csv_upload"
 
     row = ScheduleInputRow(
         ward_id=ward.id,
@@ -234,23 +322,60 @@ def edit_input(input_id: int, request: Request, user=Depends(require_user), db: 
 @app.post("/inputs/{input_id}")
 async def update_input(input_id: int, request: Request, user=Depends(require_user), db: Session = Depends(get_db)):
     row = _load_input(db, user, input_id)
-    form = await request.form()
-    raw_settings = _settings_from_form(form)
-    try:
-        num_days = int(raw_settings["num_days"])
-    except (TypeError, ValueError):
-        num_days = ScheduleInput.from_dict(row.data).settings["num_days"]
-        raw_settings["num_days"] = num_days
-
-    nurses = _nurses_from_form(form, num_days)
-    schedule_input = ScheduleInput.from_grid(
-        ward_meta=ScheduleInput.from_dict(row.data).ward_meta,
-        settings=raw_settings,
-        nurses=nurses,
-    )
+    # A full grid is many fields (nurses × days). Starlette's default form limit
+    # is 1000 fields, which a large roster exceeds — silently dropping cells and
+    # appearing to "randomly delete" data. Raise the limit generously.
+    form = await request.form(max_fields=100_000)
+    schedule_input = _schedule_input_from_form(form, row)
     row.data = schedule_input.to_dict()
     db.commit()
     return RedirectResponse(url=f"/inputs/{row.id}/edit", status_code=303)
+
+
+@app.post("/inputs/{input_id}/autofill")
+async def autofill_dates(input_id: int, request: Request, user=Depends(require_user), db: Session = Depends(get_db)):
+    """Auto-fill num_days + weekends from the input's month/year: calendar days,
+    all Sat/Sun, public holidays (Thailand), plus the manual extra_holidays.
+    Applies any pending form edits first so nothing typed is lost."""
+    row = _load_input(db, user, input_id)
+    form = await request.form(max_fields=100_000)
+    schedule_input = _schedule_input_from_form(form, row)
+    try:
+        month = int(schedule_input.ward_meta.get("month"))
+        year = int(schedule_input.ward_meta.get("year"))
+        if not (1 <= month <= 12):
+            raise ValueError
+    except (TypeError, ValueError):
+        return _render_edit(request, user, row, schedule_input,
+                            error="Enter a valid month (1–12) and year, then auto-fill.",
+                            status_code=400)
+
+    from webapp.core.calendar_util import month_dates
+    md = month_dates(year, month, schedule_input.settings.get("extra_holidays", []))
+    schedule_input.settings["num_days"] = md["num_days"]
+    schedule_input.settings["weekends"] = md["combined"]
+    row.data = schedule_input.to_dict()
+    db.commit()
+    return RedirectResponse(url=f"/inputs/{row.id}/edit", status_code=303)
+
+
+@app.post("/inputs/{input_id}/duplicate")
+def duplicate_input(input_id: int, request: Request, user=Depends(require_user), db: Session = Depends(get_db)):
+    """Create next month's input from this one (roster + settings kept,
+    requests cleared, month advanced and dates recomputed when dated)."""
+    row = _load_input(db, user, input_id)
+    schedule_input = ScheduleInput.from_dict(row.data)
+    new_input = next_month_input(schedule_input)
+    new_row = ScheduleInputRow(
+        ward_id=row.ward_id,
+        created_by=user.id,
+        source="duplicate",
+        data=new_input.to_dict(),
+        original_csv=new_input.to_solver_csv(),
+    )
+    db.add(new_row)
+    db.commit()
+    return RedirectResponse(url=f"/inputs/{new_row.id}/edit", status_code=303)
 
 
 @app.post("/inputs/{input_id}/solve")
@@ -262,6 +387,12 @@ def solve_input(input_id: int, request: Request, user=Depends(require_user), db:
     except ValueError as exc:
         return _render_edit(request, user, row, schedule_input,
                             error=str(exc), status_code=400)
+
+    report = presolve.check(schedule_input)
+    if not report.ok:
+        return _render_edit(request, user, row, schedule_input,
+                            error="Fix the blockers below before solving.",
+                            check=report, status_code=400)
 
     job = SolveJob(
         input_id=row.id,
@@ -277,11 +408,43 @@ def solve_input(input_id: int, request: Request, user=Depends(require_user), db:
     return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
 
 
+@app.post("/inputs/{input_id}/check")
+async def check_input(input_id: int, request: Request, user=Depends(require_user), db: Session = Depends(get_db)):
+    """Save the form (like autofill) and run the pre-solve checklist without
+    queuing a solve — the "ตรวจสอบ / Check" button."""
+    row = _load_input(db, user, input_id)
+    form = await request.form(max_fields=100_000)
+    schedule_input = _schedule_input_from_form(form, row)
+    row.data = schedule_input.to_dict()
+    db.commit()
+    try:
+        schedule_input.validate()
+    except ValueError as exc:
+        return _render_edit(request, user, row, schedule_input,
+                            error=str(exc), status_code=400)
+
+    report = presolve.check(schedule_input)
+    return _render_edit(request, user, row, schedule_input, error=None, check=report)
+
+
+def _fairness_for_job(job) -> dict | None:
+    """Per-nurse fairness stats for a solved job, or None. Pure derivation from
+    the stored result_grid — no solver run, works on old jobs too."""
+    if job.status.value != "succeeded" or not job.result_grid:
+        return None
+    settings = (getattr(job.input, "data", None) or {}).get("settings", {}) or {}
+    seniors = {0, 1} if settings.get("head_nurse_special_shift") else set()
+    return fairness_stats(
+        job.result_grid, settings.get("weekends"), seniors
+    )
+
+
 @app.get("/jobs/{job_id}", response_class=HTMLResponse)
 def job_page(job_id: int, request: Request, user=Depends(require_user), db: Session = Depends(get_db)):
     job = _load_job(db, user, job_id)
     return templates.TemplateResponse(
-        request, "job.html", {"user": user, "job": job}
+        request, "job.html",
+        {"user": user, "job": job, "fair": _fairness_for_job(job)},
     )
 
 
@@ -289,7 +452,8 @@ def job_page(job_id: int, request: Request, user=Depends(require_user), db: Sess
 def job_status(job_id: int, request: Request, user=Depends(require_user), db: Session = Depends(get_db)):
     job = _load_job(db, user, job_id)
     return templates.TemplateResponse(
-        request, "status_fragment.html", {"user": user, "job": job}
+        request, "status_fragment.html",
+        {"user": user, "job": job, "fair": _fairness_for_job(job)},
     )
 
 
@@ -312,9 +476,22 @@ def job_download(job_id: int, request: Request, user=Depends(require_user), db: 
 
 
 # ── Shared render for the edit page ───────────────────────────────────────────
-def _render_edit(request, user, row, schedule_input, error, status_code=200):
+def _render_edit(request, user, row, schedule_input, error, check=None, status_code=200):
     num_days = schedule_input.settings["num_days"]
     days = list(range(1, num_days + 1))
+
+    # If month/year are set, show which public holidays would be picked up.
+    holidays_preview = None
+    try:
+        month = int(schedule_input.ward_meta.get("month"))
+        year = int(schedule_input.ward_meta.get("year"))
+        from webapp.core.calendar_util import month_dates
+        holidays_preview = month_dates(
+            year, month, schedule_input.settings.get("extra_holidays", [])
+        )["holidays"]
+    except (TypeError, ValueError):
+        pass
+
     return templates.TemplateResponse(
         request,
         "edit_input.html",
@@ -323,10 +500,16 @@ def _render_edit(request, user, row, schedule_input, error, status_code=200):
             "row": row,
             "settings": schedule_input.settings,
             "weekends_str": " ".join(str(d) for d in schedule_input.settings["weekends"]),
+            "extra_holidays_str": " ".join(
+                str(d) for d in schedule_input.settings.get("extra_holidays", [])),
+            "holidays_preview": holidays_preview,
             "nurses": schedule_input.nurses,
             "days": days,
             "valid_tokens": sorted(t for t in VALID_CELL_TOKENS if t),
+            "ward_meta": schedule_input.ward_meta,
+            "tier": tier_view(schedule_input),
             "error": error,
+            "check": check,
         },
         status_code=status_code,
     )
