@@ -361,3 +361,57 @@ Most senior → row 0 (head nurse), row 1 (deputy), …, least senior → last r
 Newly joined nurses ("new") should appear at the bottom.
 
 **Location:** Input CSV only — no solver constraint.
+
+---
+
+## 20. Infeasibility diagnosis (not a constraint — an explanation pass)
+
+**Rule:** No constraint is added to the real model. When a solve returns `INFEASIBLE`,
+the solver rebuilds the *same* hard rules with each relaxable group reified behind one
+CP-SAT **assumption literal**, then asks for a sufficient infeasibility core — the subset
+of assumptions that already makes the model contradictory.
+
+```
+Pass 1 — requests gated:
+  for each request cell (shift / holiday / vacation / meeting):
+      lit                                             (fresh BoolVar)
+      a[n][d][s] == 1  for s in cell   OnlyEnforceIf(lit)
+  AddAssumptions(all lits);  Solve
+  core = SufficientAssumptionsForInfeasibility()      ->  the conflicting requests
+
+Pass 2 — only if pass 1's core is EMPTY (the hard structure alone is contradictory);
+         requests go back to hard, coverage (§9) is gated instead:
+      lit_cov[d][shift]
+      sum(a[n][d][shift] for eligible n) >= min_shifts[d][shift]
+                                           OnlyEnforceIf(lit_cov[d][shift])
+  core                                                ->  the binding (day, shift) minimums
+```
+
+Reason resolution: non-empty pass-1 core → `requests`; empty pass-1 core + non-empty
+pass-2 core → `coverage`; both empty → `structural` (the daily/transition/senior rules
+contradict each other with no request or coverage involved); anything else, including a
+timeout, → `undetermined`.
+
+**The diagnosis build omits `distribute()`.** With an objective in the model CP-SAT returns
+a *sufficient* but non-minimal core (verified on ortools 9.15), which would blame requests
+that are not actually part of the conflict. Dropping the objective is a correctness
+requirement here, not a speed optimisation.
+
+**The diagnosis reuses the loaded instance, never a fresh `Solver`.** `DataImporter.sample`
+is unseeded, so re-importing the CSV re-samples over-quota requests and the diagnosis would
+name cells the failed run never applied. `diagnose()` therefore rebuilds `self.model` and
+`self.assignments` in place — which destroys any solution, so it raises `RuntimeError` if
+called on a solved `Solver`.
+
+Request cells the solver itself skips (senior-conflicting §16/§17, new-nurse บ+ด §14) are
+skipped in diagnosis mode too, so a request that was never applied is never blamed.
+In soft mode (§8, `min_request_percent < 100`) the percentage floor is **not** added in
+diagnosis mode: every request is forced by its own assumption, so the floor is implied.
+
+**Flags:** none user-facing. Budget comes from `SOLVER_DIAGNOSIS_MAX_SECONDS` /
+`SOLVER_RELAX_MAX_SECONDS`, clamped so a job can never exceed `WORKER_JOB_TIMEOUT_SECONDS`.
+
+**Location:** `Solver.diagnose()` / `_diag_build()` / `_diag_gate()` / `_diag_solve()` /
+`_diag_cap()` in `shiftwork.py`; the `_diag_mode` branches in `handleHolidaysAndReq()` and
+`_constraintMinimumNurse()`. Naming and text rendering live outside the solver in
+`webapp/core/diagnosis.py`; the relaxation ladder in `webapp/core/relaxation.py`.

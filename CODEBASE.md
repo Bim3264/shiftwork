@@ -29,9 +29,10 @@ both normalize into it, and everything downstream reads it.
 ### `shiftwork.py` — `Solver`
 Lifecycle (construction is side-effect-free):
 - `__init__(filename, num_days, weekends, allow_shift_e_n, allow_shift_n_d)` → config + `loadReqShifts` + `initAssignments` (creates BoolVars `a[n][d][shift]`). **Does not solve.**
-- `build()` → `constraints()` + `distribute()` + `_build_warm_start()`.
-- `solve(max_time_seconds=120)` → configure `CpSolver`, `Solve`, `_build_request_report()`, `_write_schedule()`; returns CP-SAT status.
+- `build(*, with_objective=True)` → `constraints()` + `distribute()` + `_build_warm_start()`. `with_objective=False` builds a pure feasibility model (no objective, no warm start) — used by the relaxation probes.
+- `solve(max_time_seconds=120, *, write_output=True)` → configure `CpSolver`, `Solve`, `_build_request_report()`, `_write_schedule()`; returns CP-SAT status. `write_output=False` skips the CSV write.
 - `run(max_time_seconds=120)` = `build()` then `solve()`.
+- `diagnose(max_time_seconds=20.0) -> dict` → **only after an unsolved solve** (constraint.md §20). Rebuilds the model in place with each request cell (and, in pass 2, each coverage minimum) reified behind a CP-SAT **assumption literal**, then reads `SufficientAssumptionsForInfeasibility()`. Returns `{reason: requests|coverage|structural|undetermined, status, requests:[{kind,nurse_index,day,shift}], coverage:[{day,shift,required}], gated, truncated, seconds}` (days 1-based). Raises `RuntimeError` on a solved Solver (it destroys the model). Helpers `_diag_build/_diag_gate/_diag_solve/_diag_cap`; `_diag_mode` branches live in `handleHolidaysAndReq()` and `_constraintMinimumNurse()`. Two non-obvious invariants: the diagnosis build **omits `distribute()`** (an objective makes CP-SAT return non-minimal cores) and it **reuses the loaded instance**, never a fresh `Solver` (`DataImporter.sample` is unseeded → a re-import re-samples over-quota requests).
 
 `constraints()` orchestrates named rule methods:
 - `handleHolidaysAndReq()` — applies requested shifts/holidays. **Hard** if `MIN_REQUEST_PERCENT==100`; else **soft** (reified with a `sat` BoolVar per request, tracked in `self.request_soft`, plus a floor `sum(sat) >= ceil(pct*total)`). Senior-nurse conflicting requests are dropped here. Meetings always hard.
@@ -46,7 +47,7 @@ Lifecycle (construction is side-effect-free):
 `_write_schedule()` — renders solved assignments to a transposed grid, writes `output/{label} Final.csv` (`utf-8-sig`). Returns label.
 `_build_request_report()` — fills `self.request_report = {total, accepted, dropped:[{nurse_index,day,shift,kind}], percent}` (None unless soft mode).
 
-Key attributes/flags: `MAX_SHIFT_PER_DAY`, `ALLOW_SHIFT_E_N/_N_D`, `HEAD_NURSE_SPEACIAL_SHIFT`, `HEAD_NURSE_INDEX=0`, `DEPUTY_NURSE_INDEX=1`, `enable_meetings`, `MIN_REQUEST_PERCENT`, `RELAX_DAYS_OFF`, `new_nurse_indices`, `meeting_days`, `request_soft`, `request_report`, `status`.
+Key attributes/flags: `MAX_SHIFT_PER_DAY`, `ALLOW_SHIFT_E_N/_N_D`, `HEAD_NURSE_SPEACIAL_SHIFT`, `HEAD_NURSE_INDEX=0`, `DEPUTY_NURSE_INDEX=1`, `enable_meetings`, `MIN_REQUEST_PERCENT`, `RELAX_DAYS_OFF`, `new_nurse_indices`, `meeting_days`, `request_soft`, `request_report`, `status`, `_diag_mode`/`_diag_gate_coverage`/`_diag_gated` (diagnosis only).
 Solver params in `solve()`: `num_search_workers=os.cpu_count()`, `linearization_level=2`, `max_time_in_seconds`.
 `__main__` processes every file in `input/` via `Solver(...).run()`.
 

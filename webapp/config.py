@@ -34,6 +34,23 @@ def _get_bool(name: str, default: bool) -> bool:
 SOLVER_MAX_TIME_SECONDS = _get_int("SOLVER_MAX_TIME_SECONDS", 120)
 WORKER_JOB_TIMEOUT_SECONDS = _get_int("WORKER_JOB_TIMEOUT_SECONDS", 180)
 
+# After an INFEASIBLE solve the job spends up to these many extra seconds
+# explaining why (unsat core) and probing single relaxations. Clamped by
+# diagnosis_budget() so a job can never exceed WORKER_JOB_TIMEOUT_SECONDS.
+SOLVER_DIAGNOSIS_MAX_SECONDS = _get_int("SOLVER_DIAGNOSIS_MAX_SECONDS", 20)
+SOLVER_RELAX_MAX_SECONDS = _get_int("SOLVER_RELAX_MAX_SECONDS", 25)
+
+
+def diagnosis_budget(solver_seconds: int, *, margin: int = 10) -> tuple[float, float]:
+    """Return (diagnosis_seconds, relaxation_seconds) that still fit inside
+    WORKER_JOB_TIMEOUT_SECONDS after the main solve. (0.0, 0.0) means skip."""
+    room = WORKER_JOB_TIMEOUT_SECONDS - solver_seconds - margin
+    if room <= 0:
+        return (0.0, 0.0)
+    diag = min(SOLVER_DIAGNOSIS_MAX_SECONDS, room)
+    relax = min(SOLVER_RELAX_MAX_SECONDS, room - diag)
+    return (float(diag), float(max(0.0, relax)))
+
 # ── Storage ───────────────────────────────────────────────────────────────────
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///shiftwork_web.db")
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")

@@ -16,6 +16,9 @@ working directory so the real input/ and output/ folders are never touched.
 Run with:  python3 test_shiftwork.py
 """
 
+import contextlib
+import glob
+import io
 import os
 import sys
 import shutil
@@ -240,6 +243,144 @@ class ConstraintRuleTest(_FixtureTest):
         self.assertEqual(status, cp_model.INFEASIBLE,
                          "Night→Day across consecutive days should be infeasible")
 
+
+
+def _diag_ward_csv(num_days, nurse_rows):
+    """Sectioned CSV for the infeasibility-diagnosis fixtures: a 'department'
+    tier ward with coverage 2/2/2 in both day bands and no head-nurse special
+    shift (so no nurse is a senior with extra rules). `nurse_rows` is a list of
+    (name, {day_number: request_text}) pairs."""
+    header = ",".join(["Name", "Type"] + [str(d) for d in range(1, num_days + 1)])
+    rows = []
+    for name, reqs in nurse_rows:
+        cells = [reqs.get(d, "") for d in range(1, num_days + 1)]
+        rows.append(",".join([name, ""] + cells))
+    lines = [
+        "[ward]",
+        "ward_name,DiagWard",
+        "month,7",
+        "year,2026",
+        "tier,department",
+        "license_key,",
+        "",
+        "[settings]",
+        f"num_days,{num_days}",
+        "weekends,6 7",
+        "allow_evening_to_night,false",
+        "allow_night_to_day,false",
+        "head_nurse_special_shift,false",
+        "coverage_weekday_day,2",
+        "coverage_weekday_evening,2",
+        "coverage_weekday_night,2",
+        "coverage_weekend_day,2",
+        "coverage_weekend_evening,2",
+        "coverage_weekend_night,2",
+        "",
+        "[schedule]",
+        header,
+    ] + rows
+    return "\n".join(lines) + "\n"
+
+
+class DiagnoseTest(_FixtureTest):
+    """Solver.diagnose(): an INFEASIBLE solve must be explained by naming the
+    request cells, or the day+shift coverage, that cannot be satisfied.
+
+    Each test would fail if the rule it covers were removed: with the request
+    gating gone the requests pass has an empty core (reason would fall through
+    to 'coverage'/'structural'); with the coverage gating gone the second pass
+    has an empty core (reason would be 'structural')."""
+
+    def _diag_solver(self, num_days, nurse_rows):
+        with open(self._input_path, "w", encoding="utf-8") as f:
+            f.write(_diag_ward_csv(num_days, nurse_rows))
+        with contextlib.redirect_stdout(io.StringIO()):
+            return sw.Solver(self._input_path, num_days, [5, 6])
+
+    def _run_quiet(self, solver, max_time_seconds=10):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return solver.run(max_time_seconds=max_time_seconds)
+
+    def _diagnose_quiet(self, solver, max_time_seconds):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return solver.diagnose(max_time_seconds)
+
+    def _conflicting_requests_solver(self):
+        # 8 nurses, coverage 2/2/2. Day 5: six nurses want off and two want the
+        # Day shift, so Evening (2) + Night (2) cannot both be covered.
+        day_symbol = LocaleShift.DAY.value
+        rows = []
+        for i in range(8):
+            reqs = {5: "off"} if i < 6 else {5: day_symbol}
+            rows.append((f"N{i}", reqs))
+        return self._diag_solver(10, rows)
+
+    def _coverage_solver(self):
+        # 3 nurses cannot cover 2 Day + 2 Evening + 2 Night on a single day.
+        return self._diag_solver(5, [(f"N{i}", {}) for i in range(3)])
+
+    def test_diagnose_names_conflicting_requests(self):
+        s = self._conflicting_requests_solver()
+        status = self._run_quiet(s)
+        self.assertEqual(status, cp_model.INFEASIBLE,
+                         "fixture must be infeasible for the diagnosis to mean anything")
+
+        diag = self._diagnose_quiet(s, 15)
+
+        self.assertEqual(diag["reason"], "requests")
+        self.assertGreaterEqual(len(diag["requests"]), 3)
+        self.assertTrue(all(r["day"] == 5 for r in diag["requests"]),
+                        f"every blamed request must be on day 5: {diag['requests']}")
+        self.assertTrue(any(r["kind"] == "holiday" for r in diag["requests"]),
+                        "at least one blamed request must be a day-off (holiday)")
+        self.assertEqual(diag["coverage"], [],
+                         "a requests diagnosis must not also blame coverage")
+        self.assertGreater(diag["gated"], 0)
+
+    def test_diagnose_names_coverage_day(self):
+        s = self._coverage_solver()
+        status = self._run_quiet(s)
+        self.assertEqual(status, cp_model.INFEASIBLE)
+
+        diag = self._diagnose_quiet(s, 15)
+
+        self.assertEqual(diag["reason"], "coverage")
+        self.assertTrue(diag["coverage"],
+                        "coverage core must name at least one day+shift")
+        for rec in diag["coverage"]:
+            self.assertIn(rec["shift"], {"day", "evening", "night"})
+            self.assertEqual(rec["required"], 2)
+        self.assertEqual(diag["requests"], [],
+                         "no requests exist, so none may be blamed")
+
+    def test_diagnose_rejects_solved_solver(self):
+        s = self._new_solver()
+        status = self._run_quiet(s, max_time_seconds=8)
+        self.assertIn(status, (cp_model.OPTIMAL, cp_model.FEASIBLE))
+
+        with self.assertRaises(RuntimeError):
+            self._diagnose_quiet(s, 5)
+
+    def test_diagnose_zero_budget(self):
+        s = self._coverage_solver()
+        self.assertEqual(self._run_quiet(s), cp_model.INFEASIBLE)
+
+        diag = self._diagnose_quiet(s, 0)
+
+        self.assertEqual(diag["reason"], "undetermined")
+        self.assertEqual(diag["seconds"], 0.0)
+        self.assertEqual(diag["requests"], [])
+        self.assertEqual(diag["coverage"], [])
+
+    def test_build_without_objective_still_feasible(self):
+        s = self._new_solver()
+        s.build(with_objective=False)
+        with contextlib.redirect_stdout(io.StringIO()):
+            status = s.solve(max_time_seconds=20, write_output=False)
+
+        self.assertIn(status, (cp_model.OPTIMAL, cp_model.FEASIBLE))
+        self.assertEqual(glob.glob("output/*Final.csv"), [],
+                         "write_output=False must not create an output CSV")
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

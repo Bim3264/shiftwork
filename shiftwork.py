@@ -41,6 +41,13 @@ class Solver():
         self.request_soft: list = []          # [{n, day, shift, kind, sat}]
         self.request_report = None            # filled after a successful solve
 
+        # Diagnosis state (see diagnose()). _diag_mode is only True while
+        # _diag_build() is assembling the assumption-gated model, so every
+        # normal build is bit-for-bit what it was before.
+        self._diag_mode = False
+        self._diag_gate_coverage = False
+        self._diag_gated: list = []           # [(assumption lit, record)]
+
         self.initShiftSettings()
 
         self.loadReqShifts(filename, 5, 5)
@@ -314,6 +321,12 @@ class Solver():
             or dropped together (and tracked for the report); otherwise it stays a
             hard constraint."""
             shifts = list(shifts) if isinstance(shifts, (list, tuple, set)) else [shifts]
+            if self._diag_mode:
+                # Diagnosis: gate EVERY request behind an assumption literal,
+                # relaxable or not, so the unsat core can name it. The
+                # MIN_REQUEST_PERCENT floor is skipped in this mode (below).
+                self._diag_gate(n, d, shifts, kind)
+                return
             if soft and relaxable:
                 sat = self.model.NewBoolVar(f'req_{kind}_{n}_{d}')
                 for s in shifts:
@@ -357,11 +370,16 @@ class Solver():
         # count. Meetings are commitments and are never dropped.
         for n, days in self.meeting_days.items():
             for d in days:
-                self.model.Add(self.assignments[n][d][Shift.DAY] == 1)
+                if self._diag_mode:
+                    self._diag_gate(n, d, [Shift.DAY], 'meeting')
+                else:
+                    self.model.Add(self.assignments[n][d][Shift.DAY] == 1)
 
         # Floor: at least MIN_REQUEST_PERCENT of the relaxable requests must be
-        # satisfied, else the model is (correctly) infeasible.
-        if soft and self.request_soft:
+        # satisfied, else the model is (correctly) infeasible. In diagnosis mode
+        # every request is forced by its own assumption, so the floor is implied
+        # and adding it would only muddy the core.
+        if soft and self.request_soft and not self._diag_mode:
             import math
             floor = math.ceil(self.MIN_REQUEST_PERCENT / 100.0 * len(self.request_soft))
             self.model.Add(sum(e['sat'] for e in self.request_soft) >= floor)
@@ -388,7 +406,16 @@ class Solver():
                     ]
                 else:
                     nurses_assigned = [self.assignments[n][d][shift] for n in range(self.num_nurses)]
-                self.model.Add(sum(nurses_assigned) >= required)
+                if self._diag_mode and self._diag_gate_coverage:
+                    # Diagnosis pass 2: gate each (day, shift) minimum so the
+                    # core can name the day whose coverage cannot be met.
+                    lit = self.model.NewBoolVar(f'diag_cov_{d}_{shift.value}')
+                    self.model.Add(sum(nurses_assigned) >= required).OnlyEnforceIf(lit)
+                    self._diag_gated.append(
+                        (lit, {'day': d + 1, 'shift': shift.value, 'required': required})
+                    )
+                else:
+                    self.model.Add(sum(nurses_assigned) >= required)
 
 
     def optionHeadNurse(self):
@@ -532,27 +559,36 @@ class Solver():
                 for s in Shift:
                     self.model.AddHint(self.assignments[n][d][s], 1 if s in hints else 0)
 
-    def build(self):
+    def build(self, *, with_objective: bool = True):
         """Assemble the CP model: hard constraints, fairness objective, and the
         greedy warm-start hint.
 
         Split out from solve() so the fully-built model can be inspected or
         unit-tested without running a (slow) search. Returns self so callers can
         chain, e.g. Solver(...).build().solve().
+
+        with_objective=False builds a pure feasibility model (no fairness
+        objective, no warm start). Used by the relaxation probes, which only ask
+        "does a schedule exist at all?" and are much cheaper without an
+        objective to optimise.
         """
         self.constraints()
-        self.distribute()
-        # A2: seed the model with a greedy hint before solving
-        self._build_warm_start()
+        if with_objective:
+            self.distribute()
+            # A2: seed the model with a greedy hint before solving
+            self._build_warm_start()
         return self
 
-    def solve(self, max_time_seconds: float = 120):
+    def solve(self, max_time_seconds: float = 120, *, write_output: bool = True):
         """Configure the solver, search for a schedule, and write it out if one
         is found. Assumes build() has already assembled the model.
 
         max_time_seconds caps the search; it defaults to 120 (unchanged from the
         original behaviour) and is exposed mainly so tests can bound the run —
         the fairness objective otherwise keeps optimising until the cap.
+
+        write_output=False skips _write_schedule(); feasibility probes only need
+        the status and have no output/ directory to write into.
 
         Returns the CP-SAT status so callers can distinguish solved from
         unsolved without inspecting stdout.
@@ -573,7 +609,8 @@ class Solver():
         if self.status == cp_model.OPTIMAL or self.status == cp_model.FEASIBLE:
             print(f"Solution found ({(time.time() - self.startTime) * 10**3:.0f} ms):")
             self._build_request_report()
-            self._write_schedule()
+            if write_output:
+                self._write_schedule()
         else:
             self.request_report = None
             print("No solution found.")
@@ -604,6 +641,126 @@ class Solver():
         }
         print(f"[Requests] Accepted {len(accepted)}/{total} "
               f"({self.request_report['percent']}%); dropped {len(dropped)}.")
+
+    # ── Infeasibility diagnosis (constraint.md §20) ───────────────────────────
+    # Assumption-based unsat core. We rebuild the model from the request data
+    # ALREADY loaded on this instance (never re-import: DataImporter.sample is
+    # unseeded, so a second import would re-sample over-quota requests and we
+    # would blame cells the failed run never applied), reify each relaxable
+    # group behind one assumption literal, and ask CP-SAT which assumptions are
+    # sufficient for infeasibility.
+    #
+    # The diagnosis build deliberately omits distribute(): with an objective
+    # present CP-SAT returns a *sufficient* but non-minimal core (verified on
+    # ortools 9.15), which would blame innocent requests.
+    _DIAG_MAX_ITEMS = 20
+    _DIAG_MIN_PASS_SECONDS = 2.0
+
+    def diagnose(self, max_time_seconds: float = 20.0) -> dict:
+        """Explain an INFEASIBLE model: which requests, or which day's coverage.
+
+        Must only be called after a solve that did NOT find a solution; it
+        REPLACES self.model and self.assignments, so any solution on this
+        instance is destroyed. Never raises on solver trouble — an unhelpful
+        answer comes back as reason='undetermined'.
+        """
+        if getattr(self, 'status', None) in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            raise RuntimeError('diagnose() invalidates the model; '
+                               'do not call it on a solved Solver')
+        out = {'reason': 'undetermined', 'status': '', 'requests': [],
+               'coverage': [], 'gated': 0, 'truncated': False, 'seconds': 0.0}
+        if max_time_seconds <= 0:
+            return out
+
+        t0 = time.time()
+        budget1 = max(self._DIAG_MIN_PASS_SECONDS, max_time_seconds * 0.6)
+        gated = self._diag_build(gate_coverage=False)
+        status, core = self._diag_solve(gated, budget1)
+        out['status'] = status
+        out['gated'] = len(gated)
+
+        if status == 'INFEASIBLE' and core:
+            out['reason'] = 'requests'
+            out['requests'], out['truncated'] = self._diag_cap(core)
+        elif status == 'INFEASIBLE':
+            # The hard structure alone is contradictory: gate coverage instead
+            # and let the core name the binding day(s) and shift(s).
+            left = max_time_seconds - (time.time() - t0)
+            if left < self._DIAG_MIN_PASS_SECONDS:
+                out['reason'] = 'structural'
+            else:
+                gated = self._diag_build(gate_coverage=True)
+                status2, core2 = self._diag_solve(gated, left)
+                out['status'] = status2
+                out['gated'] = len(gated)
+                if status2 == 'INFEASIBLE' and core2:
+                    out['reason'] = 'coverage'
+                    out['coverage'], out['truncated'] = self._diag_cap(core2)
+                elif status2 == 'INFEASIBLE':
+                    out['reason'] = 'structural'
+        out['seconds'] = round(time.time() - t0, 3)
+        print(f"[Diagnosis] reason={out['reason']} status={out['status']} "
+              f"gated={out['gated']} items={len(out['requests']) + len(out['coverage'])} "
+              f"in {out['seconds']}s")
+        return out
+
+    def _diag_cap(self, core: list) -> tuple:
+        """Trim a core to _DIAG_MAX_ITEMS; sort by day so the message reads in
+        calendar order."""
+        core = sorted(core, key=lambda r: (r.get('day', 0), str(r.get('shift', ''))))
+        if len(core) > self._DIAG_MAX_ITEMS:
+            return core[:self._DIAG_MAX_ITEMS], True
+        return core, False
+
+    def _diag_build(self, *, gate_coverage: bool) -> list:
+        """Rebuild the model with one assumption literal per relaxable group.
+
+        Reuses constraints() so the hard rules can never drift from the real
+        model (Known failure mode 9). No distribute(), no warm start.
+        """
+        self.model = cp_model.CpModel()
+        self.assignments = {}
+        self.double_shift_vars = []
+        self.initAssignments()
+        self._diag_gated = []
+        self._diag_mode = True
+        self._diag_gate_coverage = gate_coverage
+        try:
+            self.constraints()
+        finally:
+            self._diag_mode = False
+        return self._diag_gated
+
+    def _diag_gate(self, n, d, shifts, kind):
+        """Reify one request cell behind a fresh assumption literal."""
+        lit = self.model.NewBoolVar(f'diag_{kind}_{n}_{d}')
+        for s in shifts:
+            self.model.Add(self.assignments[n][d][s] == 1).OnlyEnforceIf(lit)
+        self._diag_gated.append((lit, {
+            'kind': kind, 'nurse_index': n, 'day': d + 1,
+            'shift': '+'.join(x.value for x in shifts)}))
+
+    def _diag_solve(self, gated: list, max_time_seconds: float) -> tuple:
+        """Solve the gated model under its assumptions and map the core back to
+        the records collected by _diag_build."""
+        if gated:
+            self.model.AddAssumptions([lit for lit, _rec in gated])
+        s = cp_model.CpSolver()
+        s.parameters.max_time_in_seconds = max(self._DIAG_MIN_PASS_SECONDS,
+                                               max_time_seconds)
+        s.parameters.num_search_workers = 1
+        st = s.Solve(self.model)
+        name = s.StatusName(st)
+        if st != cp_model.INFEASIBLE:
+            return name, []
+        by_index = {lit.Index(): rec for lit, rec in gated}
+        core = []
+        for c in s.SufficientAssumptionsForInfeasibility():
+            v = c if c >= 0 else -c - 1          # CP-SAT literal encoding
+            rec = by_index.get(v)
+            if rec is not None:
+                core.append(rec)
+        return name, core
 
     def run(self, max_time_seconds: float = 120):
         """Convenience: build the model then solve it. Returns the status."""

@@ -47,11 +47,50 @@ class SolveResult:
     csv_text: Optional[str]       # raw output CSV for download, or None
     log: str                      # captured solver stdout
     request_report: Optional[dict] = None  # soft-request acceptance summary
+    diagnosis: Optional[dict] = None       # INFEASIBLE only: named unsat core
+    relaxations: Optional[list] = None     # INFEASIBLE only: relaxation trials
+
+
+def probe_feasible(schedule_input: ScheduleInput, max_time_seconds: float) -> str:
+    """Feasibility-only solve of `schedule_input`; returns the CP-SAT status name.
+
+    No objective, no output file. Same temp-dir/chdir pattern as run_schedule,
+    so it shares its one-solve-at-a-time constraint."""
+    num_days = schedule_input.settings["num_days"]
+    weekends_0 = [d - 1 for d in schedule_input.settings["weekends"]]
+    allow_e_n = schedule_input.settings["allow_evening_to_night"]
+    allow_n_d = schedule_input.settings["allow_night_to_day"]
+
+    prev_cwd = os.getcwd()
+    workdir = tempfile.mkdtemp(prefix="shiftwork_probe_")
+    try:
+        os.makedirs(os.path.join(workdir, "input"))
+        os.makedirs(os.path.join(workdir, "output"))
+        input_path = os.path.join(workdir, "input", "schedule.csv")
+        with open(input_path, "w", encoding="utf-8") as f:
+            f.write(schedule_input.to_solver_csv())
+        os.chdir(workdir)
+        with contextlib.redirect_stdout(io.StringIO()):
+            solver = shiftwork.Solver(
+                input_path, num_days, weekends_0,
+                allow_shift_e_n=allow_e_n, allow_shift_n_d=allow_n_d,
+            )
+            solver.build(with_objective=False)
+            status_int = solver.solve(
+                max_time_seconds=max_time_seconds, write_output=False
+            )
+    finally:
+        os.chdir(prev_cwd)
+        _rmtree_quiet(workdir)
+    return _STATUS_NAMES.get(status_int, str(status_int))
 
 
 def run_schedule(
     schedule_input: ScheduleInput,
     max_time_seconds: float,
+    *,
+    diagnose_seconds: float = 0.0,
+    relax_seconds: float = 0.0,
 ) -> SolveResult:
     """Run the solver on `schedule_input` and return a normalized result."""
     num_days = schedule_input.settings["num_days"]
@@ -82,6 +121,36 @@ def run_schedule(
         solved = status_int in _SOLVED_STATUSES
         grid, csv_text = (None, None)
         report = None
+        diagnosis = None
+        relaxations = None
+        if not solved and status_int == cp_model.INFEASIBLE and diagnose_seconds > 0:
+            # Explain the contradiction. Printed inside the redirected-stdout
+            # scope so it lands in `log`. A failure here must never change the
+            # job's outcome.
+            with contextlib.redirect_stdout(log_buf):
+                try:
+                    from webapp.core.diagnosis import name_diagnosis, render_text
+
+                    raw = solver.diagnose(diagnose_seconds)
+                    named = name_diagnosis(raw, schedule_input)
+                    diagnosis = named
+                    if relax_seconds > 0:
+                        try:
+                            from webapp.core import relaxation
+
+                            trials = relaxation.suggest(
+                                schedule_input, raw, budget_seconds=relax_seconds
+                            )
+                            relaxations = [t.to_dict() for t in trials]
+                        except Exception as exc:  # keep the diagnosis text
+                            print(f"[Diagnosis] relaxation unavailable: {exc}")
+                    text = render_text(named, relaxations)
+                    if text:
+                        print(text)
+                except Exception as exc:
+                    diagnosis = None
+                    relaxations = None
+                    print(f"[Diagnosis] unavailable: {exc}")
         if solved:
             csv_text, grid = _read_output(workdir, schedule_input)
             report = _name_request_report(
@@ -100,6 +169,8 @@ def run_schedule(
         csv_text=csv_text,
         log=log_buf.getvalue(),
         request_report=report,
+        diagnosis=diagnosis,
+        relaxations=relaxations,
     )
 
 

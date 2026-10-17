@@ -46,8 +46,10 @@ def run_solve_job(job_id: int, *, session_factory=None) -> int:
             schedule_input = ScheduleInput.from_dict(row.data)
             schedule_input.validate()  # surfaces bad input as a clean failure
 
+            d, r = config.diagnosis_budget(job.max_time_seconds)
             result = run_schedule(
-                schedule_input, max_time_seconds=job.max_time_seconds
+                schedule_input, max_time_seconds=job.max_time_seconds,
+                diagnose_seconds=d, relax_seconds=r,
             )
             job.solver_status = result.solver_status
             job.log = result.log
