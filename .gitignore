@@ -12,6 +12,11 @@ logs/
 # public and these identify real people.
 /real/
 
+# Strategy docs. Kept on disk so both Claude Code and Cowork can read them
+# (CLAUDE.md points at SWOT.md), but never published: this repo is public and
+# these hold positioning, competitor and pricing material.
+/docs/business/
+
 # Business / marketing — intentionally kept out of this public repo.
 # Local copies also live in D:\Claude\ShiftWork-private
 #
