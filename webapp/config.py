@@ -40,6 +40,13 @@ WORKER_JOB_TIMEOUT_SECONDS = _get_int("WORKER_JOB_TIMEOUT_SECONDS", 180)
 SOLVER_DIAGNOSIS_MAX_SECONDS = _get_int("SOLVER_DIAGNOSIS_MAX_SECONDS", 20)
 SOLVER_RELAX_MAX_SECONDS = _get_int("SOLVER_RELAX_MAX_SECONDS", 25)
 
+# Whether a pre-solve blocker stops /solve outright. Off: the checklist still
+# runs and still shows on the Check page, but a blocker no longer refuses to
+# queue the job, so the ward can always get a schedule attempt out. Safe to
+# leave off now that an INFEASIBLE result is explained by Solver.diagnose()
+# rather than being a dead end. Set PRESOLVE_BLOCKS_SOLVE=1 to restore it.
+PRESOLVE_BLOCKS_SOLVE = _get_bool("PRESOLVE_BLOCKS_SOLVE", False)
+
 
 def diagnosis_budget(solver_seconds: int, *, margin: int = 10) -> tuple[float, float]:
     """Return (diagnosis_seconds, relaxation_seconds) that still fit inside

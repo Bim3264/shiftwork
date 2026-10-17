@@ -679,8 +679,24 @@ class SolveAndJobRoutes(WebTestBase):
 
 class PresolveRouteTests(WebTestBase):
 
-    def test_solve_blocked_by_presolve_error(self):
-        # _SAMPLE_CSV: 3 nurses vs default coverage 5/3/3 -> certainly infeasible.
+    def test_solve_is_not_blocked_by_presolve_by_default(self):
+        # _SAMPLE_CSV: 3 nurses vs default coverage 5/3/3 -> presolve flags it.
+        # PRESOLVE_BLOCKS_SOLVE defaults off, so the job is queued anyway and
+        # the ward gets an INFEASIBLE result explained by diagnose(), rather
+        # than being refused up front.
+        self.assertFalse(app_module.config.PRESOLVE_BLOCKS_SOLVE)
+        input_id = self._make_input()
+        r = self.client.post(f"/inputs/{input_id}/solve")
+        self.assertEqual(r.status_code, 303)
+        with self.Session() as db:
+            self.assertEqual(db.query(SolveJob).count(), 1)
+        self.assertEqual(len(self.enqueued), 1)
+
+    def test_solve_blocked_by_presolve_error_when_enabled(self):
+        orig = app_module.config.PRESOLVE_BLOCKS_SOLVE
+        app_module.config.PRESOLVE_BLOCKS_SOLVE = True
+        self.addCleanup(
+            setattr, app_module.config, "PRESOLVE_BLOCKS_SOLVE", orig)
         input_id = self._make_input()
         r = self.client.post(f"/inputs/{input_id}/solve")
         self.assertEqual(r.status_code, 400)

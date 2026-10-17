@@ -73,7 +73,13 @@ Solver params in `solve()`: `num_search_workers=os.cpu_count()`, `linearization_
 ## Web app (`webapp/`)
 
 ### `config.py` — all env-driven. Key vars:
-`SOLVER_MAX_TIME_SECONDS`(120), `WORKER_JOB_TIMEOUT_SECONDS`(180) [invariant asserted: solver < worker], `DATABASE_URL`(sqlite default), `REDIS_URL`, `GOOGLE_CLIENT_ID/SECRET`, `SESSION_SECRET`, `SESSION_HTTPS_ONLY`(False), `AUTH_ENABLED`(True), `DEV_AUTH_BYPASS`(False), `DEV_USER_EMAIL`, `SOLVE_INLINE`(False), `ALLOWED_EMAILS`(set), `ALLOWED_DOMAIN`, `MAX_UPLOAD_BYTES`(1 MiB).
+`SOLVER_MAX_TIME_SECONDS`(120), `WORKER_JOB_TIMEOUT_SECONDS`(180) [invariant asserted: solver < worker], `DATABASE_URL`(sqlite default), `REDIS_URL`, `GOOGLE_CLIENT_ID/SECRET`, `SESSION_SECRET`, `SESSION_HTTPS_ONLY`(False), `AUTH_ENABLED`(True), `DEV_AUTH_BYPASS`(False), `DEV_USER_EMAIL`, `SOLVE_INLINE`(False), `ALLOWED_EMAILS`(set), `ALLOWED_DOMAIN`, `MAX_UPLOAD_BYTES`(1 MiB), `PRESOLVE_BLOCKS_SOLVE`(False).
+
+`PRESOLVE_BLOCKS_SOLVE` is off: the pre-solve checklist still runs and still
+renders on the Check page, but a blocker no longer refuses to queue a solve.
+An infeasible ward now gets a job whose INFEASIBLE verdict is explained by
+`Solver.diagnose()` (§20), instead of being refused before it starts. Set it to
+1 to restore the hard block.
 
 ### `logging_setup.py`
 `setup_logging(path=None)` — lazy ERROR `FileHandler` to `logs/shiftwork_<timestamp>.log` (created only on first error) + installs `sys.excepthook`. `log_path()`. Called from `web/app.py` import and `worker/run_worker.py`.

@@ -410,11 +410,12 @@ def solve_input(input_id: int, request: Request, user=Depends(require_user), db:
         return _render_edit(request, user, row, schedule_input,
                             error=str(exc), status_code=400)
 
-    report = presolve.check(schedule_input)
-    if not report.ok:
-        return _render_edit(request, user, row, schedule_input,
-                            error="Fix the blockers below before solving.",
-                            check=report, status_code=400)
+    if config.PRESOLVE_BLOCKS_SOLVE:
+        report = presolve.check(schedule_input)
+        if not report.ok:
+            return _render_edit(request, user, row, schedule_input,
+                                error="Fix the blockers below before solving.",
+                                check=report, status_code=400)
 
     job = SolveJob(
         input_id=row.id,
