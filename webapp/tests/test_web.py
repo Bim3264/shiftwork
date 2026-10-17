@@ -661,6 +661,26 @@ class SolveAndJobRoutes(WebTestBase):
         self.assertIn("ช", decoded)
         self.assertFalse(decoded.startswith("﻿"), "should be exactly one BOM")
 
+    def test_download_xlsx_roundtrip(self):
+        import io, openpyxl
+        grid = {"days": [1, 2], "rows": [
+            {"nurse_index": 0, "name": "NurseA", "cells": ["ช", "off"]}]}
+        job_id = self._make_job(status=JobStatus.succeeded, solver_status="OPTIMAL",
+                                result_grid=grid, result_csv="x")
+        r = self.client.get(f"/jobs/{job_id}/download.xlsx")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("spreadsheetml", r.headers["content-type"])
+        ws = openpyxl.load_workbook(io.BytesIO(r.content)).active
+        vals = [c.value for row in ws.iter_rows() for c in row]
+        self.assertIn("NurseA", vals)
+        self.assertIn("ช", vals)
+        page = self.client.get(f"/jobs/{job_id}/status")
+        self.assertIn(f"/jobs/{job_id}/download.xlsx", page.text)
+
+    def test_download_xlsx_404_without_grid(self):
+        job_id = self._make_job(status=JobStatus.failed)
+        self.assertEqual(self.client.get(f"/jobs/{job_id}/download.xlsx").status_code, 404)
+
     def test_download_404_when_no_csv(self):
         job_id = self._make_job(status=JobStatus.succeeded, result_csv="")
         r = self.client.get(f"/jobs/{job_id}/download")

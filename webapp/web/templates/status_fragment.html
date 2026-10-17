@@ -65,7 +65,8 @@
 
   {% elif job.status.value == "succeeded" and job.result_grid %}
     <h2>ตารางเวร / Schedule ({{ job.solver_status }})</h2>
-    <p><a class="btn" href="/jobs/{{ job.id }}/download">Download CSV</a></p>
+    <p><a class="btn" href="/jobs/{{ job.id }}/download.xlsx">Download Excel</a>
+       <a class="btn" href="/jobs/{{ job.id }}/download">Download CSV</a></p>
     {% set rep = job.result_grid.get("request_report") %}
     {% if rep %}
       <p>Accepted <strong>{{ rep.accepted }}/{{ rep.total }}</strong> requests

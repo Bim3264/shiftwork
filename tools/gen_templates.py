@@ -34,7 +34,6 @@ if _ROOT not in sys.path:
 import openpyxl  # noqa: E402
 from openpyxl.formatting.rule import FormulaRule  # noqa: E402
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side  # noqa: E402
-from openpyxl.utils import get_column_letter as col_letter  # noqa: E402
 from openpyxl.worksheet.datavalidation import DataValidation  # noqa: E402
 from openpyxl.worksheet.properties import PageSetupProperties  # noqa: E402
 
@@ -48,6 +47,13 @@ from constant import (  # noqa: E402
     OffWard,
 )
 from dataimporter import TIER_LIMITS  # noqa: E402
+from webapp.core.xlsx_style import (  # noqa: E402,F401  (one shared definition)
+    BAND, BLUE, BOX, CODE_STYLE, EX_MUTED, FLT_FILL, GRID, INK, LABEL_FILL,
+    LEGEND_TEXT, LETTER_FILL, LETTER_INK, NEG_FILL, REF_FILL, REST_BODY, SLATE,
+    TEAL, TEAL_DARK, TYPE_STYLE, WEEKEND_FILL, WEEKEND_INK, WEEKEND_LETTER, WHITE,
+    CENTER as _CENTER, LEFT as _LEFT, LEFT1 as _LEFT1, col_letter,
+    solid as _fill, font as _font, put as _put,
+)
 
 ROSTER_SHEET = "Roster"
 GUIDE_SHEET = "Guide · วิธีใช้"
@@ -111,29 +117,6 @@ def cell_tokens() -> list:
 
 # ── Palette / style helpers ──────────────────────────────────────────────────
 
-TEAL, TEAL_DARK, SLATE = "0F766E", "0B5952", "334155"
-INK, BLUE, GRID = "1F2937", "1D4ED8", "CBD5E1"
-LABEL_FILL, WHITE, BAND = "F1F5F9", "FFFFFF", "F8FAFC"
-WEEKEND_FILL, WEEKEND_INK, WEEKEND_LETTER = "E0F2FE", TEAL_DARK, "0369A1"
-LETTER_FILL, LETTER_INK = "E2E8F0", "6B7280"
-FLT_FILL, REF_FILL, NEG_FILL = "FBCFE8", "FCA5A5", "FECDD3"
-REST_BODY, EX_MUTED = "F0F9FF", "6B7280"
-TYPE_STYLE = {"senior": ("FEF3C7", "92400E"), "new": ("DBEAFE", "1E40AF")}
-
-# code -> (fill, font colour). Drives legend, Guide and conditional formatting.
-CODE_STYLE = {
-    "ช": ("FDE68A", "92400E"), "บ": ("FDBA74", "9A3412"), "ด": ("C7D2FE", "3730A3"),
-    "ช/บ": ("A7F3D0", "065F46"), "ด/บ": ("DDD6FE", "5B21B6"),
-    "off": ("E5E7EB", "6B7280"), "vac": ("A5F3FC", "155E75"),
-}
-LEGEND_TEXT = {
-    "ช": "Day / เวรเช้า", "บ": "Evening / เวรบ่าย", "ด": "Night / เวรดึก",
-    "ช/บ": "Day + Evening / เช้าควบบ่าย", "ด/บ": "Night + Evening / ดึกควบบ่าย",
-    "off": "Day off / วันหยุด", "vac": "Vacation / ลาพักร้อน",
-}
-
-_SIDE = Side(style="thin", color=GRID)
-BOX = Border(left=_SIDE, right=_SIDE, top=_SIDE, bottom=_SIDE)
 NUM_DAYS = 31
 FIRST_DAY_COL = 4                                # D
 LAST_DAY_COL = FIRST_DAY_COL + NUM_DAYS - 1      # AH
@@ -151,34 +134,6 @@ R_LEGEND = 25
 R_HDR = 28
 R_SUB = 29
 R_FIRST = 30
-
-
-def _fill(hex_):
-    return PatternFill("solid", fgColor=hex_)
-
-
-def _font(size, bold=False, color=INK):
-    return Font(name="Arial", size=size, bold=bold, color=color)
-
-
-def _put(ws, ref, value=None, *, font=None, fill=None, align=None, border=None):
-    c = ws[ref]
-    if value is not None:
-        c.value = value
-    if font is not None:
-        c.font = font
-    if fill is not None:
-        c.fill = _fill(fill)
-    if align is not None:
-        c.alignment = align
-    if border is not None:
-        c.border = border
-    return c
-
-
-_LEFT1 = Alignment(horizontal="left", vertical="center", indent=1)
-_LEFT = Alignment(horizontal="left", vertical="center")
-_CENTER = Alignment(horizontal="center", vertical="center")
 
 
 # ── Card content ─────────────────────────────────────────────────────────────

@@ -507,6 +507,21 @@ def job_status(job_id: int, request: Request, user=Depends(require_user), db: Se
     )
 
 
+@app.get("/jobs/{job_id}/download.xlsx")
+def job_download_xlsx(job_id: int, request: Request, user=Depends(require_user), db: Session = Depends(get_db)):
+    job = _load_job(db, user, job_id)
+    if not job.result_grid or not job.result_grid.get("rows"):
+        raise HTTPException(status_code=404, detail="No solved schedule for this job")
+    from webapp.core.schedule_export import schedule_xlsx_bytes
+    data = getattr(job.input, "data", None) or {}
+    return Response(
+        content=schedule_xlsx_bytes(job.result_grid, data.get("ward_meta"),
+                                    data.get("settings"), _fairness_for_job(job)),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="schedule_{job_id}.xlsx"'},
+    )
+
+
 @app.get("/jobs/{job_id}/download")
 def job_download(job_id: int, request: Request, user=Depends(require_user), db: Session = Depends(get_db)):
     job = _load_job(db, user, job_id)
