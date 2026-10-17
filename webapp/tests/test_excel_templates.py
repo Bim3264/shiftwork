@@ -193,6 +193,13 @@ class ExampleTemplateSolvesTests(unittest.TestCase):
         for group in groups:
             self.assertIn(group["solver_status"], ("OPTIMAL", "FEASIBLE"))
 
+    def test_workbook_import_leaves_every_group_strict(self):
+        # min_request_percent is web/CSV only (no Excel row), so an imported
+        # workbook must not loosen either staff group.
+        si = ScheduleInput.from_xlsx(_to_bytes(build_workbook(_spec("example"))))
+        self.assertEqual(si.settings["min_request_percent_rn"], 100)
+        self.assertEqual(si.settings["min_request_percent_pnna"], 100)
+
 
 if __name__ == "__main__":
     unittest.main()

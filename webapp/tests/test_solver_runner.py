@@ -256,6 +256,57 @@ class StaffClassSolveTest(unittest.TestCase):
             run_schedule(bad, 5)
 
 
+class PerGroupRequestFloorTest(unittest.TestCase):
+    """RN and PN/NA are solved independently, so each takes its own
+    min_request_percent (constraint.md 8)."""
+
+    @staticmethod
+    def _ward(rn_off, pn_off, **settings):
+        # 7 RN + 7 PN (15-nurse cap), 3 weekdays, coverage 2/1/1 per group => 4
+        # working, so at most 3 of any group's day-1 off-requests can be honoured.
+        nurses = [Nurse(name=f"R{i}", staff_class="rn",
+                        shifts=({1: "off"} if i < rn_off else {})) for i in range(7)]
+        nurses += [Nurse(name=f"P{i}", staff_class="pn",
+                         shifts=({1: "off"} if i < pn_off else {})) for i in range(7)]
+        cov = {f"coverage_{g}_weekday_{s}": n for g in ("rn", "pnna")
+               for s, n in (("day", 2), ("evening", 1), ("night", 1))}
+        base = {**cov, "num_days": 3, "weekends": [], "head_nurse_special_shift": False,
+                "relax_days_off": True}
+        base.update(settings)
+        return ScheduleInput.from_grid(
+            ward_meta={"ward_name": "W", "tier": "ward"}, settings=base, nurses=nurses)
+
+    def test_each_group_uses_its_own_threshold_in_one_solve(self):
+        # RN asks for 2 days off (all honourable) at 100; PN asks for 5 (too many
+        # to honour) at 0 -> PN drops some, RN drops none, in the SAME run.
+        si = self._ward(2, 5, min_request_percent_rn=100, min_request_percent_pnna=0)
+        r = run_schedule(si, 30)
+        self.assertTrue(r.solved, r.solver_status)
+        dropped = r.request_report["dropped"]
+        self.assertGreaterEqual(len(dropped), 1)
+        self.assertTrue(all(d["name"].startswith("P") for d in dropped))
+        # Control: the same ward with PN/NA also at 100 cannot be solved at all.
+        hard = self._ward(2, 5, min_request_percent_rn=100, min_request_percent_pnna=100)
+        self.assertFalse(run_schedule(hard, 30).solved)
+
+    def test_strict_group_is_not_loosened_by_the_other(self):
+        # RN asks 5 off but only 3 can be honoured, and RN is at 100 -> RN is
+        # INFEASIBLE even though PN/NA is at 0. Control: RN at 0 solves.
+        strict = self._ward(5, 0, min_request_percent_rn=100, min_request_percent_pnna=0)
+        self.assertFalse(run_schedule(strict, 30).solved)
+        loose = self._ward(5, 0, min_request_percent_rn=0, min_request_percent_pnna=100)
+        r = run_schedule(loose, 30)
+        self.assertTrue(r.solved, r.solver_status)
+        self.assertTrue(all(d["name"].startswith("R") for d in r.request_report["dropped"]))
+
+    def test_legacy_only_setting_behaves_as_before(self):
+        # Only the legacy key (an input saved before per-group): both groups get 0.
+        si = self._ward(5, 5, min_request_percent=0)
+        r = run_schedule(si, 30)
+        self.assertTrue(r.solved, r.solver_status)
+        self.assertEqual
+
+
 class OffwardRenderTest(unittest.TestCase):
 
     def test_offward_render_round_trips(self):

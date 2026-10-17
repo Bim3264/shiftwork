@@ -33,6 +33,7 @@ from webapp.core.schedule_input import (
     Nurse,
     ScheduleInput,
     _COVERAGE_KEYS,
+    _MIN_REQUEST_KEYS,
     _normalize_token,
 )
 from webapp.core import presolve
@@ -125,12 +126,13 @@ def _settings_from_form(form, current: dict | None = None) -> dict:
         "limit_consecutive_nights": form.get("limit_consecutive_nights") is not None,
         "max_consecutive_nights": form.get("max_consecutive_nights", "3"),
         "no_consecutive_day_eve": form.get("no_consecutive_day_eve") is not None,
-        "min_request_percent": form.get("min_request_percent", "100"),
         "relax_days_off": form.get("relax_days_off") is not None,
         "enforce_vacation": form.get("enforce_vacation") is not None,
         "extra_holidays": form.get("extra_holidays", ""),
     }
-    for key in ("holidays", "saturdays", "sundays") + tuple(_COVERAGE_KEYS):
+    # min_request_percent{,_rn,_pnna}: the edit page shows the legacy field OR the
+    # per-group pair, never both, so absent = "not shown", not "reset".
+    for key in ("holidays", "saturdays", "sundays") + _MIN_REQUEST_KEYS + tuple(_COVERAGE_KEYS):
         value = form.get(key)
         if value is not None:
             settings[key] = value
@@ -566,11 +568,14 @@ def _render_edit(request, user, row, schedule_input, error, check=None, status_c
     classed = any(n.active and n.staff_class for n in schedule_input.nurses)
     if classed:
         coverage_groups = [
-            {"label": GROUP_LABELS[GROUP_RN], "prefix": "coverage_rn_"},
-            {"label": GROUP_LABELS[GROUP_PN_NA], "prefix": "coverage_pnna_"},
+            {"label": GROUP_LABELS[GROUP_RN], "prefix": "coverage_rn_",
+             "min_key": "min_request_percent_rn"},
+            {"label": GROUP_LABELS[GROUP_PN_NA], "prefix": "coverage_pnna_",
+             "min_key": "min_request_percent_pnna"},
         ]
     else:
-        coverage_groups = [{"label": "", "prefix": "coverage_"}]
+        coverage_groups = [{"label": "", "prefix": "coverage_",
+                            "min_key": "min_request_percent"}]
 
     return templates.TemplateResponse(
         request,

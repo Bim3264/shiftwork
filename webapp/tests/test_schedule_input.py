@@ -984,3 +984,67 @@ class SaturdaySundayBandSettingsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PerGroupMinRequestTest(unittest.TestCase):
+    """min_request_percent is per staff group (constraint.md 8): the legacy key
+    for the ungrouped roster, _rn / _pnna for the two solves of a classed ward."""
+
+    def test_legacy_only_input_is_inherited_by_both_groups(self):
+        si = ScheduleInput.from_grid(
+            ward_meta={"tier": "ward"},
+            settings={"num_days": 7, "min_request_percent": 60}, nurses=[])
+        self.assertEqual(si.settings["min_request_percent_rn"], 60)
+        self.assertEqual(si.settings["min_request_percent_pnna"], 60)
+        # A saved-before-this-change dict (legacy key only) behaves the same.
+        old = ScheduleInput.from_dict({"ward_meta": {}, "nurses": [],
+                                       "settings": {"num_days": 7,
+                                                    "min_request_percent": 40}})
+        self.assertEqual(old.min_request_percent_for("rn"), 40)
+        self.assertEqual(old.min_request_percent_for("pn_na"), 40)
+        self.assertEqual(old.min_request_percent_for(None), 40)
+
+    def test_group_keys_win_over_legacy_and_clamp(self):
+        si = ScheduleInput.from_grid(
+            ward_meta={"tier": "ward"},
+            settings={"num_days": 7, "min_request_percent": 60,
+                      "min_request_percent_rn": 100, "min_request_percent_pnna": 150},
+            nurses=[])
+        self.assertEqual(si.settings["min_request_percent_rn"], 100)
+        self.assertEqual(si.settings["min_request_percent_pnna"], 100)  # clamped
+        si2 = ScheduleInput.from_grid(
+            ward_meta={"tier": "ward"},
+            settings={"num_days": 7, "min_request_percent": 60,
+                      "min_request_percent_pnna": 20}, nurses=[])
+        self.assertEqual(si2.settings["min_request_percent_rn"], 60)    # inherited
+        self.assertEqual(si2.settings["min_request_percent_pnna"], 20)  # explicit
+
+    def test_to_solver_csv_emits_each_groups_value_under_legacy_name(self):
+        si = _classed_ward(rn=4, pn=3, settings={
+            "min_request_percent": 90,
+            "min_request_percent_rn": 100, "min_request_percent_pnna": 30})
+        rn = _setting_lines(si.to_solver_csv(group="rn"))
+        pn = _setting_lines(si.to_solver_csv(group="pn_na"))
+        self.assertIn("min_request_percent,100", rn)
+        self.assertIn("min_request_percent,30", pn)
+        self.assertNotIn("min_request_percent,90", rn + pn)
+        self.assertFalse([l for l in rn + pn if l.startswith("min_request_percent_")])
+        # Ungrouped emission keeps the legacy key.
+        self.assertIn("min_request_percent,90", _setting_lines(si.to_solver_csv()))
+
+    def test_ungrouped_ward_is_unaffected(self):
+        si = ScheduleInput.from_grid(
+            ward_meta={"tier": "ward"},
+            settings={"num_days": 7, "min_request_percent": 55},
+            nurses=[Nurse(name="A", type="senior"), Nurse(name="B")])
+        self.assertIn("min_request_percent,55", _setting_lines(si.to_solver_csv()))
+        self.assertEqual(si.solve_groups(), [])
+        self.assertEqual(ScheduleInput.from_csv(si.to_solver_csv())
+                         .settings["min_request_percent"], 55)
+
+    def test_dict_round_trip_keeps_independent_values(self):
+        si = _classed_ward(rn=4, pn=3, settings={
+            "min_request_percent_rn": 100, "min_request_percent_pnna": 25})
+        back = ScheduleInput.from_dict(si.to_dict())
+        self.assertEqual(back.settings["min_request_percent_rn"], 100)
+        self.assertEqual(back.settings["min_request_percent_pnna"], 25)

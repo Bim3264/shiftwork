@@ -139,7 +139,7 @@ def _check_group(rep: PresolveReport, si, group, limits, tier) -> None:
     saturdays = set(s.get("saturdays") or ())            # 1-based
     sundays = set(s.get("sundays") or ())                # 1-based
     weekends = set(s["weekends"]) | holidays | saturdays | sundays  # 1-based
-    soft = s["min_request_percent"] < 100
+    soft = si.min_request_percent_for(group) < 100
     # Seniority is the Type column (any number, zero included), in any group.
     seniors = ({n for n, x in enumerate(nurses) if x.type.strip().lower() in _SENIOR_FLAGS}
                if s["head_nurse_special_shift"] else set())

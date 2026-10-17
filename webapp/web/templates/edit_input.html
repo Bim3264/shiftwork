@@ -180,12 +180,17 @@
 
   <div class="card">
     <h3>ยืดหยุ่นคำขอ / Request flexibility</h3>
-    <label>Minimum % of requests to accept:
-      <input type="number" name="min_request_percent"
-             value="{{ settings.min_request_percent | default(100) }}" min="0" max="100" style="width:4rem"></label>
+    {# One threshold per staff group once the ward is classed (RN and PN/NA are
+       solved independently); the single legacy field otherwise. #}
+    {% for g in coverage_groups %}
+    {% set pct = settings.get(g.min_key, 100) %}
+    <label>Minimum % of requests to accept{% if g.label %} &mdash; {{ g.label }}{% endif %}:
+      <input type="number" name="{{ g.min_key }}"
+             value="{{ pct }}" min="0" max="100" style="width:4rem"></label>
     <div style="height:6px;background:var(--line);border-radius:3px;margin:8px 0;max-width:340px">
-      <div style="height:6px;background:var(--teal);border-radius:3px;width:{{ settings.min_request_percent | default(100) }}%"></div>
+      <div style="height:6px;background:var(--teal);border-radius:3px;width:{{ pct }}%"></div>
     </div>
+    {% endfor %}
     <span class="muted">100 = every request required; lower lets the solver drop the
       fewest requests needed to find a schedule.</span><br>
     <label>

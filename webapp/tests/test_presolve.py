@@ -432,6 +432,30 @@ class PresolveOffwardTests(unittest.TestCase):
         self.assertEqual([e.code for e in big_report.errors].count("tier_nurses"), 1)
 
 
+class PresolvePerGroupSoftTests(unittest.TestCase):
+    """Presolve judges a request 'droppable' by ITS group's min_request_percent."""
+
+    def test_soft_is_decided_per_group(self):
+        def nurses():
+            out = []
+            for pre, cls in (("R", "rn"), ("P", "pn")):
+                grp = [Nurse(name=f"{pre}{i}", staff_class=cls) for i in range(4)]
+                for n in grp[:3]:
+                    n.shifts[2] = "off"      # 3 of 4 off on day 2; 2/1/1 needs 4
+                out += grp
+            return out
+        cov = {f"coverage_{g}_weekday_{s}": n for g in ("rn", "pnna")
+               for s, n in (("day", 2), ("evening", 1), ("night", 1))}
+        settings = {**cov, "num_days": 7, "weekends": [],
+                    "head_nurse_special_shift": False, "relax_days_off": True,
+                    "min_request_percent_rn": 100, "min_request_percent_pnna": 50}
+        report = presolve.check(_si(settings=settings, nurses=nurses()))
+        cov_errors = [e for e in report.errors if e.code == "coverage_day"]
+        # RN (strict) is blocked; PN/NA (droppable) is not.
+        self.assertEqual(len(cov_errors), 1, report.errors)
+        self.assertTrue(cov_errors[0].message.startswith("RN: "))
+
+
 class PresolveHolidayBandTests(unittest.TestCase):
 
     def test_high_holiday_band_is_a_coverage_error_and_really_infeasible(self):

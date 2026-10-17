@@ -147,6 +147,15 @@ its slack. Below 100% the user has
 explicitly asked for relaxation, so at least one drop is always possible; at 100%
 the cap does not apply and every request stays hard.
 
+**Per staff group.** The threshold is set per group: `min_request_percent_rn` and
+`min_request_percent_pnna` (0..100), because RN and PN/NA are independent solves and the
+floor above is already computed per solve. `ScheduleInput.to_solver_csv(group=...)` writes the
+group's value under the legacy name `min_request_percent`, so `shiftwork.py` / `DataImporter`
+never see the group keys. A group key absent from a saved input inherits the legacy
+`min_request_percent` (`_coerce_settings`), so every existing input behaves identically; an
+ungrouped ward uses the legacy key alone. Presolve's `soft` flag follows the same per-group
+value (`min_request_percent_for(group)`). `relax_days_off` and `enforce_vacation` stay ward-wide.
+
 **Location:** `handleHolidaysAndReq()`
 
 ---

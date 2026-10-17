@@ -100,6 +100,10 @@ _DEFAULT_SETTINGS: dict[str, Any] = {
     # below 100 the solver may drop requests to reach feasibility, keeping as
     # many as possible. relax_days_off allows dropping requested days off too.
     "min_request_percent": 100,
+    # Per-staff-group thresholds (RN / PN/NA are solved independently). Absent
+    # from a saved input -> inherited from min_request_percent (_coerce_settings).
+    "min_request_percent_rn": 100,
+    "min_request_percent_pnna": 100,
     "relax_days_off": False,
     # When True (default) every requested vacation ('vac' cell) is guaranteed —
     # a hard constraint the solver can't drop. When False, vacations become
@@ -169,6 +173,11 @@ _GROUP_COVERAGE_KEYS = tuple(
     for band in _COVERAGE_BANDS
     for shift in ("day", "evening", "night")
 )
+
+# Per-group acceptance-floor keys (legacy key: "min_request_percent").
+_GROUP_MIN_REQUEST_KEY = {GROUP_RN: "min_request_percent_rn",
+                          GROUP_PN_NA: "min_request_percent_pnna"}
+_MIN_REQUEST_KEYS = ("min_request_percent",) + tuple(_GROUP_MIN_REQUEST_KEY.values())
 
 # Integer settings clamped to >= 0 (coverage minimums): legacy + per-group.
 _COVERAGE_KEYS = _LEGACY_COVERAGE_KEYS + _GROUP_COVERAGE_KEYS
@@ -512,11 +521,18 @@ class ScheduleInput:
         for key in _BOOL_SETTING_KEYS:
             if key in raw:
                 s[key] = _to_bool(raw[key], _DEFAULT_SETTINGS[key])
-        if "min_request_percent" in raw and str(raw["min_request_percent"]).strip() != "":
-            try:
-                s["min_request_percent"] = max(0, min(100, int(raw["min_request_percent"])))
-            except (TypeError, ValueError):
-                pass
+        for key in _MIN_REQUEST_KEYS:
+            if key in raw and str(raw[key]).strip() != "":
+                try:
+                    s[key] = max(0, min(100, int(raw[key])))
+                except (TypeError, ValueError):
+                    pass
+        # Inheritance: an input that predates per-group thresholds carries only
+        # the legacy key; each absent group key takes its value.
+        if "min_request_percent" in raw:
+            for gkey in _GROUP_MIN_REQUEST_KEY.values():
+                if gkey not in raw:
+                    s[gkey] = s["min_request_percent"]
         if "max_consecutive_nights" in raw and str(raw["max_consecutive_nights"]).strip() != "":
             try:
                 s["max_consecutive_nights"] = max(1, int(raw["max_consecutive_nights"]))
@@ -628,6 +644,12 @@ class ScheduleInput:
             if group_of(n.staff_class) == group
         ]
 
+    def min_request_percent_for(self, group: str | None = None) -> int:
+        """The acceptance floor for a solve: the group's own value, or the legacy
+        key for the ungrouped (group=None) roster."""
+        key = _GROUP_MIN_REQUEST_KEY[group] if group is not None else "min_request_percent"
+        return self.settings[key]
+
     def solve_groups(self) -> list[str]:
         """The staff groups to solve independently. [] when no active nurse has a
         staff class (legacy single solve); otherwise the groups present, in the
@@ -669,7 +691,8 @@ class ScheduleInput:
         for key in _BOOL_SETTING_KEYS:
             value = self.settings[key]
             out.write(f"{key},{'true' if value else 'false'}\n")
-        out.write(f"min_request_percent,{self.settings['min_request_percent']}\n")
+        # Solver-facing key stays the legacy name; a group run gets its own value.
+        out.write(f"min_request_percent,{self.min_request_percent_for(group)}\n")
         out.write(f"max_consecutive_nights,{self.settings['max_consecutive_nights']}\n")
         for key in _LEGACY_COVERAGE_KEYS:
             if group is None:

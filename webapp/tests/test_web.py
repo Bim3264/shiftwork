@@ -1009,6 +1009,38 @@ class CoverageBandsEditTests(WebTestBase):
         self.assertEqual(st["coverage_pnna_holiday_night"], 5)   # not reset to 2
         self.assertEqual(st["coverage_rn_weekday_night"], 8)     # submitted -> updated
 
+    def test_min_request_percent_is_per_group_in_form(self):
+        iid = self._make_input()
+        # Unclassed: one legacy field.
+        r = self.client.get(f"/inputs/{iid}/edit")
+        self.assertIn('name="min_request_percent"', r.text)
+        self.assertNotIn('name="min_request_percent_rn"', r.text)
+        # Classed: the pair replaces it.
+        classes = dict(class_0="rn", class_1="rn", class_2="na")
+        form = self._form(**classes, min_request_percent_rn="100",
+                          min_request_percent_pnna="40")
+        self.assertEqual(self.client.post(f"/inputs/{iid}", data=form).status_code, 303)
+        st = self._settings(iid)
+        self.assertEqual((st["min_request_percent_rn"], st["min_request_percent_pnna"]),
+                         (100, 40))
+        r = self.client.get(f"/inputs/{iid}/edit")
+        self.assertIn('name="min_request_percent_rn"', r.text)
+        self.assertIn('name="min_request_percent_pnna"', r.text)
+        self.assertNotIn('name="min_request_percent"', r.text)
+
+    def test_save_omitting_min_request_keys_does_not_clobber(self):
+        iid = self._make_input()
+        classes = dict(class_0="rn", class_1="rn", class_2="na")
+        form = self._form(**classes, min_request_percent_rn="70",
+                          min_request_percent_pnna="30")
+        self.assertEqual(self.client.post(f"/inputs/{iid}", data=form).status_code, 303)
+        # Second save omits all three keys (field not rendered): nothing resets.
+        self.assertEqual(self.client.post(f"/inputs/{iid}",
+                                          data=self._form(**classes)).status_code, 303)
+        st = self._settings(iid)
+        self.assertEqual((st["min_request_percent_rn"], st["min_request_percent_pnna"]),
+                         (70, 30))
+
     def test_save_omitting_holidays_leaves_stored_list_intact(self):
         iid = self._make_input()
         self.assertEqual(self.client.post(
