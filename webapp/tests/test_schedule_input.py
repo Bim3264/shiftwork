@@ -575,7 +575,9 @@ class UngroupedEmissionTest(unittest.TestCase):
         "allow_evening_to_night,false\n"
         "allow_night_to_day,false\n"
         "head_nurse_special_shift,true\n"
-        "relax_days_off,false\n"
+        # On by default: an ordinary requested day off is the easy thing to give
+        # up when a month is tight (constraint.md section 8).
+        "relax_days_off,true\n"
         "enforce_vacation,true\n"
         "limit_consecutive_nights,false\n"
         "no_consecutive_day_eve,false\n"

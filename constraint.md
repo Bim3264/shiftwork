@@ -130,6 +130,20 @@ Soft mode (`min_request_percent < 100`): one `sat` var per cell — both shifts 
 **Skip-guards** (request dropped, not a contradiction): senior nurses (§16/§17) asking for any cell
 on a weekend or any cell containing EVENING/NIGHT; a new nurse (§14) asking for `ด/บ`.
 
+**What is relaxable — order of hardness: shifts < off < vacation.**
+
+| Cell | Relaxable when |
+|---|---|
+| shift (`ช` `บ` `ด` `ช/บ` `ด/บ` `no:X`) | always, in soft mode |
+| `off` (requested day off) | `relax_days_off` (**on by default**) |
+| `vac` (approved leave) | `not enforce_vacation` **and** `relax_days_off` |
+
+An ordinary requested day off is meant to be the easy thing to give up when a
+month is tight, and approved leave the hardest. The `and relax_days_off` on the
+vacation row is what enforces that: without it a `vac` dropped while an `off` on
+the same ward did not, so leave was *easier* to lose than a day off — backwards,
+and the opposite of what the two checkboxes appear to promise.
+
 **Acceptance floor (soft mode).** At least `min_request_percent` of the relaxable
 requests must be satisfied:
 

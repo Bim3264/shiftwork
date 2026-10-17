@@ -467,9 +467,13 @@ class Solver():
                 for d in nurse['requested_holidays']:
                     _add_request(n, d, Shift.OFF, 'holiday', self.RELAX_DAYS_OFF)
                 for d in nurse.get('requested_vacations', []):
-                    # Enforced vacations are never relaxable (hard OFF); otherwise
-                    # they drop like off-requests in soft mode.
-                    _add_request(n, d, Shift.OFF, 'vacation', not self.ENFORCE_VACATION)
+                    # Approved leave is the HARDEST rest day to drop, by design:
+                    # it needs ENFORCE_VACATION off *and* RELAX_DAYS_OFF on. The
+                    # second half matters — without it a vacation dropped more
+                    # easily than an ordinary `off`, which is backwards. The
+                    # intended order is shifts < off < vacation.
+                    _add_request(n, d, Shift.OFF, 'vacation',
+                                 (not self.ENFORCE_VACATION) and self.RELAX_DAYS_OFF)
                 for d, req_shifts in nurse['requested_shifts'].items():
                     req_set = set(req_shifts)
                     label = '+'.join(s.value for s in req_shifts)

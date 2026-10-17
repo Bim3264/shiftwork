@@ -196,14 +196,15 @@
     <label>
       <input type="checkbox" name="relax_days_off"
              {% if settings.relax_days_off %}checked{% endif %}>
-      Also allow dropping requested days off (otherwise only shifts can be dropped)
+      Also allow dropping requested days off (<b>off</b> cells; otherwise only shifts can be dropped)
     </label>
     <br>
     <label>
       <input type="checkbox" name="enforce_vacation"
              {% if settings.enforce_vacation %}checked{% endif %}>
-      Enforce all vacation days (approved <b>vac</b> leave is always granted; uncheck to let
-      vacations drop like off-requests)
+      Enforce all vacation days (approved <b>vac</b> leave is always granted). Unchecking lets
+      vacations drop too, but only when the box above is ticked — approved leave is never
+      easier to give up than an ordinary day off.
     </label>
   </div>
   </div>{# /settings-grid #}

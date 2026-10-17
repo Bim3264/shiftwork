@@ -104,10 +104,15 @@ _DEFAULT_SETTINGS: dict[str, Any] = {
     # from a saved input -> inherited from min_request_percent (_coerce_settings).
     "min_request_percent_rn": 100,
     "min_request_percent_pnna": 100,
-    "relax_days_off": False,
+    # On by default: an ordinary requested day off should be the EASY thing to
+    # give up when a month is tight. A saved input keeps whatever it stored, so
+    # only new wards get this.
+    "relax_days_off": True,
     # When True (default) every requested vacation ('vac' cell) is guaranteed —
     # a hard constraint the solver can't drop. When False, vacations become
-    # droppable like ordinary off-requests (subject to min_request_percent).
+    # droppable, but still only if relax_days_off is on: approved leave must
+    # never be easier to drop than an ordinary off-request. Order of hardness:
+    # shifts < off < vacation.
     "enforce_vacation": True,
     # Manually-added holiday day-numbers (1-based). Merged into `weekends` by the
     # month auto-fill; holidays behave like weekends for the solver.

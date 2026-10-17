@@ -803,6 +803,47 @@ class NegativeRequestTest(_SmallWardTest):
             len(nurse["requested_shifts"]) + len(nurse["requested_negations"]), quota)
 
 
+class RestDayHardnessTest(_SmallWardTest):
+    """Order of hardness is shifts < off < vacation (constraint.md section 8).
+
+    Approved leave must never be easier to give up than an ordinary day off.
+    It was: an unenforced `vac` dropped without `relax_days_off`, while an
+    `off` on the same ward did not.
+    """
+
+    def _solve(self, cell, relax, enforce_vac):
+        # One day; coverage needs BOTH nurses on Day, so the cell is impossible.
+        path = os.path.join(self._workdir, "input", "w.csv")
+        text = _ward_csv(1, [("A", "", [cell]), ("B", "", [""])], cov=(2, 0, 0))
+        text = text.replace("min_request_percent,100", "min_request_percent,0")
+        text = text.replace("relax_days_off,false",
+                            "relax_days_off,%s" % str(relax).lower())
+        text = text.replace("enforce_vacation,true",
+                            "enforce_vacation,%s" % str(enforce_vac).lower())
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        with contextlib.redirect_stdout(io.StringIO()):
+            s = sw.Solver(path, 1, [], allow_shift_e_n=False, allow_shift_n_d=False)
+            return s.run(max_time_seconds=10)
+
+    def test_off_drops_whenever_days_off_are_relaxable(self):
+        for enforce_vac in (True, False):
+            with self.subTest(enforce_vacation=enforce_vac):
+                self.assertIn(self._solve("off", True, enforce_vac), _SOLVED)
+
+    def test_off_is_hard_when_days_off_are_not_relaxable(self):
+        self.assertEqual(self._solve("off", False, True), cp_model.INFEASIBLE)
+
+    def test_vacation_needs_both_switches(self):
+        self.assertIn(self._solve("vac", True, False), _SOLVED)
+
+    def test_vacation_is_not_easier_to_drop_than_an_off(self):
+        # The regression: relax_days_off off => nothing rests-related drops,
+        # vacation included, even when enforce_vacation is off.
+        self.assertEqual(self._solve("vac", False, False), cp_model.INFEASIBLE)
+        self.assertEqual(self._solve("vac", True, True), cp_model.INFEASIBLE)
+
+
 class RequestFloorTest(_SmallWardTest):
     """The soft-request acceptance floor must not round up to "keep everything"
     for a small set of requests (constraint.md section 8)."""
