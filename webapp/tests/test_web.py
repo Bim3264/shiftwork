@@ -825,6 +825,14 @@ class ResultGridRenderTests(WebTestBase):
         self.assertNotIn(self._VAC_TINT, flt)
 
 
+class NegativeRequestEditTests(WebTestBase):
+    def test_edit_page_documents_and_tints_no_tokens(self):
+        r = self.client.get(f"/inputs/{self._make_input()}/edit")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("no:บ", r.text)               # legend
+        self.assertIn("cell--neg", r.text)               # CSS class + JS tint
+
+
 class CoverageBandsEditTests(WebTestBase):
     """Edit page: three coverage bands, the holidays input, no-clobber saves."""
 

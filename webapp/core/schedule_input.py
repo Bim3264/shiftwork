@@ -28,8 +28,11 @@ from typing import Any
 from constant import (
     OFFWARD_SEP,
     OFFWARD_TOKENS,
+    NEGATE_KIND,
+    NEGATE_TOKENS,
     SHIFT_LOCALE,
     LocaleShift,
+    parse_negation,
     parse_offward,
 )
 from dataimporter import DataImporter
@@ -64,9 +67,9 @@ _SHIFT_SYMBOLS = {
 }
 _CONTROL_TOKENS = {"off", "mtg", "vac"}
 # Off-ward duties (float / refer) are written 'flt:ช' / 'ref:ด' etc.
-VALID_CELL_TOKENS = _SHIFT_SYMBOLS | _CONTROL_TOKENS | OFFWARD_TOKENS | {""}
+VALID_CELL_TOKENS = _SHIFT_SYMBOLS | _CONTROL_TOKENS | OFFWARD_TOKENS | NEGATE_TOKENS | {""}
 # The bare kind words ('flt', 'ref') are NOT valid on their own: a shift is required.
-_OFFWARD_KINDS = {t.partition(OFFWARD_SEP)[0] for t in OFFWARD_TOKENS}
+_OFFWARD_KINDS = {t.partition(OFFWARD_SEP)[0] for t in OFFWARD_TOKENS} | {NEGATE_KIND}
 
 # Settings the constraint selector exposes, with their defaults. weekends are
 # stored 1-based (as written in the CSV, e.g. "6 7 13 14"); everything that
@@ -754,6 +757,10 @@ def _normalize_token(raw: str) -> str:
     if offward is not None:
         kind, shift = offward
         return f"{kind}{OFFWARD_SEP}{SHIFT_LOCALE[shift]}"
+    # Negative request ('NO:บ' -> 'no:บ'); bare 'no' / 'no:off' stay invalid.
+    negated = parse_negation(token)
+    if negated is not None:
+        return f"{NEGATE_KIND}{OFFWARD_SEP}{SHIFT_LOCALE[negated]}"
     if token.lower() in _OFFWARD_KINDS:
         return token.lower()
     return token

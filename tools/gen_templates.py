@@ -39,6 +39,8 @@ from openpyxl.worksheet.datavalidation import DataValidation  # noqa: E402
 from openpyxl.worksheet.properties import PageSetupProperties  # noqa: E402
 
 from constant import (  # noqa: E402
+    NEGATE_KIND,
+    NEGATE_TOKENS,
     OFFWARD_SEP,
     OFFWARD_SHIFTS,
     OFFWARD_TOKENS,
@@ -91,12 +93,20 @@ def offward_tokens() -> list:
     return tokens
 
 
+def negate_tokens() -> list:
+    """Negative-request tokens (no:ช no:บ no:ด) in display order."""
+    tokens = [f"{NEGATE_KIND}{OFFWARD_SEP}{sym}" for sym in OFFWARD_SHIFTS]
+    assert set(tokens) == set(NEGATE_TOKENS)
+    return tokens
+
+
 def cell_tokens() -> list:
     """Every token the day-cell dropdown offers. Anti-drift: tests compare the
     generated validation to LocaleShift + OFFWARD_TOKENS."""
     return ([m.value for m in _WORK_CODES]
             + [m.value for m in _CONTROL_CODES]
-            + offward_tokens())
+            + offward_tokens()
+            + negate_tokens())
 
 
 # ── Palette / style helpers ──────────────────────────────────────────────────
@@ -106,7 +116,7 @@ INK, BLUE, GRID = "1F2937", "1D4ED8", "CBD5E1"
 LABEL_FILL, WHITE, BAND = "F1F5F9", "FFFFFF", "F8FAFC"
 WEEKEND_FILL, WEEKEND_INK, WEEKEND_LETTER = "E0F2FE", TEAL_DARK, "0369A1"
 LETTER_FILL, LETTER_INK = "E2E8F0", "6B7280"
-FLT_FILL, REF_FILL = "FBCFE8", "FCA5A5"
+FLT_FILL, REF_FILL, NEG_FILL = "FBCFE8", "FCA5A5", "FECDD3"
 REST_BODY, EX_MUTED = "F0F9FF", "6B7280"
 TYPE_STYLE = {"senior": ("FEF3C7", "92400E"), "new": ("DBEAFE", "1E40AF")}
 
@@ -219,7 +229,7 @@ _EXAMPLE_ROWS = (
                             19: "ช", 22: "off", 31: "off"}),
     ("NurseC", None, "rn", {5: "vac", 8: "off", 10: "flt:ช", 24: "off", 26: "off"}),
     ("NurseD", None, "rn", {2: "off", 5: "off", 14: "ช/บ", 17: "off"}),
-    ("NurseE", None, "rn", {9: "off"}),
+    ("NurseE", None, "rn", {9: "off", 24: "no:บ"}),
     ("NurseF", None, "rn", {7: "ช", 18: "off", 21: "ref:ด", 22: "ช", 27: "off",
                             28: "off"}),
     ("NurseG", "new", "rn", {1: "off", 3: "ช", 5: "ช", 6: "ช", 8: "ช",
@@ -345,7 +355,14 @@ def _build_roster(ws, spec: TemplateSpec):
         _put(ws, f"A{rr}", token, font=_font(11, True, INK), fill=fill, align=_CENTER,
              border=BOX)
         _put(ws, f"B{rr}", text, font=_font(9), align=_LEFT)
-        ws.merge_cells(f"B{rr}:P{rr}")
+        # The ref row also carries the no: legend (no spare row above the grid).
+        ws.merge_cells(f"B{rr}:{'H' if token == ref_ else 'P'}{rr}")
+        if token == ref_:
+            _put(ws, f"I{rr}", negate_tokens()[1], font=_font(11, True, INK),
+                 fill=NEG_FILL, align=_CENTER, border=BOX)
+            _put(ws, f"J{rr}", "Not this shift: no: + ช / บ / ด  ·  ไม่เอาเวรนี้",
+                 font=_font(9), align=_LEFT)
+            ws.merge_cells(f"J{rr}:P{rr}")
         _put(ws, f"Q{rr}", note, font=_font(9), align=_LEFT)
         ws.merge_cells(f"Q{rr}:{LAST_COL}{rr}")
     for rr in (r, r + 1, r + 2):
@@ -408,7 +425,7 @@ def _build_roster(ws, spec: TemplateSpec):
     dv_cells = DataValidation(
         type="list", formula1='"' + ",".join(cell_tokens()) + '"', allow_blank=True,
         showErrorMessage=True, errorTitle="Shift code / รหัสเวร",
-        error="Use ช บ ด ช/บ ด/บ off vac, or flt:/ref: + ช บ ด")
+        error="Use ช บ ด ช/บ ด/บ off vac, or flt:/ref:/no: + ช บ ด")
     dv_cells.add(grid)
     dv_type = DataValidation(type="list", formula1='"senior,new"', allow_blank=True)
     dv_type.add(f"B{R_FIRST}:B{last_row}")
@@ -426,7 +443,8 @@ def _build_roster(ws, spec: TemplateSpec):
             formula=[f'EXACT({tl},"{code}")'],
             fill=PatternFill("solid", fgColor=fill, bgColor=fill)))
     for kind, fill in ((f"{OffWard.FLOAT.value}{OFFWARD_SEP}", FLT_FILL),
-                       (f"{OffWard.REFER.value}{OFFWARD_SEP}", REF_FILL)):
+                       (f"{OffWard.REFER.value}{OFFWARD_SEP}", REF_FILL),
+                       (f"{NEGATE_KIND}{OFFWARD_SEP}", NEG_FILL)):
         ws.conditional_formatting.add(grid, FormulaRule(
             formula=[f'EXACT(LEFT({tl},{len(kind)}),"{kind}")'],
             fill=PatternFill("solid", fgColor=fill, bgColor=fill)))
@@ -469,6 +487,10 @@ _GUIDE_CODES_EXTRA = (
     ("ref:ช · ref:บ · ref:ด",
      "Refer / patient-transfer escort on that shift. Same rules as float · "
      "ส่งต่อผู้ป่วย"),
+    ("no:ช · no:บ · no:ด",
+     "Please do NOT give me that shift on that day. Day, the other shift, or off "
+     "are all fine. A request like any other: counts toward the request limit · "
+     "ขอไม่เอาเวรนี้"),
 )
 
 

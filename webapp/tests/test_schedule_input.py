@@ -685,6 +685,44 @@ class OffwardTokenTest(unittest.TestCase):
         self.assertIn("flt:ด", VALID_CELL_TOKENS)
 
 
+class NegativeRequestTokenTests(unittest.TestCase):
+    """'no:บ' = anything except Evening (constraint.md section 23)."""
+
+    def _csv(self, *cells):
+        head = ",".join(str(i + 1) for i in range(len(cells)))
+        return ("[ward]\nward_name,W\n\n[settings]\nnum_days,%d\n\n[schedule]\n"
+                "Name,Type,%s\nA,,%s\nB,,%s\n"
+                % (len(cells), head, ",".join(cells), ",".join([""] * len(cells))))
+
+    def test_token_is_valid_and_normalised(self):
+        for t in ("no:ช", "no:บ", "no:ด"):
+            self.assertIn(t, VALID_CELL_TOKENS)
+        si = ScheduleInput.from_csv(self._csv("NO:บ"))
+        self.assertEqual(si.nurses[0].shifts[1], "no:บ")
+        si.validate()
+
+    def test_bare_no_and_no_off_are_rejected(self):
+        for bad in ("no", "no:off", "no:vac", "no:ช/บ"):
+            si = ScheduleInput.from_csv(self._csv(bad))
+            with self.assertRaises(ValueError, msg=bad):
+                si.validate()
+
+    def test_token_survives_to_solver_csv_and_importer(self):
+        si = ScheduleInput.from_csv(self._csv("no:บ", "ช"))
+        fd, path = tempfile.mkstemp(suffix=".csv")
+        os.close(fd)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(si.to_solver_csv())
+        try:
+            data = DataImporter(path, 5, 5).transform()
+        finally:
+            os.unlink(path)
+        from constant import Shift
+        self.assertEqual(data.reqNegShifts[0], {0: Shift.EVENING})
+        self.assertEqual(data.reqShifts[0], {1: [Shift.DAY]})
+        self.assertEqual(data.reqNegShifts[1], {})
+
+
 class HolidayBandSettingsTest(unittest.TestCase):
 
     def _importer(self, si):

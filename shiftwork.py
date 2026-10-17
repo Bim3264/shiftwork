@@ -230,6 +230,8 @@ class Solver():
                 self.nurses.append({
                     'requested_holidays': data.reqDayOff[n],   # 0-based days
                     'requested_shifts': data.reqShifts[n],     # {day: [Shift, ...]}
+                    'requested_negations': (data.reqNegShifts[n]       # {day: Shift} 'no:X'
+                                            if n < len(data.reqNegShifts) else {}),
                     'requested_vacations': vacs                # 0-based days (approved leave)
                 })
 
@@ -365,9 +367,10 @@ class Solver():
         soft = self.MIN_REQUEST_PERCENT < 100
         self.request_soft = []
 
-        def _add_request(n, d, shifts, kind, relaxable):
+        def _add_request(n, d, shifts, kind, relaxable, negate=False):
             """Force assignments[n][d][s]==1 for every s in `shifts` (one request
-            cell; a double shift like ช/บ is two shifts). In soft mode a relaxable
+            cell; a double shift like ช/บ is two shifts), or ==0 when `negate`
+            ('no:บ', §23: anything except that shift). In soft mode a relaxable
             request is reified with ONE 'satisfied' var so the whole cell is kept
             or dropped together (and tracked for the report); otherwise it stays a
             hard constraint."""
@@ -376,19 +379,20 @@ class Solver():
                 # Diagnosis: gate EVERY request behind an assumption literal,
                 # relaxable or not, so the unsat core can name it. The
                 # MIN_REQUEST_PERCENT floor is skipped in this mode (below).
-                self._diag_gate(n, d, shifts, kind)
+                self._diag_gate(n, d, shifts, kind, negate)
                 return
+            want = 0 if negate else 1
             if soft and relaxable:
                 sat = self.model.NewBoolVar(f'req_{kind}_{n}_{d}')
                 for s in shifts:
-                    self.model.Add(self.assignments[n][d][s] == 1).OnlyEnforceIf(sat)
+                    self.model.Add(self.assignments[n][d][s] == want).OnlyEnforceIf(sat)
                 self.request_soft.append(
                     {'n': n, 'day': d, 'shift': shifts[0], 'shifts': shifts,
-                     'kind': kind, 'sat': sat}
+                     'kind': kind, 'sat': sat, 'negate': negate}
                 )
             else:
                 for s in shifts:
-                    self.model.Add(self.assignments[n][d][s] == 1)
+                    self.model.Add(self.assignments[n][d][s] == want)
 
         for n in range(self.num_nurses):
             if n < len(self.nurses):
@@ -416,6 +420,11 @@ class Solver():
                               f'skipped (new nurse cannot work Evening + Night).')
                         continue
                     _add_request(n, d, req_shifts, 'shift', True)
+                for d, neg_shift in nurse.get('requested_negations', {}).items():
+                    # 'no:X' (§23). Needs no skip-guard: a cell holds ONE token, so it
+                    # can never share a day with mtg/off-ward/off/vac; the senior
+                    # Day-or-OFF rule makes no:ช just OFF, which is feasible.
+                    _add_request(n, d, [neg_shift], 'avoid', True, negate=True)
 
         # Meeting days: nurse is assigned DAY but excluded from minimum coverage
         # count. Meetings are commitments and are never dropped.
@@ -646,6 +655,8 @@ class Solver():
                     hints = set(req_shifts[d])      # both shifts for a double request
                 else:
                     hints = {_cycle[(n + d) % 4]}
+                    if nurse.get('requested_negations', {}).get(d) in hints:
+                        hints = {Shift.OFF}     # never hint a shift a 'no:X' rules out
 
                 for s in Shift:
                     self.model.AddHint(self.assignments[n][d][s], 1 if s in hints else 0)
@@ -718,7 +729,7 @@ class Solver():
         for e in self.request_soft:
             shifts = e.get('shifts') or [e['shift']]
             rec = {'nurse_index': e['n'], 'day': e['day'] + 1,
-                   'shift': '+'.join(s.value for s in shifts), 'kind': e['kind']}
+                   'shift': self._request_label(shifts, e.get('negate')), 'kind': e['kind']}
             if self.solver.Value(e['sat']) == 1:
                 accepted.append(rec)
             else:
@@ -822,14 +833,21 @@ class Solver():
             self._diag_mode = False
         return self._diag_gated
 
-    def _diag_gate(self, n, d, shifts, kind):
+    @staticmethod
+    def _request_label(shifts, negate=False):
+        """'ช+บ' for a positive cell, 'no:บ' for a negated one."""
+        if negate:
+            return f'no{OFFWARD_SEP}{SHIFT_LOCALE[shifts[0]]}'
+        return '+'.join(s.value for s in shifts)
+
+    def _diag_gate(self, n, d, shifts, kind, negate=False):
         """Reify one request cell behind a fresh assumption literal."""
         lit = self.model.NewBoolVar(f'diag_{kind}_{n}_{d}')
         for s in shifts:
-            self.model.Add(self.assignments[n][d][s] == 1).OnlyEnforceIf(lit)
+            self.model.Add(self.assignments[n][d][s] == (0 if negate else 1)).OnlyEnforceIf(lit)
         self._diag_gated.append((lit, {
             'kind': kind, 'nurse_index': n, 'day': d + 1,
-            'shift': '+'.join(x.value for x in shifts)}))
+            'shift': self._request_label(shifts, negate)}))
 
     def _diag_solve(self, gated: list, max_time_seconds: float) -> tuple:
         """Solve the gated model under its assumptions and map the core back to

@@ -596,5 +596,77 @@ class HolidayBandTest(_SmallWardTest):
                 for c in d["coverage"]), d["coverage"])
 
 
+class NegativeRequestTest(_SmallWardTest):
+    """constraint.md section 23: 'no:X' = assignments[n][d][X] == 0 (pure negation),
+    routed through _add_request so soft mode, the report and diagnose() apply."""
+
+    E = Shift.EVENING
+
+    def test_negation_forbids_the_shift_only(self):
+        # Evening needed once, 2 nurses, 1 day. A says no:บ -> B must take it.
+        # (Without the rule either nurse could be picked.) Also: A is NOT forced
+        # to work - nothing demands it, and OFF stays legal.
+        rows = [("A", "", ["no:บ"]), ("B", "", [""])]
+        s, st, _ = self._run(1, rows, cov=(0, 1, 0))
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(s.solver.Value(s.assignments[0][0][self.E]), 0)
+        self.assertEqual(s.solver.Value(s.assignments[1][0][self.E]), 1)
+
+    def test_all_nurses_negating_a_needed_shift_is_infeasible(self):
+        # Proves it is a real hard constraint (min_request_percent 100), and that
+        # diagnose() names the cells through the shared _add_request gate.
+        rows = [("A", "", ["no:บ"]), ("B", "", ["no:บ"])]
+        s, st, _ = self._run(1, rows, cov=(0, 1, 0))
+        self.assertEqual(st, cp_model.INFEASIBLE)
+        with contextlib.redirect_stdout(io.StringIO()):
+            d = s.diagnose(8.0)
+        self.assertEqual(d["reason"], "requests")
+        self.assertTrue(all(r["kind"] == "avoid" and r["shift"] == "no:บ"
+                            for r in d["requests"]), d["requests"])
+        self.assertEqual(len(d["requests"]), 2)
+
+    def test_negation_is_droppable_and_reported_in_soft_mode(self):
+        # Same infeasible ward, but min_request_percent 50: one of the two
+        # negations is dropped and the acceptance report says so.
+        path = os.path.join(self._workdir, "input", "w.csv")
+        text = _ward_csv(1, [("A", "", ["no:บ"]), ("B", "", ["no:บ"])], cov=(0, 1, 0))
+        text = text.replace("min_request_percent,100", "min_request_percent,50")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        with contextlib.redirect_stdout(io.StringIO()):
+            s = sw.Solver(path, 1, [], allow_shift_e_n=False, allow_shift_n_d=False)
+            st = s.run(max_time_seconds=10)
+        self.assertIn(st, _SOLVED)
+        rep = s.request_report
+        self.assertEqual((rep["total"], rep["accepted"]), (2, 1))
+        self.assertEqual(rep["dropped"][0]["shift"], "no:บ")
+        self.assertEqual(rep["dropped"][0]["kind"], "avoid")
+
+    def test_double_shift_assignments_are_ruled_out(self):
+        # ช/บ and ด/บ both set Evening, so no:บ excludes them with no extra code.
+        # 3 nurses, cov 1/1/1 on a single day, A negates Evening: A's Evening var
+        # is 0 whatever else she does.
+        rows = [("A", "", ["no:บ"]), ("B", "", [""]), ("C", "", [""])]
+        s, st, _ = self._run(1, rows, cov=(1, 1, 1))
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(s.solver.Value(s.assignments[0][0][self.E]), 0)
+
+    def test_negation_shares_the_request_quota(self):
+        # DataImporter samples positive and negative cells together, so a nurse
+        # with more request cells than max_req_shifts keeps only that many in
+        # total. 'department' tier -> read the limit from the loader.
+        path = os.path.join(self._workdir, "input", "w.csv")
+        cells = ["no:บ", "no:ช", "ช", "บ", "ด", "no:ด", "ช"]
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(_ward_csv(7, [("A", "", cells)], cov=(0, 0, 0)))
+        with contextlib.redirect_stdout(io.StringIO()):
+            s = sw.Solver(path, 7, [], allow_shift_e_n=False, allow_shift_n_d=False)
+        quota = s.MAX_REQ_SHIFT
+        self.assertLess(quota, 7, "fixture needs a quota below the 7 cells")
+        nurse = s.nurses[0]
+        self.assertEqual(
+            len(nurse["requested_shifts"]) + len(nurse["requested_negations"]), quota)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

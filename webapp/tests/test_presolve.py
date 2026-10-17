@@ -490,5 +490,33 @@ class PresolveHolidayBandTests(unittest.TestCase):
         self.assertEqual(presolve.check(si).errors, [])
 
 
+class PresolveNegationTests(unittest.TestCase):
+    """'no:X' cells (constraint.md section 23) feed the coverage check."""
+
+    def _si(self, negators, **over):
+        nurses = [Nurse(name=f"N{i}") for i in range(3)]
+        for i in range(negators):
+            nurses[i].shifts[2] = "no:บ"          # no:evening on day 2
+        s = _offward_base(num_days=3, coverage_weekday_night=0, **over)
+        return _si(settings=s, nurses=nurses)
+
+    def test_everyone_negating_a_needed_shift_is_a_coverage_error(self):
+        si = self._si(3)
+        cov = [e for e in presolve.check(si).errors if e.code == "coverage_day"]
+        self.assertEqual([e.days for e in cov], [[2]])
+        self.assertIn("no:", cov[0].message)
+        self.assertEqual(run_schedule(si, 20).solver_status, "INFEASIBLE")
+
+    def test_partial_negation_is_not_blocked(self):
+        # Failure mode 9: the converse. Two of three negating still leaves one.
+        si = self._si(2)
+        self.assertEqual(presolve.check(si).errors, [])
+        self.assertTrue(run_schedule(si, 20).solved)
+
+    def test_negation_is_not_hard_in_soft_mode(self):
+        si = self._si(3, min_request_percent=50)
+        self.assertEqual(presolve.check(si).errors, [])
+
+
 if __name__ == "__main__":
     unittest.main()

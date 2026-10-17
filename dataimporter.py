@@ -2,7 +2,7 @@ import pandas as pd
 import io
 import random
 import os
-from constant import Shift, LocaleShift, parse_offward
+from constant import Shift, LocaleShift, parse_offward, parse_negation
 
 # ── Tier definitions ──────────────────────────────────────────────────────────
 
@@ -200,6 +200,7 @@ class DataImporter():
         self.reqVacations    = []
         self.reqMeetings     = []
         self.reqOffward      = []
+        self.reqNegShifts    = []   # per nurse {0-based day: Shift} -- 'no:X' cells
         self.newNurseIndices = []
 
         # --- Parse sections ---
@@ -323,7 +324,7 @@ class DataImporter():
         for index, row in self.df.iterrows():
             days_off, vacations, meeting_days = [], [], []
             offward = []       # [(day_idx, Shift, kind)]
-            shift_cells = []   # [(day_idx, [Shift, ...])], one entry per request cell
+            shift_cells = []   # [(day_idx, [Shift, ...], negated)], one entry per request cell
 
             for col in day_cols:
                 val = self.clean(row[col])
@@ -345,12 +346,16 @@ class DataImporter():
                     # fact, not a request: never sampled against maxReqShift.
                     kind, shift = parse_offward(val)
                     offward.append((day_idx, shift, kind))
+                elif parse_negation(val) is not None:
+                    # 'no:บ' is a request too: it shares the quota with positive cells.
+                    shift_cells.append((day_idx, [parse_negation(val)], True))
                 elif val in _cell_shifts:
-                    shift_cells.append((day_idx, list(_cell_shifts[val])))
+                    shift_cells.append((day_idx, list(_cell_shifts[val]), False))
 
             # Excess shift requests are sampled down per CELL (1 cell = 1 request).
             sampled = self.sample(shift_cells, self.maxReqShift)
-            self.reqShifts.append({day: shifts for day, shifts in sampled})
+            self.reqShifts.append({day: shifts for day, shifts, neg in sampled if not neg})
+            self.reqNegShifts.append({day: shifts[0] for day, shifts, neg in sampled if neg})
 
             self.reqDayOff.append(self.sample(days_off, self.maxDayOff))
             # Vacations are approved leave: never randomly down-sampled like off-requests.

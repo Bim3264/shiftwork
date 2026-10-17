@@ -15,7 +15,7 @@ import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from constant import LocaleShift, OFFWARD_TOKENS  # noqa: E402
+from constant import LocaleShift, NEGATE_TOKENS, OFFWARD_TOKENS  # noqa: E402
 from webapp.core.schedule_input import ScheduleInput  # noqa: E402
 
 try:
@@ -129,7 +129,8 @@ class AllGeneratedTemplatesTests(unittest.TestCase):
                 break
         # Derived, not spelled out: adding a member to LocaleShift or a token to
         # OFFWARD_TOKENS without updating the generator must fail here.
-        expected = {m.value for m in LocaleShift} | set(OFFWARD_TOKENS)
+        expected = ({m.value for m in LocaleShift} | set(OFFWARD_TOKENS)
+                    | set(NEGATE_TOKENS))
         self.assertEqual(listed, expected)
 
     def test_class_dropdown_present(self):

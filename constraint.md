@@ -629,3 +629,44 @@ settings dict; `ScheduleInput._DEFAULT_SETTINGS` / `_COVERAGE_BANDS` /
 `calendar_util.month_dates()["holiday_days"]`; `presolve._day_band()` / `_band()`;
 `webapp/core/diagnosis.py` band rendering; `duplicate.next_month_input()`;
 `edit_input.html` coverage table.
+
+---
+
+## 23. Negative shift request — `no:X` ("anything except X")
+
+**Original (customer):** ขอไม่บ่าย 24 · "please don't give me Evening on the 24th". The
+nurse accepts Day, Night or a day off; she only rules one shift out.
+
+**Rule:** a request cell `no:ช` / `no:บ` / `no:ด` forbids that one shift on that day.
+Pure negation — it is **not** "must work something else": OFF stays legal. It is an
+ordinary *request*: hard when `min_request_percent == 100`, droppable below that,
+counted in the acceptance report, nameable by `Solver.diagnose()`, and it consumes
+the per-nurse request quota (`max_req_shifts`) together with the positive cells.
+
+```
+for a negation cell (n, d, shift s):
+  a[n][d][s] == 0                      (hard)
+  a[n][d][s] == 0  OnlyEnforceIf(sat)  (soft; one `sat` per cell, §8 floor applies)
+```
+
+`ช/บ` and `ด/บ` both set the Evening variable, so `no:บ` rules them out with no extra
+code. `no:off` / bare `no` are not tokens (rejected by `validate()`); "must work" is a
+different request and is deliberately not offered.
+
+**Skip-guard: none needed.** One cell holds one token, so a negation can never share a
+day with `mtg`, an off-ward cell, `off` or `vac`. The senior rule (§16/§17) leaves
+Day-or-OFF on weekdays, so `no:ช` for head/deputy just means OFF — feasible. The only
+way a negation can make the model infeasible is coverage (everyone negating a shift
+that is needed), which presolve reports as `coverage_day` and, in soft mode, the
+request floor lets the solver drop.
+
+**Location:** `constant.py` `NEGATE_KIND`/`NEGATE_TOKENS`/`parse_negation()`;
+`DataImporter.transform()` → `reqNegShifts` (`{day: Shift}` per nurse; sampled in the
+same pool as `reqShifts`); `Solver.loadReqShifts()` → `nurse['requested_negations']`;
+`Solver.handleHolidaysAndReq()` calls the shared `_add_request(..., negate=True)`
+(kind `'avoid'`) — `_diag_gate(..., negate)` and `_request_label()` give diagnosis and
+the report the `no:บ` label; `_build_warm_start` never hints a negated shift.
+Web: `schedule_input.VALID_CELL_TOKENS` / `_normalize_token` (`NO:บ` → `no:บ`);
+`presolve.py` (`_NurseDay.forbidden`, `_feasible`, `_explain_day`);
+`edit_input.html` legend + `cell--neg` tint; `tools/gen_templates.py` dropdown
+(`negate_tokens()`), conditional format, legend cell, Guide row.

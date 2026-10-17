@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 
 from ortools.sat.python import cp_model
 
-from constant import Shift, parse_offward
+from constant import Shift, parse_negation, parse_offward
 from dataimporter import TIER_LIMITS
 from webapp.core.schedule_input import GROUP_LABELS, GROUP_PN_NA, GROUP_RN
 from webapp.core.tiers import resolve_tier
@@ -94,6 +94,8 @@ class _NurseDay:
     # nurse works exactly that shift and is excluded from ITS coverage pool.
     # `forced` also carries the letter so the transition checks see it.
     offward: tuple | None = None
+    # 'no:X' (§23): shift letters that must be 0. Hard only when unsampled and not soft.
+    forbidden: set = field(default_factory=set)
 
 
 def check(si) -> PresolveReport:
@@ -150,8 +152,9 @@ def _check_group(rep: PresolveReport, si, group, limits, tier) -> None:
     for n, nurse in enumerate(nurses):
         per_day: dict[int, _NurseDay] = {}
         offs = [d for d, t in nurse.shifts.items() if t == "off"]
-        shift_cells = {d: t for d, t in nurse.shifts.items() if t in _TOKEN_SHIFTS}
-        entries = len(shift_cells)          # 1 cell = 1 request (off-ward cells are not requests)
+        shift_cells = {d: t for d, t in nurse.shifts.items()
+                       if t in _TOKEN_SHIFTS or parse_negation(t) is not None}
+        entries = len(shift_cells)          # 1 cell = 1 request ('no:X' too; off-ward cells are not requests)
 
         offs_sampled = len(offs) > limits["max_holidays"]
         if offs_sampled:
@@ -204,6 +207,11 @@ def _check_group(rep: PresolveReport, si, group, limits, tier) -> None:
                     continue
                 nd.offward = (letter, kind)
                 nd.forced |= {letter}
+            elif parse_negation(tok) is not None:
+                # Mirrors K23 in shiftwork.handleHolidaysAndReq. A single cell cannot
+                # contradict itself; a negation only bites through coverage (check 4).
+                if not soft and not shifts_sampled:
+                    nd.forbidden.add(_OFFWARD_LETTER[parse_negation(tok)])
             elif tok in _TOKEN_SHIFTS:
                 forced = set(_TOKEN_SHIFTS[tok])
                 if n in seniors and (wk or forced & {E, N} or tok in ("ช/บ", "ด/บ")):
@@ -327,6 +335,8 @@ def _feasible(ctx, days: list[int]) -> bool:
                     m.Add(dv + ev + nv == 0)
                 for sh in nd.forced:                      # §8 (hard)
                     m.Add(x[n, d, sh] == 1)
+                for sh in nd.forbidden:                   # §23 (hard 'no:X')
+                    m.Add(x[n, d, sh] == 0)
                 if nd.meeting:                            # §15
                     m.Add(dv == 1)
                 if nd.offward is not None:                # §21: that shift only
@@ -370,6 +380,8 @@ def _explain_day(ctx, d: int) -> str:
     wk = d in ctx["weekends"]
     req = _band(s, _day_band(ctx, d), ctx.get("group"))
     vac_or_off = meet = senior_off = offward = senior_day_only = 0
+    avoiders = sum(1 for n in range(len(nurses))
+                   if fixed[n].get(d) is not None and fixed[n][d].forbidden)
     for n in range(len(nurses)):
         nd = fixed[n].get(d)
         if nd and nd.off:
@@ -394,6 +406,8 @@ def _explain_day(ctx, d: int) -> str:
         parts.append(f"{offward} on off-ward duty (flt/ref)")
     if senior_day_only:
         parts.append(f"{senior_day_only} head/deputy Day-only")
+    if avoiders:
+        parts.append(f"{avoiders} asked not to work a shift (no:)")
     why = f" ({', '.join(parts)})" if parts else ""
     kind = "weekend/holiday" if wk else "weekday"
     return (f"Day {d} ({kind}): needs {req[D]} ช + {req[E]} บ + {req[N]} ด, but only "

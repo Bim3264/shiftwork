@@ -44,6 +44,23 @@ OFFWARD_TOKENS = {
 }
 
 
+# Negative request (constraint.md section 23): 'no:บ' = anything EXCEPT Evening that
+# day. Same kind:shift shape as the off-ward tokens, but a soft-able request, not a
+# duty. Only the three working shifts can be negated ('no:off' is not a token).
+NEGATE_KIND = "no"
+NEGATE_TOKENS = {f'{NEGATE_KIND}{OFFWARD_SEP}{sym}' for sym in OFFWARD_SHIFTS}
+
+
+def parse_negation(token):
+    """'no:บ' -> Shift.EVENING. None for anything else (including bare 'no' and
+    'no:off')."""
+    text = str(token).strip()
+    kind, sep, symbol = text.partition(OFFWARD_SEP)
+    if not sep or kind.strip().lower() != NEGATE_KIND:
+        return None
+    return OFFWARD_SHIFTS.get(symbol.strip())
+
+
 def parse_offward(token):
     """'flt:ด' -> ('flt', Shift.NIGHT). Returns None for anything that is not a
     well-formed off-ward token (including a bare 'flt'), so callers can fall

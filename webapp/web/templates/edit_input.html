@@ -45,6 +45,7 @@
   input.cell.cell--mtg   { background:#EDE9FE; border-color:#8B5CF6; color:#5B21B6; }
   input.cell.cell--vac   { background:#CFFAFE; border-color:#06B6D4; color:#155E75; }
   input.cell.cell--ofw   { background:#FFEDD5; border-color:#EA580C; color:#9A3412; }
+  input.cell.cell--neg   { background:#FFE4E6; border-color:#BE123C; color:#9F1239; }
   .namecell input[type=text] { border:1px solid #E5E7EB; border-radius:5px; }
   tfoot td.offcount { text-align:center; font:600 10px Helvetica; color:#9CA3AF; padding-top:5px; }
   tfoot td.offcount.hot { color:#991B1B; }
@@ -249,6 +250,8 @@
       <span><b style="color:#EA580C">flt:ช</b> ไปช่วยหน่วยอื่น / float to another unit</span>
       <span><b style="color:#EA580C">ref:ช</b> ส่งต่อผู้ป่วย / refer duty
         <span class="muted">(add :ช :บ or :ด; not counted in this ward's coverage, counts as the nurse's shift)</span></span>
+      <span><b style="color:#BE123C">no:บ</b> ไม่เอาเวรนี้ / anything except this shift
+        <span class="muted">(no:ช no:บ no:ด; off is still fine)</span></span>
       <span class="muted">weekends/holidays are tinted; type a token in a cell</span>
     </div>
     <input type="hidden" name="row_count" value="{{ nurses|length }}">
@@ -311,6 +314,7 @@
       if (l === 'off') return 'cell--off';
       if (l === 'mtg') return 'cell--mtg';
       if (l === 'vac') return 'cell--vac';
+      if (l.indexOf('no:') === 0) return 'cell--neg';  // no:บ - before the generic ':' test
       if (v.indexOf(':') >= 0) return 'cell--ofw';  // flt:ด / ref:ช - before the ด/บ/ช tests
       if (v.indexOf('ด') >= 0) return 'cell--night';
       if (v.indexOf('บ') >= 0) return 'cell--eve';
@@ -319,7 +323,7 @@
     }
     var cells = Array.prototype.slice.call(document.querySelectorAll('input.cell'));
     function paint(inp) {
-      inp.classList.remove('cell--day','cell--eve','cell--night','cell--off','cell--mtg','cell--vac','cell--ofw');
+      inp.classList.remove('cell--day','cell--eve','cell--night','cell--off','cell--mtg','cell--vac','cell--ofw','cell--neg');
       var c = klass(inp.value); if (c) inp.classList.add(c);
     }
     function recount() {
