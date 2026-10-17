@@ -341,7 +341,12 @@ class VacationSettingsTest(unittest.TestCase):
 class FromXlsxTests(unittest.TestCase):
     """from_xlsx parses the Excel roster template (option 2: no CSV round-trip)."""
 
-    def _make_xlsx(self, *, tier="ward", num_days_cell=5, with_days_cell=True):
+    def _make_xlsx(self, *, tier="ward", num_days_cell=5, with_days_cell=True,
+                   weekday_need="2 / 1 / 1", weekend_need="1 / 1 / 1",
+                   extra_rows=()):
+        """extra_rows: (label, value) pairs written to SETTINGS rows 12-15
+        (value None leaves the cell blank). weekday_need / weekend_need=None
+        omits that row entirely."""
         import io, openpyxl
         wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Roster"
         # WARD INFO card (labels col A, values col C)
@@ -358,8 +363,15 @@ class FromXlsxTests(unittest.TestCase):
         ws["H7"]="Allow Evening→Night / บ่ายต่อดึก"; ws["P7"]="No"
         ws["H8"]="Allow Night→Day / ดึกต่อเช้า";     ws["P8"]="Yes"
         ws["H9"]="Head-nurse special shift / พิเศษ"; ws["P9"]="No"
-        ws["H10"]="Weekday need D / E / N";          ws["P10"]="2 / 1 / 1"
-        ws["H11"]="Weekend need D / E / N";          ws["P11"]="1 / 1 / 1"
+        if weekday_need is not None:
+            ws["H10"]="Weekday need D / E / N";      ws["P10"]=weekday_need
+        if weekend_need is not None:
+            ws["H11"]="Weekend need D / E / N";      ws["P11"]=weekend_need
+        # Row 16 is the day-number header; overwriting it would corrupt the grid.
+        assert len(extra_rows) <= 4, "extra_rows must fit SETTINGS rows 12-15"
+        for i, (label, value) in enumerate(extra_rows):
+            ws.cell(row=12+i, column=8, value=label)
+            ws.cell(row=12+i, column=16, value=value)
         # grid: header row 16 then nurses (day cols C..G = days 1..5)
         ws["A16"]="Nurse · พยาบาล"; ws["B16"]="Type · ระดับ"
         for i, d in enumerate(range(1, 6)):
@@ -418,6 +430,80 @@ class FromXlsxTests(unittest.TestCase):
     def test_bad_bytes_raise_valueerror(self):
         with self.assertRaises(ValueError):
             ScheduleInput.from_xlsx(b"this is not a zip / xlsx")
+
+
+    # -- Excel template parity (spec 2026-10-17-excel-template-parity) --------
+
+    def _s(self, **kw):
+        return ScheduleInput.from_xlsx(self._make_xlsx(**kw)).settings
+
+    def test_special_holidays_parsed(self):
+        s = self._s(extra_rows=[("Special holidays / วันหยุดพิเศษ", "3 4")])
+        self.assertEqual(s["holidays"], [3, 4])
+
+    def test_special_holidays_blank_means_empty(self):
+        # Blank row present -> [] (NOT _DEFAULT_SETTINGS["weekends"], which is
+        # what _parse_weekends_1based("") would return). Failure mode 11.
+        s = self._s(extra_rows=[("Special holidays / วันหยุดพิเศษ", None)])
+        self.assertEqual(s["holidays"], [])
+
+    def test_holiday_need_parsed(self):
+        s = self._s(extra_rows=[("Holiday need D / E / N", "4 / 2 / 2")])
+        self.assertEqual((s["coverage_holiday_day"], s["coverage_holiday_evening"],
+                          s["coverage_holiday_night"]), (4, 2, 2))
+
+    def test_holiday_need_absent_inherits_weekend(self):
+        s = self._s(weekend_need="1 / 1 / 1")
+        self.assertEqual(s["coverage_holiday_day"], 1)
+        # and a different weekend band is inherited, not a frozen default
+        s = self._s(weekend_need="3 / 2 / 2")
+        self.assertEqual((s["coverage_holiday_day"], s["coverage_holiday_evening"],
+                          s["coverage_holiday_night"]), (3, 2, 2))
+
+    def test_pnna_needs_parsed(self):
+        s = self._s(weekday_need="2 / 1 / 1", extra_rows=[
+            ("PN/NA weekday need D / E / N", "3 / 2 / 2")])
+        self.assertEqual((s["coverage_pnna_weekday_day"],
+                          s["coverage_pnna_weekday_evening"],
+                          s["coverage_pnna_weekday_night"]), (3, 2, 2))
+        # RN inherits the legacy Weekday need row (the "/" collision contract)
+        self.assertEqual(s["coverage_rn_weekday_day"], 2)
+
+    def test_pnna_dash_spelling_parsed(self):
+        s = self._s(extra_rows=[("PN-NA weekend need D / E / N", "2 / 1 / 1")])
+        self.assertEqual((s["coverage_pnna_weekend_day"],
+                          s["coverage_pnna_weekend_evening"],
+                          s["coverage_pnna_weekend_night"]), (2, 1, 1))
+        # same result as the slash spelling
+        s2 = self._s(extra_rows=[("PN/NA weekend need D / E / N", "2 / 1 / 1")])
+        self.assertEqual(s["coverage_pnna_weekend_day"],
+                         s2["coverage_pnna_weekend_day"])
+
+    def test_label_key_keeps_english_slash(self):
+        from webapp.core.schedule_input import _label_key
+        self.assertEqual(_label_key("PN/NA weekday need D / E / N"),
+                         "pn/na weekday need d / e / n")
+        self.assertEqual(_label_key("Ward name / ชื่อวอร์ด"), "ward name")
+
+    def test_existing_labels_unchanged(self):
+        si = ScheduleInput.from_xlsx(self._make_xlsx())
+        m, s = si.ward_meta, si.settings
+        self.assertEqual(m["ward_name"], "Test Ward")
+        self.assertEqual(m["hospital"], "Test Hospital")
+        self.assertEqual(m["head_nurse"], "Boss")
+        self.assertEqual(m["month"], "7")
+        self.assertEqual(m["year"], "2026")
+        self.assertEqual(m["tier"], "ward")
+        self.assertEqual(s["num_days"], 5)
+        self.assertEqual(s["weekends"], [4, 5])
+        # line contact: the one exact label the default builder omits
+        import io, openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(self._make_xlsx()))
+        ws = wb["Roster"]
+        ws["A8"] = "Line contact / ไลน์"; ws["C8"] = "@boss"
+        buf = io.BytesIO(); wb.save(buf)
+        si2 = ScheduleInput.from_xlsx(buf.getvalue())
+        self.assertEqual(si2.ward_meta["line"], "@boss")
 
 
 # -- Staff classes / off-ward duties / holiday band (regression cover) --------

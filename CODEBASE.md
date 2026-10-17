@@ -153,25 +153,24 @@ Run: `python3 -m unittest discover -s webapp/tests -p "test_*.py"` (from repo ro
 
 ## Settings reference (`[settings]` / ScheduleInput.settings)
 
-| Key | Default | Notes |
-|---|---|---|
-| `num_days` | 31 | schedule length |
-| `weekends` | (per file) | 1-based in file/ScheduleInput; 0-based in Solver; empty→DEFAULT |
-| `holidays` | `[]` | special holidays (§22). 1-based in file/ScheduleInput, 0-based in Solver; **empty→empty** (the opposite of `weekends`). Absent key→`[]`, which is what keeps already-saved months on the weekend band |
-| `allow_evening_to_night` | false | E→N transition |
-| `allow_night_to_day` | false | N→D transition |
-| `head_nurse_special_shift` | true | senior Day/OFF rule; needs ≥2 active nurses |
-| `min_request_percent` | 100 | 100 = hard requests; <100 = soft (keep max, floor at %) |
-| `relax_days_off` | false | if soft: also drop requested days-off (else shifts only) |
-| `enforce_vacation` | true | `vac` cells: true = leave is hard (never dropped, shown as `vac`); false = droppable like off |
-| `enable_meetings` | tier | **tier-derived**, not user-editable |
-| `coverage_weekday_{day,evening,night}` | 5/3/3 | min nurses per shift on weekdays |
-| `coverage_weekend_{day,evening,night}` | 4/2/2 | min nurses per shift on weekends |
-| `coverage_holiday_{day,evening,night}` | 4/2/2 | special-holiday minimums (§22); inherit `coverage_weekend_*` when absent |
-| `coverage_{rn,pnna}_weekday_{day,evening,night}` | 5/3/3 | per-staff-group weekday minimums; inherit the legacy key when absent |
-| `coverage_{rn,pnna}_weekend_{day,evening,night}` | 4/2/2 | per-staff-group weekend minimums; remapped onto the legacy names by `to_solver_csv(group=...)` |
-| `coverage_{rn,pnna}_holiday_{day,evening,night}` | 4/2/2 | per-staff-group holiday minimums; inheritance chain: group weekend → legacy holiday → legacy weekend → default |
-| `extra_holidays` | [] | manual 1-based holiday days; an *input* to auto-fill, which folds them into `holidays` |
+| Key | Default | Excel | Notes |
+|---|---|---|---|
+| `num_days` | 31 | yes · `Days in month` | schedule length |
+| `weekends` | (per file) | yes · `Rest days` | 1-based in file/ScheduleInput; 0-based in Solver; empty→DEFAULT |
+| `holidays` | `[]` | yes · `Special holidays` | special holidays (§22). 1-based in file/ScheduleInput, 0-based in Solver; **empty→empty** (the opposite of `weekends`). Absent key→`[]`, which is what keeps already-saved months on the weekend band |
+| `allow_evening_to_night` | false | yes · `Allow Evening→Night` | E→N transition |
+| `allow_night_to_day` | false | yes · `Allow Night→Day` | N→D transition |
+| `head_nurse_special_shift` | true | yes · `Head-nurse special shift` | senior Day/OFF rule; needs ≥2 active nurses |
+| `min_request_percent` | 100 | **no** — web/CSV only | 100 = hard requests; <100 = soft (keep max, floor at %) |
+| `relax_days_off` | false | **no** — web/CSV only | if soft: also drop requested days-off (else shifts only) |
+| `enforce_vacation` | true | **no** — web/CSV only | `vac` cells: true = leave is hard (never dropped, shown as `vac`); false = droppable like off |
+| `enable_meetings` | tier | indirect · via `Plan` | **tier-derived**, not user-editable |
+| `coverage_weekday_{day,evening,night}` | 5/3/3 | yes · `Weekday need D / E / N` | min nurses per shift on weekdays |
+| `coverage_weekend_{day,evening,night}` | 4/2/2 | yes · `Weekend need D / E / N` | min nurses per shift on weekends |
+| `coverage_holiday_{day,evening,night}` | 4/2/2 | yes · `Holiday need D / E / N` | special-holiday minimums (§22); inherit `coverage_weekend_*` when absent |
+| `coverage_rn_{weekday,weekend,holiday}_*` | 5/3/3 · 4/2/2 | indirect · inherited | **no dedicated card row**: the general `Weekday/Weekend/Holiday need` rows ARE the RN numbers, through `_coerce_settings` inheritance. `from_xlsx` deliberately emits no `coverage_rn_*` key, or it would freeze that chain |
+| `coverage_pnna_{weekday,weekend,holiday}_*` | 5/3/3 · 4/2/2 | yes · `PN/NA … need D / E / N` | per-group minimums; remapped onto the legacy names by `to_solver_csv(group=...)`. The card label contains a `/`, so `from_xlsx` must key labels with `_label_key`, **never** `split("/")[0]` — Known failure mode 13 |
+| `extra_holidays` | [] | **no** — web only | manual 1-based holiday days; an *input* to auto-fill, which folds them into `holidays` |
 
 18 group keys + 9 legacy keys = the full coverage vocabulary. The edit page renders
 them as ONE table (3 band rows × 3 or 6 columns), and the PN/NA half appears only
@@ -191,6 +190,12 @@ hard-coded values; lower them for small wards (a weekday at 5 Day + 3 Night need
 
 ## Tiers (`TIER_LIMITS` in dataimporter.py)
 free(8 nurses,2 req,2 hol,no mtg) · ward(15,5,5,mtg) · ward+(25) · ward pro(40) · department(unlimited). Resolution: license key → declared `tier` → free.
+
+**`max_holidays` is the per-nurse REQUESTED-DAYS-OFF cap**, not a cap on the
+special-holiday list. It feeds `DataImporter.maxDayOff` (`min(maxDayOff, limits['max_holidays'])`)
+and `presolve`'s `quota_off` warning. **Nothing caps `settings["holidays"]`** on any
+tier — the §22 holiday list is unlimited everywhere. The "2 hol" above means
+"2 requested days off per nurse"; read it that way before writing tier copy.
 
 **`max_nurses` is ONE combined ceiling across RN and PN/NA** (confirmed 2026-10-17): PN and NA count, so 8 RN + 6 NA consumes 14. `DataImporter`'s check is per-file and would give each group its own allowance, so `tiers.enforce_max_nurses()` enforces the combined figure before the roster is split.
 
@@ -212,6 +217,8 @@ Every spec's Risks section names the ones it touches; every change touching one 
 10. **Off-ward duty (`flt`/`ref`, constraint.md §21) is exclusive, and only `_offward_applied` counts.** The cell forces one shift and zeroes every other shift *including OFF*; it is removed from that one shift's coverage pool but still counted as a worked shift by `distribute()`, because coverage and fairness read the SAME assignment variable — only the coverage *pool* drops the nurse. Head/deputy cells that clash with §16/§17 are skip-guarded, and the exclusion/render maps are built from the surviving cells only, so a dropped cell can never shrink a coverage pool. Never sampled against tier quotas, never tier-gated. A bare `flt`/`ref` is rejected, never defaulted to Day.
 11. **`Solver.weekends` means "weekend OR holiday" (§22).** It is deliberately the UNION of `settings["weekends"]` and `settings["holidays"]`, because every rule that treats a day as non-working — §16/§17 senior head/deputy, the §21 off-ward skip-guard, `_build_warm_start`, `presolve`'s senior rules, the fairness weekend column — must see a public holiday exactly as it did when auto-fill merged holidays into `weekends`. **Only the coverage-band lookup separates them** (`_rebuild_days` / `presolve._day_band`, precedence holiday > weekend > weekday). Break the union and head nurses silently start getting scheduled on public holidays in every existing ward. A rule needing calendar weekends only must use `self.weekends - self.holidays`. Also: the holiday band *inherits* the weekend band at three layers (`_coerce_settings`, `DataImporter`, `Solver.loadReqShifts`) — that inheritance is what makes re-running auto-fill on a saved ward a no-op, so do not replace any of those fallbacks with a constant. Already-saved months are **not** migrated and must not be: their holidays are unrecoverable from `weekends`, an absent `holidays` key means `[]`, and re-deriving them from the `holidays` library at read time would make staffing depend on an installed package version.
 12. **Staff-group split happens at `to_solver_csv`, and indices must be remapped.** Two independent solves means each `Solver` numbers its nurses 0..k group-locally; `ScheduleInput.group_indices(group)` maps those back to the GLOBAL `active_nurses()` index that `result_grid.rows[].nurse_index`, `fairness_stats` and the request report all assume. Also: `max_nurses` is one COMBINED ceiling (`tiers.enforce_max_nurses`) because `DataImporter`'s check is per-file; and every time budget must be divided across groups or two serial solves breach `WORKER_JOB_TIMEOUT_SECONDS`. A roster where only some active nurses are classed is rejected by `validate()` — otherwise the unclassed nurse appears in neither solve and silently vanishes.
+
+13. **The Excel SETTINGS card is keyed by LABEL TEXT, and the Thai half is stripped by `_label_key`, not `split("/")[0]`.** Card labels are bilingual (`"English / ไทย"`), so the parser drops a `/`-delimited segment **only when that segment contains Thai characters** (`_THAI_RE`). The old plain `split("/")[0]` truncated `"PN/NA weekday need D / E / N"` to `"pn"`, which matched no branch — so the shipped templates' per-group coverage rows were parsed as nothing and silently inherited the general row instead (measured: card said 3/2/2, solver got 5/3/3). Any new card label must either avoid `/` in its English half or be matched through `_label_key`. Two further invariants: a label row that is **absent** must write no settings key at all, or it freezes the §22 inheritance chain (`coverage_holiday_*` ← weekend, `coverage_rn_*` ← legacy) and changes staffing on re-upload; and `Special holidays` must parse with `_parse_day_list` (empty → `[]`), never `_parse_weekends_1based` (empty → DEFAULT) — failure mode 11. The templates are gitignored business artifacts, so the committed generator `tools/gen_templates.py` plus `webapp/tests/test_excel_templates.py` are the ONLY place template/parser drift is visible; a new cell token added to `constant.py` must be added to the generator's dropdown or that suite fails.
 
 ## Gotchas (bugs already fixed — don't reintroduce)
 - **Grid cell names**: must use captured nurse-row index (`{% set r = loop.index0 %}`), not `loop.index0` inside the day loop.

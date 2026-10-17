@@ -156,6 +156,30 @@ def _to_bool(value: Any, default: bool) -> bool:
     return str(value).strip().lower() == "true"
 
 
+# Bilingual card labels are written "English / ไทย". The Thai half is dropped —
+# but ONLY when the part after a "/" actually contains Thai characters. A plain
+# split("/")[0] also truncated "PN/NA weekday need" to "pn", which matched no
+# branch and silently discarded both per-group coverage rows that the shipped
+# templates already carry.
+_THAI_RE = re.compile("[\u0E00-\u0E7F]")
+
+# Accepted spellings of the PN/NA staff-group prefix on a SETTINGS card label.
+# "pn/na" is what the shipped templates use; the others are accepted so a future
+# rename is non-breaking in either direction.
+_PNNA_PREFIXES = ("pn/na", "pn-na", "pn na")
+
+
+def _label_key(raw) -> str:
+    """Normalize a bilingual WARD INFO / SETTINGS card label to its English key."""
+    parts = _cell_str(raw).split("/")
+    kept = [parts[0]]
+    for part in parts[1:]:
+        if _THAI_RE.search(part):
+            break
+        kept.append(part)
+    return "/".join(kept).strip().lower()
+
+
 def _parse_weekends_1based(value: str) -> list[int]:
     """Parse a '6 7 13 14' style string into a sorted list of 1-based ints."""
     if not str(value).strip():
@@ -293,7 +317,7 @@ class ScheduleInput:
         for r in range(1, min(len(rows), 40) + 1):
             # Left card: label col A, value col C.  Right card: label col H, value col P.
             for lc, vc in ((1, 3), (8, 16)):
-                label = _cell_str(gv(r, lc)).split("/")[0].strip().lower()
+                label = _label_key(gv(r, lc))
                 if not label:
                     continue
                 val = gv(r, vc)
@@ -325,6 +349,30 @@ class ScheduleInput:
                 elif "special shift" in label:
                     if val is not None:
                         settings["head_nurse_special_shift"] = _yesno(val)
+                elif label.startswith("special holidays") or label == "holidays":
+                    # Empty means EMPTY (constraint.md 22 / known failure mode
+                    # 11), never the weekends DEFAULT — hence _parse_day_list.
+                    settings["holidays"] = _parse_day_list(_cell_str(val))
+                elif label.startswith(_PNNA_PREFIXES) and "need" in label:
+                    # Per-staff-group coverage. Only the pnna_* keys are written:
+                    # leaving rn_* absent is what lets _coerce_settings inherit
+                    # the general "Weekday/Weekend need" rows for RN, which is
+                    # exactly how the SETTINGS card is laid out.
+                    band = ("holiday" if "holiday need" in label
+                            else "weekend" if "weekend need" in label
+                            else "weekday" if "weekday need" in label else None)
+                    if band is not None:
+                        d, e, n = _parse_triple(val)
+                        settings.update({
+                            f"coverage_pnna_{band}_day": d,
+                            f"coverage_pnna_{band}_evening": e,
+                            f"coverage_pnna_{band}_night": n,
+                        })
+                elif label.startswith("holiday need"):
+                    d, e, n = _parse_triple(val)
+                    settings.update(coverage_holiday_day=d,
+                                    coverage_holiday_evening=e,
+                                    coverage_holiday_night=n)
                 elif label.startswith("weekday need"):
                     d, e, n = _parse_triple(val)
                     settings.update(coverage_weekday_day=d,
