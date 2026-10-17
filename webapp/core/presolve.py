@@ -13,12 +13,19 @@ shiftwork.py / dataimporter.py changes, update the matching block here — the
 cross-check test in test_presolve.py (solver-feasible fixtures must produce no
 errors) guards the direction that matters (no false blockers).
 
-Mirrored as of 2026-09-26:
+Mirrored as of 2026-10-17:
   constraint.md §2–§6 daily/transition rules, §9 coverage (settings coverage_*),
   §14 new nurse, §15 meetings (tier-gated), §16/§17 head+deputy,
+  §21 off-ward duty (flt/ref: hard, unsampled, exactly one shift, excluded from
+  that shift's coverage pool, skip-guarded for head/deputy),
   handleHolidaysAndReq hard-vs-soft classification, DataImporter.transform()
   token parsing, random down-sampling (sampled requests are treated as unknown)
   and double-shift cells (see _TOKEN_SHIFTS).
+
+Staff groups: a ward with staff classes is solved as independent RN and PN/NA
+runs (schedule_input.solve_groups()), so every per-roster check below runs once
+per group, against that group's roster and coverage numbers. Only the tier
+ceiling is combined (one max_nurses across both groups).
 """
 
 from __future__ import annotations
@@ -27,7 +34,9 @@ from dataclasses import dataclass, field
 
 from ortools.sat.python import cp_model
 
+from constant import Shift, parse_offward
 from dataimporter import TIER_LIMITS
+from webapp.core.schedule_input import GROUP_LABELS, GROUP_PN_NA, GROUP_RN
 from webapp.core.tiers import resolve_tier
 
 D, E, N = "D", "E", "N"
@@ -40,6 +49,12 @@ _SYMBOL = {D: "ช", E: "บ", N: "ด"}
 _TOKEN_SHIFTS: dict[str, tuple[str, ...]] = {
     "ช": (D,), "บ": (E,), "ด": (N,), "ช/บ": (D, E), "ด/บ": (N, E),
 }
+
+# Off-ward duty cells (constraint.md §21) name a solver Shift; presolve uses letters.
+_OFFWARD_LETTER = {Shift.DAY: D, Shift.EVENING: E, Shift.NIGHT: N}
+
+# Per-group coverage key prefix (mirrors schedule_input._GROUP_COVERAGE_PREFIX).
+_GROUP_PREFIX = {GROUP_RN: "coverage_rn_", GROUP_PN_NA: "coverage_pnna_"}
 
 _NEW_FLAGS = {"new", "junior", "น้องใหม่"}
 _HEAD, _DEPUTY = 0, 1
@@ -75,31 +90,54 @@ class _NurseDay:
     off: bool = False            # hard OFF (off-request or vacation)
     forced: set = field(default_factory=set)   # shifts that must be 1
     meeting: bool = False        # forced DAY, excluded from DAY coverage
+    # Off-ward duty (flt/ref, §21): (shift letter, kind). Hard and unsampled; the
+    # nurse works exactly that shift and is excluded from ITS coverage pool.
+    # `forced` also carries the letter so the transition checks see it.
+    offward: tuple | None = None
 
 
 def check(si) -> PresolveReport:
-    """Run all pre-solve checks on a ScheduleInput that already passed validate()."""
-    rep = PresolveReport(checks_total=4)
-    s = si.settings
-    nurses = si.active_nurses()
-    num_days = s["num_days"]
-    weekends = set(s["weekends"])                       # 1-based
+    """Run all pre-solve checks on a ScheduleInput that already passed validate().
+
+    A ward with staff classes is solved as independent RN / PN-NA runs, so the
+    roster-level checks run once per group (messages prefixed "RN: " / "PN/NA: ");
+    the tier ceiling is the one combined check, run once."""
+    groups = si.solve_groups()
+    rep = PresolveReport(checks_total=1 + 3 * len(groups or [None]))
     tier, _src = resolve_tier(si.ward_meta)
     limits = TIER_LIMITS.get(tier, TIER_LIMITS["free"])
-    soft = s["min_request_percent"] < 100
-    seniors = {_HEAD, _DEPUTY} if s["head_nurse_special_shift"] else set()
 
-    # ── 1. Roster vs plan ────────────────────────────────────────────────────
+    # ── 1. Roster vs plan (combined across groups: one max_nurses ceiling) ───
+    all_nurses = si.active_nurses()
     cap = limits["max_nurses"]
-    if cap is not None and len(nurses) > cap:
+    if cap is not None and len(all_nurses) > cap:
         rep.errors.append(Issue(
             "tier_nurses",
-            f"{len(nurses)} active nurses, but the {tier} plan allows {cap}. "
-            f"Disable {len(nurses) - cap} nurse(s) or upgrade the plan."))
+            f"{len(all_nurses)} active nurses, but the {tier} plan allows {cap}. "
+            f"Disable {len(all_nurses) - cap} nurse(s) or upgrade the plan."))
     else:
         rep.passed.append(
-            f"{len(nurses)} active nurses — within the {tier} plan"
+            f"{len(all_nurses)} active nurses — within the {tier} plan"
             + (f" ({cap} max)" if cap is not None else ""))
+
+    for group in (groups or [None]):
+        _check_group(rep, si, group, limits, tier)
+    return rep
+
+
+def _check_group(rep: PresolveReport, si, group, limits, tier) -> None:
+    """Checks 2-4 for one staff group (None = the ungrouped, legacy roster)."""
+    n_err0, n_warn0, n_pass0 = len(rep.errors), len(rep.warnings), len(rep.passed)
+    s = si.settings
+    nurses = si.active_nurses(group)
+    num_days = s["num_days"]
+    weekends = set(s["weekends"])                       # 1-based
+    soft = s["min_request_percent"] < 100
+    # Head/deputy are RNs: the senior rule never applies to the PN/NA group
+    # (schedule_input.to_solver_csv forces head_nurse_special_shift false there).
+    seniors = ({_HEAD, _DEPUTY}
+               if s["head_nurse_special_shift"] and group in (None, GROUP_RN)
+               else set())
 
     new_idx = {n for n, x in enumerate(nurses) if x.type.strip().lower() in _NEW_FLAGS}
 
@@ -110,7 +148,7 @@ def check(si) -> PresolveReport:
         per_day: dict[int, _NurseDay] = {}
         offs = [d for d, t in nurse.shifts.items() if t == "off"]
         shift_cells = {d: t for d, t in nurse.shifts.items() if t in _TOKEN_SHIFTS}
-        entries = len(shift_cells)          # 1 cell = 1 request
+        entries = len(shift_cells)          # 1 cell = 1 request (off-ward cells are not requests)
 
         offs_sampled = len(offs) > limits["max_holidays"]
         if offs_sampled:
@@ -146,6 +184,23 @@ def check(si) -> PresolveReport:
             elif tok == "mtg":
                 if limits["enable_meetings"]:
                     nd.meeting = True
+            elif parse_offward(tok) is not None:
+                # Off-ward duty (§21): always hard, never sampled, never soft,
+                # not tier-gated. Mirrors K5 in shiftwork.handleHolidaysAndReq.
+                kind, shift = parse_offward(tok)
+                letter = _OFFWARD_LETTER[shift]
+                if n in seniors and (wk or letter in (E, N)):
+                    # The solver skip-guards this cell and still solves, so this
+                    # is a warning, never an error (design contract above).
+                    rep.warnings.append(Issue(
+                        "senior_offward",
+                        f"{nurse.name} (head/deputy) has {tok} on day {d}; "
+                        f"head/deputy work Day only on weekdays and are off on "
+                        f"weekends, so it will be ignored.",
+                        days=[d], nurse=nurse.name))
+                    continue
+                nd.offward = (letter, kind)
+                nd.forced |= {letter}
             elif tok in _TOKEN_SHIFTS:
                 forced = set(_TOKEN_SHIFTS[tok])
                 if n in seniors and (wk or forced & {E, N} or tok in ("ช/บ", "ด/บ")):
@@ -203,7 +258,7 @@ def check(si) -> PresolveReport:
     # ── 4. Coverage: exact per-day, then consecutive-day windows ─────────────
     n_err_before = len(rep.errors)
     ctx = dict(s=s, nurses=nurses, fixed=fixed, weekends=weekends,
-               seniors=seniors, new_idx=new_idx)
+               seniors=seniors, new_idx=new_idx, group=group)
     bad_days = set()
     for d in range(1, num_days + 1):
         if not _feasible(ctx, [d]):
@@ -223,13 +278,22 @@ def check(si) -> PresolveReport:
                     days=[d, d + 1]))
     if len(rep.errors) == n_err_before:
         rep.passed.append(f"Coverage can be met on each of the {num_days} days")
-    return rep
+
+    if group is not None:
+        # Tell the user which staff group each finding belongs to.
+        prefix = f"{GROUP_LABELS[group]}: "
+        for issue in rep.errors[n_err0:] + rep.warnings[n_warn0:]:
+            issue.message = prefix + issue.message
+        rep.passed[n_pass0:] = [prefix + line for line in rep.passed[n_pass0:]]
 
 
-def _band(s, wk: bool) -> dict[str, int]:
+def _band(s, wk: bool, group=None) -> dict[str, int]:
+    """Coverage minimums for a weekday/weekend day. `group` ('rn' / 'pn_na')
+    selects that staff group's keys; None uses the legacy ungrouped keys."""
     b = "weekend" if wk else "weekday"
-    return {D: s[f"coverage_{b}_day"], E: s[f"coverage_{b}_evening"],
-            N: s[f"coverage_{b}_night"]}
+    pre = _GROUP_PREFIX[group] if group is not None else "coverage_"
+    return {D: s[f"{pre}{b}_day"], E: s[f"{pre}{b}_evening"],
+            N: s[f"{pre}{b}_night"]}
 
 
 def _feasible(ctx, days: list[int]) -> bool:
@@ -254,17 +318,27 @@ def _feasible(ctx, days: list[int]) -> bool:
                     m.Add(x[n, d, sh] == 1)
                 if nd.meeting:                            # §15
                     m.Add(dv == 1)
+                if nd.offward is not None:                # §21: that shift only
+                    for sh in _SHIFTS:
+                        m.Add(x[n, d, sh] == (1 if sh == nd.offward[0] else 0))
             if n in ctx["seniors"]:                       # §16/§17
                 if d in ctx["weekends"]:
                     m.Add(dv + ev + nv == 0)
                 else:
                     m.Add(ev == 0)
                     m.Add(nv == 0)
-    for d in days:                                        # §9 (+§15 exclusion)
-        req = _band(s, d in ctx["weekends"])
+    for d in days:                                        # §9 (+§15/§21 exclusion)
+        req = _band(s, d in ctx["weekends"], ctx.get("group"))
         for sh in _SHIFTS:
-            pool = [x[n, d, sh] for n in range(len(nurses))
-                    if not (sh == D and fixed[n].get(d) and fixed[n][d].meeting)]
+            pool = []
+            for n in range(len(nurses)):
+                nd = fixed[n].get(d)
+                if nd is not None:
+                    if sh == D and nd.meeting:        # §15: meeting, Day only
+                        continue
+                    if nd.offward is not None and nd.offward[0] == sh:
+                        continue                      # §21: off-ward, that shift
+                pool.append(x[n, d, sh])
             m.Add(sum(pool) >= req[sh])
     for d in days[:-1]:                                   # §5 / §6
         for n in range(len(nurses)):
@@ -283,8 +357,8 @@ def _feasible(ctx, days: list[int]) -> bool:
 def _explain_day(ctx, d: int) -> str:
     s, nurses, fixed = ctx["s"], ctx["nurses"], ctx["fixed"]
     wk = d in ctx["weekends"]
-    req = _band(s, wk)
-    off = vac_or_off = meet = senior_off = senior_day_only = 0
+    req = _band(s, wk, ctx.get("group"))
+    vac_or_off = meet = senior_off = offward = senior_day_only = 0
     for n in range(len(nurses)):
         nd = fixed[n].get(d)
         if nd and nd.off:
@@ -293,9 +367,11 @@ def _explain_day(ctx, d: int) -> str:
             senior_off += 1
         elif nd and nd.meeting:
             meet += 1
+        elif nd and nd.offward is not None:
+            offward += 1
         elif n in ctx["seniors"]:
             senior_day_only += 1
-    avail = len(nurses) - vac_or_off - senior_off - meet
+    avail = len(nurses) - vac_or_off - senior_off - meet - offward
     parts = []
     if vac_or_off:
         parts.append(f"{vac_or_off} requested off/vacation")
@@ -303,6 +379,8 @@ def _explain_day(ctx, d: int) -> str:
         parts.append(f"{senior_off} head/deputy off (weekend)")
     if meet:
         parts.append(f"{meet} in a meeting")
+    if offward:
+        parts.append(f"{offward} on off-ward duty (flt/ref)")
     if senior_day_only:
         parts.append(f"{senior_day_only} head/deputy Day-only")
     why = f" ({', '.join(parts)})" if parts else ""

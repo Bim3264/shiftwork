@@ -8,29 +8,38 @@ logs/
 .worktrees/
 .claude/
 
+# Real ward data — nurse names and request sheets. Never commit: this repo is
+# public and these identify real people.
+/real/
+
 # Business / marketing — intentionally kept out of this public repo.
 # Local copies also live in D:\Claude\ShiftWork-private
-ShiftWork-Business-Plan.*
-ShiftWork-Pricing-Tiers.md
-ShiftWork-Facebook-Launch-Plan.md
-CRM_MVP_DESIGN.md
-FEATURE-GAPS.md
-assets/
+#
+# Every directory rule below is anchored with a leading slash so it matches ONLY
+# at the repo root. Unanchored, `Templates/` also matched `webapp/web/templates/`
+# (git's ignore matching is case-insensitive here, core.ignorecase=true), which
+# silently excluded the app's own Jinja templates from being added.
+/ShiftWork-Business-Plan.*
+/ShiftWork-Pricing-Tiers.md
+/ShiftWork-Facebook-Launch-Plan.md
+/CRM_MVP_DESIGN.md
+/FEATURE-GAPS.md
+/assets/
 
 # Customer-facing roster templates and sample rosters
-Templates/
-Shift Template*.xlsx
+/Templates/
+/Shift Template*.xlsx
 
 # Design canvas / wireframes and their generated runtime
-ShiftWork Wireframes.dc.html
-Wireframe Screens Project.zip
-support.js
-.thumbnail
+/ShiftWork Wireframes.dc.html
+/Wireframe Screens Project.zip
+/support.js
+/.thumbnail
 
 # Solver output, backups and superseded code
-output/
-output.csv
-output.xlsx
+/output/
+/output.csv
+/output.xlsx
 *.bak
-shiftwork_pre_opt.py
-old_code/
+/shiftwork_pre_opt.py
+/old_code/

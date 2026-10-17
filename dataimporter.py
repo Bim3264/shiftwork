@@ -2,7 +2,7 @@ import pandas as pd
 import io
 import random
 import os
-from constant import Shift, LocaleShift
+from constant import Shift, LocaleShift, parse_offward
 
 # ── Tier definitions ──────────────────────────────────────────────────────────
 
@@ -181,6 +181,7 @@ class DataImporter():
         self.reqDayOff       = []
         self.reqVacations    = []
         self.reqMeetings     = []
+        self.reqOffward      = []
         self.newNurseIndices = []
 
         # --- Parse sections ---
@@ -294,6 +295,7 @@ class DataImporter():
 
         for index, row in self.df.iterrows():
             days_off, vacations, meeting_days = [], [], []
+            offward = []       # [(day_idx, Shift, kind)]
             shift_cells = []   # [(day_idx, [Shift, ...])], one entry per request cell
 
             for col in day_cols:
@@ -311,6 +313,11 @@ class DataImporter():
                     if self.enable_meetings:
                         meeting_days.append(day_idx)
                     # Free tier: mtg treated as blank
+                elif parse_offward(val) is not None:
+                    # Off-ward duty (float / refer), constraint.md §21. A management
+                    # fact, not a request: never sampled against maxReqShift.
+                    kind, shift = parse_offward(val)
+                    offward.append((day_idx, shift, kind))
                 elif val in _cell_shifts:
                     shift_cells.append((day_idx, list(_cell_shifts[val])))
 
@@ -322,6 +329,7 @@ class DataImporter():
             # Vacations are approved leave: never randomly down-sampled like off-requests.
             self.reqVacations.append(vacations)
             self.reqMeetings.append(meeting_days)
+            self.reqOffward.append(offward)      # [(0-based day, Shift, kind)]
 
 
         return self

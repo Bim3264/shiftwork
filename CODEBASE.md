@@ -35,24 +35,24 @@ Lifecycle (construction is side-effect-free):
 - `diagnose(max_time_seconds=20.0) -> dict` → **only after an unsolved solve** (constraint.md §20). Rebuilds the model in place with each request cell (and, in pass 2, each coverage minimum) reified behind a CP-SAT **assumption literal**, then reads `SufficientAssumptionsForInfeasibility()`. Returns `{reason: requests|coverage|structural|undetermined, status, requests:[{kind,nurse_index,day,shift}], coverage:[{day,shift,required}], gated, truncated, seconds}` (days 1-based). Raises `RuntimeError` on a solved Solver (it destroys the model). Helpers `_diag_build/_diag_gate/_diag_solve/_diag_cap`; `_diag_mode` branches live in `handleHolidaysAndReq()` and `_constraintMinimumNurse()`. Two non-obvious invariants: the diagnosis build **omits `distribute()`** (an objective makes CP-SAT return non-minimal cores) and it **reuses the loaded instance**, never a fresh `Solver` (`DataImporter.sample` is unseeded → a re-import re-samples over-quota requests).
 
 `constraints()` orchestrates named rule methods:
-- `handleHolidaysAndReq()` — applies requested shifts/holidays. **Hard** if `MIN_REQUEST_PERCENT==100`; else **soft** (reified with a `sat` BoolVar per request, tracked in `self.request_soft`, plus a floor `sum(sat) >= ceil(pct*total)`). Senior-nurse conflicting requests are dropped here. Meetings always hard.
+- `handleHolidaysAndReq()` — applies requested shifts/holidays. **Hard** if `MIN_REQUEST_PERCENT==100`; else **soft** (reified with a `sat` BoolVar per request, tracked in `self.request_soft`, plus a floor `sum(sat) >= ceil(pct*total)`). Senior-nurse conflicting requests are dropped here. Meetings always hard. **Off-ward duties (§21)** are applied here too: hard, exclusive (`a[n][d][s]==1`, every other shift incl. OFF `==0`), skip-guarded against §16/§17, and the surviving cells build `_offward_applied`/`_offward_excluded`.
 - `_add_daily_shift_rules()` — must-assign, OFF exclusivity, per-day cap (`MAX_SHIFT_PER_DAY`), Night+Day ban, new-nurse Evening+Night ban.
 - `_add_shift_transition_rules()` — E→N and N→D across days (flag-gated).
 - `_add_double_shift_tracking()` — double-shift indicators (feed objective).
-- `_constraintMinimumNurse()` — per-day coverage minimums (meeting nurses excluded from Day count).
+- `_constraintMinimumNurse()` — per-day coverage minimums. One `excluded` set per `(day, shift)`: meeting nurses on Day (§15) **and** off-ward duties on their own shift (§21). The Day-only special case is gone.
 - `optionHeadNurse()` — head(0)+deputy(1): weekdays Day/OFF, weekends OFF. **Assumes ≥2 nurses when on.**
 
 `distribute()` — objective `Minimize(10*shift_imbalance + 10*holiday_imbalance + double_shifts [+ 100000*dropped_requests])`. The huge weight makes keeping requests dominate fairness.
 
-`_write_schedule()` — renders solved assignments to a transposed grid, writes `output/{label} Final.csv` (`utf-8-sig`). Returns label.
+`_write_schedule()` — renders solved assignments to a transposed grid (an off-ward cell wins over the symbol cascade and re-emits its own token, e.g. `flt:ด`, so results round-trip into the grid editor), writes `output/{label} Final.csv` (`utf-8-sig`). Returns label.
 `_build_request_report()` — fills `self.request_report = {total, accepted, dropped:[{nurse_index,day,shift,kind}], percent}` (None unless soft mode).
 
-Key attributes/flags: `MAX_SHIFT_PER_DAY`, `ALLOW_SHIFT_E_N/_N_D`, `HEAD_NURSE_SPEACIAL_SHIFT`, `HEAD_NURSE_INDEX=0`, `DEPUTY_NURSE_INDEX=1`, `enable_meetings`, `MIN_REQUEST_PERCENT`, `RELAX_DAYS_OFF`, `new_nurse_indices`, `meeting_days`, `request_soft`, `request_report`, `status`, `_diag_mode`/`_diag_gate_coverage`/`_diag_gated` (diagnosis only).
+Key attributes/flags: `MAX_SHIFT_PER_DAY`, `ALLOW_SHIFT_E_N/_N_D`, `HEAD_NURSE_SPEACIAL_SHIFT`, `HEAD_NURSE_INDEX=0`, `DEPUTY_NURSE_INDEX=1`, `enable_meetings`, `MIN_REQUEST_PERCENT`, `RELAX_DAYS_OFF`, `new_nurse_indices`, `meeting_days`, `request_soft`, `request_report`, `status`, `offward_days`/`_offward_applied`/`_offward_excluded` (§21), `_diag_mode`/`_diag_gate_coverage`/`_diag_gated` (diagnosis only).
 Solver params in `solve()`: `num_search_workers=os.cpu_count()`, `linearization_level=2`, `max_time_in_seconds`.
 `__main__` processes every file in `input/` via `Solver(...).run()`.
 
 ### `dataimporter.py`
-- `DataImporter(filename, maxDayOff, maxReqShift)` → `.transform()`. Parses sectioned CSV `[ward]`/`[settings]`/`[schedule]` (legacy = grid only). Produces `reqShifts` (`{day: [Shift, ...]}` per nurse — `ช/บ`/`ด/บ` = one cell, two shifts; **sampled down per cell** to tier `max_req_shifts`), `reqDayOff`, `reqMeetings`, `newNurseIndices`. Enforces tier `max_nurses` (raises ValueError if exceeded). `.settings` dict, `.ward_info`, `.tier`.
+- `DataImporter(filename, maxDayOff, maxReqShift)` → `.transform()`. Parses sectioned CSV `[ward]`/`[settings]`/`[schedule]` (legacy = grid only). Produces `reqShifts` (`{day: [Shift, ...]}` per nurse — `ช/บ`/`ด/บ` = one cell, two shifts; **sampled down per cell** to tier `max_req_shifts`), `reqDayOff`, `reqMeetings`, `reqOffward` (`[(0-based day, Shift, kind)]` per nurse — off-ward `flt`/`ref` cells, **never sampled**, **not tier-gated**), `newNurseIndices`. Enforces tier `max_nurses` (raises ValueError if exceeded). `.settings` dict, `.ward_info`, `.tier`.
 - `TIER_LIMITS` / `LICENSE_REGISTRY` — tier definitions + Phase-0 license keys.
 - Static parsers: `_parse_sections`, `_parse_kv_section`, `_parse_weekends` (1-based→0-based; **empty string → DEFAULT weekends, not empty**).
 - `SettingLoader` (legacy defaults), `FileLoader` (scans a folder).
@@ -60,6 +60,7 @@ Solver params in `solve()`: `num_search_workers=os.cpu_count()`, `linearization_
 ### `constant.py`
 - `Shift` enum: `DAY/EVENING/NIGHT/OFF`.
 - `LocaleShift`: Thai symbols — DAY `ช`, EVENING `บ`, NIGHT `ด`, DAY_EVENING `ช/บ`, NIGHT_EVENING `ด/บ`, OFF `off` Plus VACATION `vac` (approved leave; assigned as OFF, rendered distinctly).
+- **Off-ward duty** (constraint.md §21): `OffWard` enum (`flt` float, `ref` refer), `OFFWARD_SEP=":"`, `OFFWARD_SHIFTS` (symbol→Shift) and its inverse `SHIFT_LOCALE`, `OFFWARD_KINDS`, `OFFWARD_TOKENS` (the six valid cells `flt:ช`…`ref:ด`), and `parse_offward(token) -> (kind, Shift) | None` — the ONE definition of the token grammar, imported by `dataimporter`, `schedule_input`, `presolve` and `fairness`. A bare `flt`/`ref` parses as `None` (rejected by `validate()`).
 
 ### `gui.py` — legacy Tkinter desktop app (runs `Solver` in a thread). Not used by the web app.
 ### `test_shiftwork.py` — solver lifecycle + per-rule (force-illegal→infeasible) tests.
@@ -75,12 +76,14 @@ Solver params in `solve()`: `num_search_workers=os.cpu_count()`, `linearization_
 `setup_logging(path=None)` — lazy ERROR `FileHandler` to `logs/shiftwork_<timestamp>.log` (created only on first error) + installs `sys.excepthook`. `log_path()`. Called from `web/app.py` import and `worker/run_worker.py`.
 
 ### `core/schedule_input.py` — the canonical model
-- `Nurse(name, type="", shifts={day:token}, active=True)`. `active=False` = disabled (kept, not scheduled).
+- `Nurse(name, type="", shifts={day:token}, active=True, staff_class="")`. `active=False` = disabled (kept, not scheduled). **`staff_class`** in `rn`/`pn`/`na`/`""` is an axis **orthogonal to `type`** (seniority) — a PN can be senior; normalised in `__post_init__`.
+- Staff groups: `GROUP_RN`/`GROUP_PN_NA`/`GROUP_LABELS`/`STAFF_CLASSES`, `group_of(staff_class)` (`pn`+`na` → ONE `pn_na` pool; the PN-vs-NA label is display only). `solve_groups()` → `[]` when no active nurse is classed (legacy single solve), else the present groups in order `["rn","pn_na"]`. `active_nurses(group=None)`, `group_indices(group)` (group-local row → global active index).
 - `ScheduleInput(ward_meta, settings, nurses)`.
   - `from_csv(text)` (reuses DataImporter parsers), `from_xlsx(bytes)` (reads the Excel roster template's Roster sheet directly into `from_grid` — label-driven cards + day-number-header detection; needs openpyxl), `from_grid(ward_meta, settings, nurses)`, `to_solver_csv()`, `to_dict()`/`from_dict()`, `validate()` (raises ValueError; counts **active** nurses; needs ≥2 active if senior rule on), `active_nurses()`.
-- `_DEFAULT_SETTINGS` keys: `num_days`, `weekends`(1-based list), `allow_evening_to_night`, `allow_night_to_day`, `head_nurse_special_shift`, `min_request_percent`(100), `relax_days_off`(False), `enforce_vacation`(True).
+- `_DEFAULT_SETTINGS` keys (plus the 12 per-group coverage keys): `num_days`, `weekends`(1-based list), `allow_evening_to_night`, `allow_night_to_day`, `head_nurse_special_shift`, `min_request_percent`(100), `relax_days_off`(False), `enforce_vacation`(True).
 - `_BOOL_SETTING_KEYS` (coerced + emitted as true/false). `VALID_CELL_TOKENS`.
-- `to_solver_csv()` emits **only active nurses**.
+- `to_solver_csv(*, group=None)` emits **only active nurses**. `group=None` is byte-identical to the pre-staff-class format. With a group it emits only that group's nurses, maps `coverage_{rn|pnna}_{band}_{shift}` onto the six **solver-facing** key names, and for `pn_na` forces `head_nurse_special_shift,false` (head/deputy are RNs). A `Class` column is emitted only when some active nurse is classed, so legacy CSVs are unchanged and classed wards round-trip.
+- **This is the whole seam for staff classes**: `shiftwork.py` and `dataimporter.py` learn nothing about them — each is handed one group's roster under the existing key names.
 
 ### `core/solver_runner.py` — the ONLY caller of `shiftwork.Solver`
 - `run_schedule(schedule_input, max_time_seconds) -> SolveResult`.
@@ -158,6 +161,8 @@ Run: `python3 -m unittest discover -s webapp/tests -p "test_*.py"` (from repo ro
 | `enable_meetings` | tier | **tier-derived**, not user-editable |
 | `coverage_weekday_{day,evening,night}` | 5/3/3 | min nurses per shift on weekdays |
 | `coverage_weekend_{day,evening,night}` | 4/2/2 | min nurses per shift on weekends |
+| `coverage_{rn,pnna}_weekday_{day,evening,night}` | 5/3/3 | per-staff-group weekday minimums; inherit the legacy key when absent |
+| `coverage_{rn,pnna}_weekend_{day,evening,night}` | 4/2/2 | per-staff-group weekend minimums; remapped onto the legacy names by `to_solver_csv(group=...)` |
 | `extra_holidays` | [] | manual 1-based holiday days; merged into `weekends` by auto-fill |
 
 Month auto-fill: `POST /inputs/{id}/autofill` reads `ward_meta.month/year`, calls
@@ -172,6 +177,8 @@ hard-coded values; lower them for small wards (a weekday at 5 Day + 3 Night need
 ## Tiers (`TIER_LIMITS` in dataimporter.py)
 free(8 nurses,2 req,2 hol,no mtg) · ward(15,5,5,mtg) · ward+(25) · ward pro(40) · department(unlimited). Resolution: license key → declared `tier` → free.
 
+**`max_nurses` is ONE combined ceiling across RN and PN/NA** (confirmed 2026-10-17): PN and NA count, so 8 RN + 6 NA consumes 14. `DataImporter`'s check is per-file and would give each group its own allowance, so `tiers.enforce_max_nurses()` enforces the combined figure before the roster is split.
+
 ## Run / deploy
 - Local, no auth/Redis: `webapp/run_local.bat` (sets `DEV_AUTH_BYPASS=1`, `SOLVE_INLINE=1`, `SOLVER_MAX_TIME_SECONDS=90`).
 - Prod: Railway (`DEPLOY_RAILWAY.md`), `Procfile` (web + worker), `requirements.txt`, `.python-version`=3.12. Postgres via `DATABASE_URL`; Redis via `REDIS_URL`; set `AUTH_ENABLED`/`SESSION_HTTPS_ONLY`.
@@ -180,13 +187,15 @@ free(8 nurses,2 req,2 hol,no mtg) · ward(15,5,5,mtg) · ward+(25) · ward pro(4
 Every spec's Risks section names the ones it touches; every change touching one needs its regression test.
 1. **Constraint vs request conflict → silent infeasibility.** A rule restricting which shifts a nurse may work contradicts a CSV `== 1` request → "No solution found". Add a skip-guard in `handleHolidaysAndReq`.
 2. **Senior-nurse rules cover BOTH head (index 0) AND deputy (index 1)** — `senior_indices = {HEAD_NURSE_INDEX, DEPUTY_NURSE_INDEX}` (constraint.md §16/§17).
-3. **`mtg` days**: nurse forced to Day but EXCLUDED from minimum-coverage counts.
+3. **`mtg` days**: nurse forced to Day but EXCLUDED from minimum-coverage counts. The exclusion is now general (one `excluded` set per `(day, shift)`), shared with failure mode 10 — don't re-add a Day-only special case.
 4. **`vac` is protected**: assigned internally as `Shift.OFF`, not down-sampled by `maxDayOff`, excluded from discretionary-off fairness (`working + off + vac == num_days`); hardness governed by `enforce_vacation` (default True).
 5. **Tier resolution**: `license_key` > declared `tier` > free; only meetings are tier-gated in code, rule toggles are all-tier.
 6. **Input contract**: CSV and Excel must round-trip identically through `ScheduleInput.to_solver_csv()`. Changing columns/cell semantics is an escalation.
 7. **Half-wired settings**: a setting must pass through every layer of the shiftwork-dev "add a setting" checklist (solver → dataimporter → schedule_input → app form → template → display → tests), or it silently doesn't propagate.
 8. **No redundant model structure**: completeness is already enforced by OFF implications + `must_assign`; don't re-force it (old `_assignShifts` = 1,116 redundant vars).
 9. **Pre-solve mirror drift**: `webapp/core/presolve.py` re-states the solver's HARD rules and the importer's token parsing. Any change to a hard rule, request hardness, sampling, or token semantics in `shiftwork.py`/`dataimporter.py` must update presolve in the same change, or it raises false blockers. Guarded by `test_presolve.test_no_false_blockers_vs_real_solver` / `test_errors_agree_with_real_solver`.
+10. **Off-ward duty (`flt`/`ref`, constraint.md §21) is exclusive, and only `_offward_applied` counts.** The cell forces one shift and zeroes every other shift *including OFF*; it is removed from that one shift's coverage pool but still counted as a worked shift by `distribute()`, because coverage and fairness read the SAME assignment variable — only the coverage *pool* drops the nurse. Head/deputy cells that clash with §16/§17 are skip-guarded, and the exclusion/render maps are built from the surviving cells only, so a dropped cell can never shrink a coverage pool. Never sampled against tier quotas, never tier-gated. A bare `flt`/`ref` is rejected, never defaulted to Day.
+11. **Staff-group split happens at `to_solver_csv`, and indices must be remapped.** Two independent solves means each `Solver` numbers its nurses 0..k group-locally; `ScheduleInput.group_indices(group)` maps those back to the GLOBAL `active_nurses()` index that `result_grid.rows[].nurse_index`, `fairness_stats` and the request report all assume. Also: `max_nurses` is one COMBINED ceiling (`tiers.enforce_max_nurses`) because `DataImporter`'s check is per-file; and every time budget must be divided across groups or two serial solves breach `WORKER_JOB_TIMEOUT_SECONDS`. A roster where only some active nurses are classed is rejected by `validate()` — otherwise the unclassed nurse appears in neither solve and silently vanishes.
 
 ## Gotchas (bugs already fixed — don't reintroduce)
 - **Grid cell names**: must use captured nurse-row index (`{% set r = loop.index0 %}`), not `loop.index0` inside the day loop.

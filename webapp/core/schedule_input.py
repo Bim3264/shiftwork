@@ -25,8 +25,33 @@ import tempfile
 from dataclasses import dataclass, field
 from typing import Any
 
-from constant import LocaleShift
+from constant import (
+    OFFWARD_SEP,
+    OFFWARD_TOKENS,
+    SHIFT_LOCALE,
+    LocaleShift,
+    parse_offward,
+)
 from dataimporter import DataImporter
+
+# Staff classes (RN vs PN/NA). The roster splits into groups that are solved as
+# independent runs; the split happens at the to_solver_csv() boundary so the
+# solver itself never learns about staff classes.
+GROUP_RN = "rn"
+GROUP_PN_NA = "pn_na"
+GROUP_LABELS = {GROUP_RN: "RN", GROUP_PN_NA: "PN/NA"}
+STAFF_CLASSES = ("rn", "pn", "na")
+_GROUP_ORDER = (GROUP_RN, GROUP_PN_NA)
+
+
+def group_of(staff_class: str) -> str:
+    """Solve group for a staff class: rn -> 'rn', pn/na -> 'pn_na', else ''."""
+    sc = str(staff_class or "").strip().lower()
+    if sc == "rn":
+        return GROUP_RN
+    if sc in ("pn", "na"):
+        return GROUP_PN_NA
+    return ""
 
 # Tokens a schedule cell may contain. Blank means "no request". 'off'/'mtg' are
 # control tokens; the rest are the Thai shift symbols the solver understands.
@@ -38,7 +63,10 @@ _SHIFT_SYMBOLS = {
     LocaleShift.NIGHT_EVENING.value,  # ด/บ
 }
 _CONTROL_TOKENS = {"off", "mtg", "vac"}
-VALID_CELL_TOKENS = _SHIFT_SYMBOLS | _CONTROL_TOKENS | {""}
+# Off-ward duties (float / refer) are written 'flt:ช' / 'ref:ด' etc.
+VALID_CELL_TOKENS = _SHIFT_SYMBOLS | _CONTROL_TOKENS | OFFWARD_TOKENS | {""}
+# The bare kind words ('flt', 'ref') are NOT valid on their own: a shift is required.
+_OFFWARD_KINDS = {t.partition(OFFWARD_SEP)[0] for t in OFFWARD_TOKENS}
 
 # Settings the constraint selector exposes, with their defaults. weekends are
 # stored 1-based (as written in the CSV, e.g. "6 7 13 14"); everything that
@@ -70,6 +98,12 @@ _DEFAULT_SETTINGS: dict[str, Any] = {
     "coverage_weekend_evening": 2,
     "coverage_weekend_night": 2,
 }
+# Per-staff-group coverage (RN vs PN/NA). Defaults equal the legacy values; a
+# saved input that only has the legacy keys inherits them (see _coerce_settings).
+for _grp in ("rn", "pnna"):
+    for _band, _defaults in (("weekday", (5, 3, 3)), ("weekend", (4, 2, 2))):
+        for _shift, _val in zip(("day", "evening", "night"), _defaults):
+            _DEFAULT_SETTINGS[f"coverage_{_grp}_{_band}_{_shift}"] = _val
 
 _BOOL_SETTING_KEYS = (
     "allow_evening_to_night",
@@ -79,11 +113,22 @@ _BOOL_SETTING_KEYS = (
     "enforce_vacation",
 )
 
-# Integer settings clamped to >= 0 (coverage minimums).
-_COVERAGE_KEYS = (
+# The six legacy coverage keys: the only ones the solver/DataImporter know.
+_LEGACY_COVERAGE_KEYS = (
     "coverage_weekday_day", "coverage_weekday_evening", "coverage_weekday_night",
     "coverage_weekend_day", "coverage_weekend_evening", "coverage_weekend_night",
 )
+# Prefix of a staff group's coverage keys (suffix = legacy key minus "coverage_").
+_GROUP_COVERAGE_PREFIX = {GROUP_RN: "coverage_rn_", GROUP_PN_NA: "coverage_pnna_"}
+_GROUP_COVERAGE_KEYS = tuple(
+    f"coverage_{grp}_{band}_{shift}"
+    for grp in ("rn", "pnna")
+    for band in ("weekday", "weekend")
+    for shift in ("day", "evening", "night")
+)
+
+# Integer settings clamped to >= 0 (coverage minimums): legacy + per-group.
+_COVERAGE_KEYS = _LEGACY_COVERAGE_KEYS + _GROUP_COVERAGE_KEYS
 
 
 def _to_bool(value: Any, default: bool) -> bool:
@@ -121,12 +166,20 @@ class Nurse:
     active=False means the nurse is disabled: kept in the roster (name, type and
     requests preserved so they can be re-enabled) but excluded from the generated
     schedule. This is the "remove without deleting" behaviour.
+
+    staff_class is an axis orthogonal to `type` (seniority): "rn", "pn", "na" or
+    "" (unclassed). Stored lower-case; an unknown value becomes "".
     """
 
     name: str
     type: str = ""
     shifts: dict[int, str] = field(default_factory=dict)
     active: bool = True
+    staff_class: str = ""
+
+    def __post_init__(self) -> None:
+        sc = str(self.staff_class or "").strip().lower()
+        self.staff_class = sc if sc in STAFF_CLASSES else ""
 
 
 @dataclass
@@ -289,6 +342,17 @@ class ScheduleInput:
                 "is this a ShiftWork roster template?"
             )
 
+        # Optional staff-class column: a header cell starting with "class" in
+        # columns 1-6 of the day-number row or the row above it.
+        class_col = None
+        for hr in (header_r, header_r - 1):
+            for c in range(1, 7):
+                if _cell_str(gv(hr, c)).lower().startswith("class"):
+                    class_col = c
+                    break
+            if class_col is not None:
+                break
+
         nurses: list[Nurse] = []
         for r in range(header_r + 1, len(rows) + 1):
             name = _cell_str(gv(r, 1))
@@ -303,7 +367,12 @@ class ScheduleInput:
                 token = _normalize_token(raw) if raw is not None else ""
                 if token:
                     shifts[day] = token
-            nurses.append(Nurse(name=name, type=ntype, shifts=shifts))
+            staff_class = ""
+            if class_col is not None:
+                staff_class = _cell_str(gv(r, class_col)).split("/")[0].strip().lower()
+            nurses.append(
+                Nurse(name=name, type=ntype, shifts=shifts, staff_class=staff_class)
+            )
 
         if "num_days" not in settings and day_cols:
             settings["num_days"] = max(day_cols)
@@ -336,6 +405,17 @@ class ScheduleInput:
                     s[key] = max(0, int(raw[key]))
                 except (TypeError, ValueError):
                     pass
+        # Inheritance: a saved input that predates staff groups carries only the
+        # legacy coverage keys. When a group key is absent from `raw` but its
+        # legacy counterpart is present, the group key takes the legacy value, so
+        # every already-saved input keeps its exact numbers.
+        for grp in ("rn", "pnna"):
+            for band in ("weekday", "weekend"):
+                for shift in ("day", "evening", "night"):
+                    gkey = f"coverage_{grp}_{band}_{shift}"
+                    lkey = f"coverage_{band}_{shift}"
+                    if gkey not in raw and lkey in raw:
+                        s[gkey] = s[lkey]
         return s
 
     @staticmethod
@@ -350,6 +430,11 @@ class ScheduleInput:
 
         header = [h.strip() for h in rows[0]]
         has_type = len(header) > 1 and header[1].lower() == "type"
+        # Optional staff-class column, found by header name (non-digit, so it
+        # never collides with day_cols).
+        class_idx = next(
+            (idx for idx, h in enumerate(header) if h.lower() == "class"), None
+        )
         # Day columns are the header cells that are digits; map header text ->
         # column index so extra/re-ordered columns are handled safely.
         day_cols = {
@@ -368,22 +453,56 @@ class ScheduleInput:
                     token = _normalize_token(row[col])
                     if token:
                         shifts[day] = token
-            nurses.append(Nurse(name=name, type=ntype, shifts=shifts))
+            staff_class = (
+                row[class_idx].strip()
+                if class_idx is not None and class_idx < len(row) else ""
+            )
+            nurses.append(
+                Nurse(name=name, type=ntype, shifts=shifts, staff_class=staff_class)
+            )
         return nurses
 
     # ── Roster ───────────────────────────────────────────────────────────────
 
-    def active_nurses(self) -> list[Nurse]:
+    def active_nurses(self, group: str | None = None) -> list[Nurse]:
         """The nurses that go to the solver (disabled ones are excluded but kept
         in self.nurses). to_solver_csv() and the result-grid mapping both use
-        this exact ordering."""
-        return [n for n in self.nurses if n.active]
+        this exact ordering. With `group` ('rn' / 'pn_na') only that staff
+        group's active nurses are returned, in roster order."""
+        active = [n for n in self.nurses if n.active]
+        if group is None:
+            return active
+        return [n for n in active if group_of(n.staff_class) == group]
+
+    def group_indices(self, group: str) -> list[int]:
+        """Positions, within active_nurses(), of the nurses in `group` - used to
+        remap a group-local solver row back to its global active index."""
+        return [
+            i for i, n in enumerate(self.active_nurses())
+            if group_of(n.staff_class) == group
+        ]
+
+    def solve_groups(self) -> list[str]:
+        """The staff groups to solve independently. [] when no active nurse has a
+        staff class (legacy single solve); otherwise the groups present, in the
+        fixed order ['rn', 'pn_na']."""
+        present = {group_of(n.staff_class) for n in self.active_nurses()}
+        return [g for g in _GROUP_ORDER if g in present]
 
     # ── Emission ─────────────────────────────────────────────────────────────
 
-    def to_solver_csv(self) -> str:
+    def to_solver_csv(self, *, group: str | None = None) -> str:
         """Emit a sectioned CSV that DataImporter/Solver parse back to this same
-        schedule. This is what the solver adapter feeds to the engine."""
+        schedule. This is what the solver adapter feeds to the engine.
+
+        With group=None the output is the legacy single-roster CSV. With
+        group='rn' / 'pn_na' only that group's active nurses are emitted, the
+        six solver-facing coverage keys carry that group's coverage numbers, and
+        for 'pn_na' head_nurse_special_shift is forced false (head and deputy are
+        RNs). The solver never learns that staff classes exist.
+        """
+        if group is not None and group not in _GROUP_COVERAGE_PREFIX:
+            raise ValueError(f"Unknown staff group '{group}'.")
         out = io.StringIO()
 
         out.write("[ward]\n")
@@ -397,20 +516,38 @@ class ScheduleInput:
         extra = " ".join(str(d) for d in self.settings.get("extra_holidays", []))
         out.write(f"extra_holidays,{extra}\n")
         for key in _BOOL_SETTING_KEYS:
-            out.write(f"{key},{'true' if self.settings[key] else 'false'}\n")
+            value = self.settings[key]
+            if group == GROUP_PN_NA and key == "head_nurse_special_shift":
+                value = False
+            out.write(f"{key},{'true' if value else 'false'}\n")
         out.write(f"min_request_percent,{self.settings['min_request_percent']}\n")
-        for key in _COVERAGE_KEYS:
-            out.write(f"{key},{self.settings[key]}\n")
+        for key in _LEGACY_COVERAGE_KEYS:
+            if group is None:
+                value = self.settings[key]
+            else:
+                # coverage_weekday_day -> coverage_{rn|pnna}_weekday_day
+                value = self.settings[
+                    _GROUP_COVERAGE_PREFIX[group] + key[len("coverage_"):]
+                ]
+            out.write(f"{key},{value}\n")
 
         out.write("\n[schedule]\n")
         num_days = self.settings["num_days"]
         writer = csv.writer(out, lineterminator="\n")
-        writer.writerow(["Name", "Type"] + [str(d) for d in range(1, num_days + 1)])
+        # A Class column is emitted ONLY when some active nurse is classed, so an
+        # unclassed ward's CSV stays byte-identical to the pre-staff-class format.
+        # DataImporter ignores it (its day_cols filter keeps digit headers only),
+        # but _parse_schedule_rows reads it back by name — which is what keeps the
+        # round-trip whole for a classed ward (known failure mode 6).
+        emit_class = any(n.staff_class for n in self.active_nurses())
+        head = ["Name", "Type"] + (["Class"] if emit_class else [])
+        writer.writerow(head + [str(d) for d in range(1, num_days + 1)])
         # Only active nurses go to the solver; disabled ones stay in self.nurses
         # but are omitted here so they don't appear in the schedule.
-        for nurse in self.active_nurses():
+        for nurse in self.active_nurses(group):
             cells = [nurse.shifts.get(d, "") for d in range(1, num_days + 1)]
-            writer.writerow([nurse.name, nurse.type] + cells)
+            lead = [nurse.name, nurse.type] + ([nurse.staff_class] if emit_class else [])
+            writer.writerow(lead + cells)
 
         return out.getvalue()
 
@@ -423,6 +560,7 @@ class ScheduleInput:
             "nurses": [
                 # JSON object keys must be strings; days are re-int'd on load.
                 {"name": n.name, "type": n.type, "active": n.active,
+                 "staff_class": n.staff_class,
                  "shifts": {str(k): v for k, v in n.shifts.items()}}
                 for n in self.nurses
             ],
@@ -436,6 +574,7 @@ class ScheduleInput:
                 type=n.get("type", ""),
                 shifts={int(k): v for k, v in n.get("shifts", {}).items()},
                 active=n.get("active", True),  # default True for pre-existing data
+                staff_class=n.get("staff_class", ""),  # "" for pre-existing rows
             )
             for n in data.get("nurses", [])
         ]
@@ -460,10 +599,32 @@ class ScheduleInput:
         active = self.active_nurses()
         if not active:
             raise ValueError("At least one active nurse is required.")
+        # Staff classes: once any active nurse has one, every active nurse must,
+        # otherwise the unclassed nurse would appear in neither group's solve and
+        # silently vanish from the schedule. Inactive nurses are exempt.
+        if any(n.staff_class for n in active):
+            for nurse in active:
+                if not nurse.staff_class:
+                    raise ValueError(
+                        f"Nurse '{nurse.name}' has no staff class. Set RN or "
+                        f"PN/NA for every nurse, or clear them all."
+                    )
         # The senior-nurse rule assigns a head (index 0) and deputy (index 1),
         # so the solver needs at least two active nurses when it is enabled;
         # fewer would crash the solver. Surface it here as a clear message.
-        if self.settings["head_nurse_special_shift"] and len(active) < 2:
+        # When the roster is grouped the rule applies to the RN group only (the
+        # PN/NA solve forces it off), so count the RN group - and skip the check
+        # for a grouped roster that has no RN group at all.
+        groups = self.solve_groups()
+        if groups:
+            senior_pool = self.active_nurses(GROUP_RN) if GROUP_RN in groups else None
+        else:
+            senior_pool = active
+        if (
+            self.settings["head_nurse_special_shift"]
+            and senior_pool is not None
+            and len(senior_pool) < 2
+        ):
             raise ValueError(
                 "The head/deputy senior-nurse rule needs at least 2 active nurses. "
                 "Enable another nurse, or turn off 'head nurse special shift'."
@@ -474,6 +635,12 @@ class ScheduleInput:
                     raise ValueError(
                         f"Nurse '{nurse.name}' has a request on day {day}, "
                         f"outside 1..{num_days}."
+                    )
+                bare = token.strip().lower()
+                if bare in _OFFWARD_KINDS:
+                    raise ValueError(
+                        f"Nurse '{nurse.name}' day {day}: '{token}' needs a shift "
+                        f"— use {bare}:ช, {bare}:บ or {bare}:ด."
                     )
                 if token not in VALID_CELL_TOKENS:
                     raise ValueError(
@@ -489,6 +656,14 @@ def _normalize_token(raw: str) -> str:
     """
     token = str(raw).strip().replace("﻿", "")
     if token.lower() in _CONTROL_TOKENS:
+        return token.lower()
+    # Off-ward cells ('FLT:ด' -> 'flt:ด'); a bare 'FLT' is lower-cased but
+    # stays invalid (validate() reports it - we never guess a shift).
+    offward = parse_offward(token)
+    if offward is not None:
+        kind, shift = offward
+        return f"{kind}{OFFWARD_SEP}{SHIFT_LOCALE[shift]}"
+    if token.lower() in _OFFWARD_KINDS:
         return token.lower()
     return token
 

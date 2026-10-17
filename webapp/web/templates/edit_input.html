@@ -44,6 +44,7 @@
   input.cell.cell--off   { background:#FEE2E2; border-color:#EF4444; color:#991B1B; }
   input.cell.cell--mtg   { background:#EDE9FE; border-color:#8B5CF6; color:#5B21B6; }
   input.cell.cell--vac   { background:#CFFAFE; border-color:#06B6D4; color:#155E75; }
+  input.cell.cell--ofw   { background:#FFEDD5; border-color:#EA580C; color:#9A3412; }
   .namecell input[type=text] { border:1px solid #E5E7EB; border-radius:5px; }
   tfoot td.offcount { text-align:center; font:600 10px Helvetica; color:#9CA3AF; padding-top:5px; }
   tfoot td.offcount.hot { color:#991B1B; }
@@ -120,30 +121,37 @@
 
   <div class="card">
     <h3>อัตรากำลังต่อเวร / Coverage — nurses required per shift</h3>
+    {# ONE table: rows = day bands, a column group per staff group. The PN/NA
+       group only exists once a nurse is classed (coverage_groups has 1 entry,
+       the legacy six fields, until then). #}
+    {% set bands = [("weekday", "จ–ศ Weekday"), ("weekend", "ส–อา Weekend")] %}
+    {% set shifts = [("day", "ช", "#14B8A6", "Day"), ("evening", "บ", "#F59E0B", "Evening"),
+                     ("night", "ด", "#102A43", "Night")] %}
     <table class="opts">
-      <tr><th></th><th><b style="color:#14B8A6">ช</b> Day</th>
-          <th><b style="color:#F59E0B">บ</b> Evening</th>
-          <th><b style="color:#102A43">ด</b> Night</th></tr>
-      <tr>
-        <td class="muted">จ–ศ Weekday</td>
-        <td><input type="number" name="coverage_weekday_day" min="0"
-                   value="{{ settings.coverage_weekday_day | default(5) }}" style="width:3.5rem"></td>
-        <td><input type="number" name="coverage_weekday_evening" min="0"
-                   value="{{ settings.coverage_weekday_evening | default(3) }}" style="width:3.5rem"></td>
-        <td><input type="number" name="coverage_weekday_night" min="0"
-                   value="{{ settings.coverage_weekday_night | default(3) }}" style="width:3.5rem"></td>
+      {% if coverage_groups|length > 1 %}
+      <tr><th></th>
+        {% for g in coverage_groups %}<th colspan="3" style="text-align:center">{{ g.label }}</th>{% endfor %}
       </tr>
-      <tr>
-        <td class="muted">ส–อา Weekend</td>
-        <td><input type="number" name="coverage_weekend_day" min="0"
-                   value="{{ settings.coverage_weekend_day | default(4) }}" style="width:3.5rem"></td>
-        <td><input type="number" name="coverage_weekend_evening" min="0"
-                   value="{{ settings.coverage_weekend_evening | default(2) }}" style="width:3.5rem"></td>
-        <td><input type="number" name="coverage_weekend_night" min="0"
-                   value="{{ settings.coverage_weekend_night | default(2) }}" style="width:3.5rem"></td>
+      {% endif %}
+      <tr><th></th>
+        {% for g in coverage_groups %}{% for key, sym, color, label in shifts %}
+        <th><b style="color:{{ color }}">{{ sym }}</b> {{ label if coverage_groups|length == 1 else '' }}</th>
+        {% endfor %}{% endfor %}
       </tr>
+      {% for band, band_label in bands %}
+      <tr>
+        <td class="muted">{{ band_label }}</td>
+        {% for g in coverage_groups %}{% for key, sym, color, label in shifts %}
+        {% set fname = g.prefix ~ band ~ "_" ~ key %}
+        <td><input type="number" name="{{ fname }}" min="0"
+                   value="{{ settings.get(fname, coverage_defaults[band][key]) }}" style="width:3.5rem"></td>
+        {% endfor %}{% endfor %}
+      </tr>
+      {% endfor %}
     </table>
-    <span class="muted">Higher values need more staff; lower them for a small ward.</span>
+    <span class="muted">Higher values need more staff; lower them for a small ward.
+      {% if coverage_groups|length > 1 %}RN and PN/NA are scheduled separately, each with its own numbers.
+      {% else %}To set RN and PN/NA separately, choose a class for every nurse and save.{% endif %}</span>
   </div>
 
   <div class="card">
@@ -232,6 +240,9 @@
       <span><b style="color:#EF4444">off</b> ขอหยุด</span>
       <span><b style="color:#8B5CF6">mtg</b> ประชุม</span>
       <span><b style="color:#06B6D4">vac</b> ลาพักร้อน</span>
+      <span><b style="color:#EA580C">flt:ช</b> ไปช่วยหน่วยอื่น / float to another unit</span>
+      <span><b style="color:#EA580C">ref:ช</b> ส่งต่อผู้ป่วย / refer duty
+        <span class="muted">(add :ช :บ or :ด; not counted in this ward's coverage, counts as the nurse's shift)</span></span>
       <span class="muted">weekends/holidays are tinted; type a token in a cell</span>
     </div>
     <input type="hidden" name="row_count" value="{{ nurses|length }}">
@@ -257,6 +268,13 @@
           <input type="text" name="name_{{ r }}" value="{{ nurse.name }}" style="width:78px">
           <input type="text" name="type_{{ r }}" value="{{ nurse.type }}"
                  style="width:44px" placeholder="type">
+          <select name="class_{{ r }}" title="Staff class: RN, or PN/NA (practical nurse / nurse aide)"
+                  style="width:56px;font-size:11px">
+            <option value="" {% if not nurse.staff_class %}selected{% endif %}>—</option>
+            {% for sc, sc_label in [("rn", "RN"), ("pn", "PN"), ("na", "NA")] %}
+            <option value="{{ sc }}" {% if nurse.staff_class == sc %}selected{% endif %}>{{ sc_label }}</option>
+            {% endfor %}
+          </select>
         </td>
         {% for d in days %}
         <td><input class="cell" type="text" name="cell_{{ r }}_{{ d }}"
@@ -287,6 +305,7 @@
       if (l === 'off') return 'cell--off';
       if (l === 'mtg') return 'cell--mtg';
       if (l === 'vac') return 'cell--vac';
+      if (v.indexOf(':') >= 0) return 'cell--ofw';  // flt:ด / ref:ช - before the ด/บ/ช tests
       if (v.indexOf('ด') >= 0) return 'cell--night';
       if (v.indexOf('บ') >= 0) return 'cell--eve';
       if (v.indexOf('ช') >= 0) return 'cell--day';
@@ -294,7 +313,7 @@
     }
     var cells = Array.prototype.slice.call(document.querySelectorAll('input.cell'));
     function paint(inp) {
-      inp.classList.remove('cell--day','cell--eve','cell--night','cell--off','cell--mtg','cell--vac');
+      inp.classList.remove('cell--day','cell--eve','cell--night','cell--off','cell--mtg','cell--vac','cell--ofw');
       var c = klass(inp.value); if (c) inp.classList.add(c);
     }
     function recount() {

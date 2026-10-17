@@ -1,5 +1,5 @@
 from ortools.sat.python import cp_model
-from constant import Shift, LocaleShift
+from constant import Shift, LocaleShift, OFFWARD_SEP, SHIFT_LOCALE
 from dataimporter import DataImporter, SettingLoader, FileLoader
 import pandas as pd
 import time
@@ -35,6 +35,16 @@ class Solver():
         self.double_shift_vars = []
         self.new_nurse_indices: set = set()   # nurses flagged as "new" in the CSV
         self.meeting_days: dict = {}          # {nurse_index: [0-based day, ...]}
+
+        # Off-ward duties (float / refer), constraint.md §21.
+        # offward_days     = {nurse: {0-based day: (Shift, kind)}} exactly as loaded.
+        # _offward_applied = the same, minus cells dropped by the senior skip-guard;
+        #   it is the ONLY truth used for coverage exclusion and for rendering, so a
+        #   dropped cell can never shrink a coverage pool.
+        # _offward_excluded = {(day, Shift): {nurse, ...}} reverse map for coverage.
+        self.offward_days: dict = {}
+        self._offward_applied: dict = {}
+        self._offward_excluded: dict = {}
 
         # Soft-request handling (see handleHolidaysAndReq). Populated only when
         # MIN_REQUEST_PERCENT < 100; each entry reifies one relaxable request.
@@ -201,6 +211,16 @@ class Solver():
 
         self.new_nurse_indices = set(data.newNurseIndices)
         self.meeting_days = {n: days for n, days in enumerate(data.reqMeetings) if days}
+
+        # Off-ward duties: one cell = one nurse, one day, one shift, one kind.
+        # The exclusion/render maps are built in handleHolidaysAndReq(), AFTER the
+        # senior skip-guard has had its say.
+        self.offward_days = {}
+        for _n, _cells in enumerate(data.reqOffward):
+            for _d, _shift, _kind in _cells:
+                self.offward_days.setdefault(_n, {})[_d] = (_shift, _kind)
+        if self.offward_days:
+            print(f'[Data] Off-ward duties for nurses: {sorted(self.offward_days)}')
 
         # B2: precompute reverse map day → set[nurse] once; used in _constraintMinimumNurse()
         self._meeting_nurses_per_day: dict = {}
@@ -375,6 +395,34 @@ class Solver():
                 else:
                     self.model.Add(self.assignments[n][d][Shift.DAY] == 1)
 
+        # Off-ward duty (float / refer) — constraint.md §21. Hard and never
+        # searched: the head nurse writes it in and the solver always honours it.
+        # The nurse works exactly that shift and nothing else that day; she is
+        # excluded from this ward's coverage pool for it (_constraintMinimumNurse)
+        # yet still counts it as a worked shift, because distribute() sums the very
+        # same assignment variable. Coverage and fairness read one variable; only
+        # the coverage POOL drops her.
+        self._offward_applied = {}
+        self._offward_excluded = {}
+        for n, days in self.offward_days.items():
+            for d, (shift, kind) in days.items():
+                if n in senior_indices:
+                    if d in self.weekends or shift in (Shift.EVENING, Shift.NIGHT):
+                        # Skip-guard (known failure mode 1): §16/§17 pin head and
+                        # deputy to Day-or-OFF on weekdays and OFF at weekends, so
+                        # this cell would make the model infeasible. Drop it loudly.
+                        print(f'[Info] Nurse {n} {kind}{OFFWARD_SEP}{shift.value} on '
+                              f'day {d + 1} skipped (conflicts with senior nurse rule).')
+                        continue
+                self._offward_applied.setdefault(n, {})[d] = (shift, kind)
+                self._offward_excluded.setdefault((d, shift), set()).add(n)
+                if self._diag_mode:
+                    self._diag_gate(n, d, [shift], kind)
+                    continue
+                # Exactly this shift, nothing else, and not OFF.
+                for s in Shift:
+                    self.model.Add(self.assignments[n][d][s] == (1 if s is shift else 0))
+
         # Floor: at least MIN_REQUEST_PERCENT of the relaxable requests must be
         # satisfied, else the model is (correctly) infeasible. In diagnosis mode
         # every request is forced by its own assumption, so the floor is implied
@@ -396,16 +444,18 @@ class Solver():
         for d in range(self.num_days):
             for shift in [Shift.DAY, Shift.EVENING, Shift.NIGHT]:
                 required = self.days[d]['min_shifts'][shift]
+                # Nurses who are present but not covering THIS shift for THIS ward:
+                # meeting attendees (Day only, §15) and off-ward duties (any shift,
+                # §21). B2: both come from precomputed reverse maps rather than
+                # rebuilding a set each iteration.
+                excluded = set(self._offward_excluded.get((d, shift), ()))
                 if shift == Shift.DAY:
-                    # B2: use precomputed reverse map instead of rebuilding set each iteration
-                    meeting_nurses_today = self._meeting_nurses_per_day.get(d, set())
-                    nurses_assigned = [
-                        self.assignments[n][d][shift]
-                        for n in range(self.num_nurses)
-                        if n not in meeting_nurses_today
-                    ]
-                else:
-                    nurses_assigned = [self.assignments[n][d][shift] for n in range(self.num_nurses)]
+                    excluded |= self._meeting_nurses_per_day.get(d, set())
+                nurses_assigned = [
+                    self.assignments[n][d][shift]
+                    for n in range(self.num_nurses)
+                    if n not in excluded
+                ]
                 if self._diag_mode and self._diag_gate_coverage:
                     # Diagnosis pass 2: gate each (day, shift) minimum so the
                     # core can name the day whose coverage cannot be met.
@@ -547,7 +597,12 @@ class Solver():
             req_shifts = nurse.get('requested_shifts', {})
 
             for d in range(self.num_days):
-                if n in senior_indices:
+                offward = self.offward_days.get(n, {}).get(d)
+                if offward is not None:
+                    # Most constrained case first: an off-ward duty (§21) fixes the
+                    # day completely.
+                    hints = {offward[0]}
+                elif n in senior_indices:
                     hints = {Shift.OFF if d in self.weekends else Shift.DAY}
                 elif d in off_days:
                     hints = {Shift.OFF}
@@ -789,7 +844,13 @@ class Solver():
                 is_night   = self.solver.Value(self.assignments[n][d][Shift.NIGHT]) == 1
                 is_off     = self.solver.Value(self.assignments[n][d][Shift.OFF]) == 1
 
-                if is_day and is_evening:
+                offward = self._offward_applied.get(n, {}).get(d)
+                if offward is not None:
+                    # Same token the head nurse typed (§21), so the result
+                    # round-trips back into the grid editor.
+                    ow_shift, ow_kind = offward
+                    symbol = f'{ow_kind}{OFFWARD_SEP}{SHIFT_LOCALE[ow_shift]}'
+                elif is_day and is_evening:
                     symbol = LocaleShift.DAY_EVENING.value
                 elif is_night and is_evening:
                     symbol = LocaleShift.NIGHT_EVENING.value

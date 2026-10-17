@@ -152,6 +152,14 @@ sum(a[n][d][s] for n in 0..N-1) >= min_shifts[d][s]
 | EVENING | 3       | 2       |
 | NIGHT   | 3       | 2       |
 
+**Nurses excluded from a coverage pool.** The sum is taken over *eligible* nurses
+only — a nurse may be working and still not count toward this ward's coverage:
+
+| Excluded from | Who | Rule |
+|---|---|---|
+| DAY, that day | meeting attendees | §15 |
+| the named shift, that day | off-ward duty (`flt` / `ref`) | §21 |
+
 **Location:** `_constraintMinimumNurse()`
 
 ---
@@ -288,6 +296,10 @@ NurseA,senior,mtg,  ,  ,...   ← NurseA has a meeting on day 1
 
 **Location:** `handleHolidaysAndReq()` (forcing DAY), `_constraintMinimumNurse()` (exclusion)
 
+**Generalised by §21.** The coverage exclusion is no longer a Day-only special case:
+`_constraintMinimumNurse()` subtracts one `excluded` set per `(day, shift)`, into which
+meetings contribute on DAY and off-ward duties contribute on their own shift.
+
 ---
 
 ## 16. Head nurse and deputy — Day shift only on weekdays
@@ -414,4 +426,96 @@ diagnosis mode: every request is forced by its own assumption, so the floor is i
 **Location:** `Solver.diagnose()` / `_diag_build()` / `_diag_gate()` / `_diag_solve()` /
 `_diag_cap()` in `shiftwork.py`; the `_diag_mode` branches in `handleHolidaysAndReq()` and
 `_constraintMinimumNurse()`. Naming and text rendering live outside the solver in
-`webapp/core/diagnosis.py`; the relaxation ladder in `webapp/core/relaxation.py`.
+`webapp/core/diagnosis.py`.
+
+> **Drift note (2026-10-17):** `webapp/core/relaxation.py` does **not** exist, yet
+> `solver_runner.py` imports it and `worker/tasks.py` passes a non-zero
+> `relax_seconds`. The `except Exception` around the import swallows the
+> `ImportError`, so the relaxation ladder never runs and no relaxation suggestions
+> ever reach the UI. Tracked as tech debt; not fixed by the §21 change.
+
+---
+
+## 21. Off-ward duty — float (`flt`) and refer (`ref`)
+
+**Original (customer):** บางวอร์ดต้องลอยไปช่วยหน่วยอื่น ไม่นับเป็นอัตรากำลังของวอร์ดเรา
+แต่นับเป็นเวรของพยาบาลคนนั้น และต้องแสดงในตาราง · "refer" = ไปส่งผู้ป่วย
+
+**Rule:** A nurse may be assigned an **off-ward duty** on one shift of one day:
+`flt` (lent to another unit) or `ref` (accompanying a patient transfer). The two are
+ONE mechanism and differ only in label. The duty is **hard and never searched** — the
+head nurse writes it into the request grid and the solver always honours it; the
+solver never chooses who goes.
+
+```
+for an off-ward cell (n, d, shift s, kind k):
+
+  a[n][d][s]  == 1                                  (works exactly that shift)
+  a[n][d][s'] == 0   for every s' != s, incl. OFF   (and nothing else that day)
+
+  sum(a[n][d][s] for n NOT off-ward on (d, s)) >= min_shifts[d][s]
+                                                    (§9: she does not cover our ward)
+```
+
+**She still counts as having worked that shift.** No objective term is added. The
+fairness objective (§11–§13) sums the very same `a[n][d][s]` variable that the duty
+forces to 1, so the shift already enters shift-type balance and already keeps the day
+out of the OFF count (§12). Coverage and fairness read one variable; only the coverage
+**pool** drops her. A floated night is a worked night — which is the requirement.
+
+**How to mark an off-ward duty:** write `flt:<shift>` or `ref:<shift>` in the cell.
+
+```
+Name,Type,1,     2,     3,...
+NurseA,,  flt:ด, ,      ref:ช,...   ← night float on day 1, refer duty on day 3
+```
+
+Valid tokens: `flt:ช` `flt:บ` `flt:ด` `ref:ช` `ref:บ` `ref:ด`. A bare `flt` or `ref`
+is **rejected** with a message naming the valid forms — silently defaulting to Day
+would produce a wrong schedule the head nurse would not notice.
+
+**Exclusivity.** An off-ward duty occupies one shift *slot* (it counts as one shift
+rather than blanking the day the way `vac` does), but it is the nurse's only work
+shift that day. This is deliberate: it removes an output ambiguity with the double-shift
+symbols `ช/บ` / `ด/บ`, which have no way to say "the night half was off-ward".
+
+**Not a request.** Off-ward cells are never down-sampled against the tier's
+`max_req_shifts` / `max_holidays` quotas, and are not tier-gated. They are management
+facts, like `mtg` and `vac`, not preferences.
+
+**Skip-guard (known failure mode 1).** §16/§17 pin head (0) and deputy (1) to
+Day-or-OFF on weekdays and OFF at weekends. An off-ward cell on nurse 0 or 1 that
+falls on a weekend/holiday, or asks for Evening or Night, would therefore make the
+model infeasible, so it is **dropped** with a printed
+`[Info] Nurse n flt:night on day D skipped (conflicts with senior nurse rule).`
+`webapp/core/presolve.py` raises the matching `senior_offward` **warning** before the
+solve so the user learns the cell will be ignored rather than wondering why.
+Only cells that survive the skip-guard enter `_offward_applied`, and the coverage
+exclusion and the output rendering both read that map — so a dropped cell can never
+shrink a coverage pool.
+
+**Rendering.** `_write_schedule()` writes the same token back (`flt:ด`), ahead of the
+ordinary symbol cascade, so a solved schedule round-trips into the grid editor.
+`webapp/core/fairness.py` counts the cell as a shift of its type and reports
+`offward_days` separately.
+
+**Interaction with §11 (accepted, not fixed).** Because the duty is forced, it is load
+the objective cannot move: a nurse with many off-ward nights pulls the night-imbalance
+term toward giving everyone else the same count, which can inflate total ward work.
+This is identical in kind to the existing forced-`mtg` effect on Day balance and is
+accepted.
+
+**Interaction with §20.** In diagnosis mode the forced assignment is gated behind an
+assumption literal (kind `flt`/`ref`, so the core names it), while the coverage
+exclusion stays unconditional — matching the real model. A contradiction caused by the
+*forced shift* therefore surfaces in pass 1, and one caused by the *reduced pool* in
+pass 2 as a coverage item.
+
+**Flags:** none. Available on every tier.
+
+**Location:** `constant.py` (`OffWard`, `OFFWARD_TOKENS`, `parse_offward()`);
+`DataImporter.transform()` → `reqOffward`; `Solver.offward_days` /
+`_offward_applied` / `_offward_excluded` built in `loadReqShifts()` and
+`handleHolidaysAndReq()`; enforced in `handleHolidaysAndReq()`; excluded in
+`_constraintMinimumNurse()`; hinted in `_build_warm_start()`; rendered in
+`_write_schedule()`.

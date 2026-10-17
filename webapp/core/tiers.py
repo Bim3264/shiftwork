@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from dataimporter import LICENSE_REGISTRY, TIER_LIMITS
+from webapp.core.schedule_input import GROUP_PN_NA, GROUP_RN
 
 
 def resolve_tier(ward_meta: dict | None) -> tuple[str, str]:
@@ -32,6 +33,27 @@ def resolve_tier(ward_meta: dict | None) -> tuple[str, str]:
     return "free", "default"
 
 
+def enforce_max_nurses(schedule_input) -> None:
+    """Raise ValueError when the active roster exceeds the tier's nurse cap.
+
+    The ceiling is ONE combined figure across every staff group (RN, PN and NA
+    all count). It must run before a roster is split into per-group solves:
+    `dataimporter.py` checks `max_nurses` against one file at a time, so without
+    this check each group's CSV would pass on its own and the ward would
+    silently receive a separate allowance per group.
+    """
+    name, _source = resolve_tier(schedule_input.ward_meta)
+    limits = TIER_LIMITS.get(name, TIER_LIMITS["free"])
+    max_nurses = limits["max_nurses"]  # None == unlimited
+    actual = len(schedule_input.active_nurses())
+    if max_nurses is not None and actual > max_nurses:
+        raise ValueError(
+            f'[Tier] This ward has {actual} nurses but tier "{name}" '
+            f'supports at most {max_nurses} across all staff groups. '
+            f'Please upgrade your plan.'
+        )
+
+
 def tier_view(schedule_input) -> dict[str, Any]:
     """Build the tier panel shown on the input page.
 
@@ -43,6 +65,11 @@ def tier_view(schedule_input) -> dict[str, Any]:
     limits = TIER_LIMITS.get(name, TIER_LIMITS["free"])
     # Only active nurses are solved, so the cap applies to them.
     nurse_count = len(schedule_input.active_nurses())
+    # Display-only breakdown; the cap and over_max use the combined nurse_count.
+    by_group = {
+        GROUP_RN: len(schedule_input.active_nurses(GROUP_RN)),
+        GROUP_PN_NA: len(schedule_input.active_nurses(GROUP_PN_NA)),
+    }
     max_nurses = limits["max_nurses"]  # None == unlimited
     meetings = limits["enable_meetings"]
 
@@ -72,6 +99,7 @@ def tier_view(schedule_input) -> dict[str, Any]:
         "source": source,
         "max_nurses": max_nurses,               # None => unlimited
         "nurse_count": nurse_count,
+        "by_group": by_group,
         "over_max": max_nurses is not None and nurse_count > max_nurses,
         "max_req_shifts": limits["max_req_shifts"],
         "max_holidays": limits["max_holidays"],

@@ -12,6 +12,9 @@ Cell vocabulary written by ``shiftwork._write_schedule`` (see constant.LocaleShi
     ด/บ      Night + Evening (double shift -> counts one Night AND one Evening)
     off      day off (discretionary)
     vac      approved vacation / leave (an off-day, but reported separately)
+    flt:ด    off-ward duty (float / refer, constraint.md section 21): a WORKED shift
+             of its type (counts as that shift and as a working day, never a day
+             off) and also reported separately as ``offward_days``.
 A double-shift cell contributes to BOTH of its shift counts (so ``shifts`` is a
 slot count, while ``working_days`` counts the calendar day only once). A ``vac``
 cell is a non-working day like ``off``, but is counted as ``vac_days`` and kept
@@ -22,13 +25,19 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Optional
 
+from constant import SHIFT_LOCALE, parse_offward
+
 # locale symbol -> canonical shift key
 _SYMBOL = {"ช": "day", "บ": "evening", "ด": "night"}
 _VAC = "vac"  # LocaleShift.VACATION.value — approved-leave cell
 
 
 def _parse_cell(cell: str) -> list[str]:
-    """Return the shift keys in one grid cell. 'off'/'' -> []; 'ช/บ' -> [day, evening]."""
+    """Return the shift keys in one grid cell. 'off'/'' -> []; 'ช/บ' -> [day, evening];
+    an off-ward cell 'flt:ด' -> [night] (a worked shift, not a day off)."""
+    offward = parse_offward(cell)
+    if offward is not None:
+        return [_SYMBOL[SHIFT_LOCALE[offward[1]]]]
     out: list[str] = []
     for part in str(cell).split("/"):
         key = _SYMBOL.get(part.strip())
@@ -48,7 +57,8 @@ def _spread(values: list[int]) -> dict[str, float]:
 
 def fairness_stats(grid: dict[str, Any],
                    weekend_days: Optional[Iterable[int]] = None,
-                   senior_indices: Optional[Iterable[int]] = None) -> Optional[dict]:
+                   senior_indices: Optional[Iterable[int]] = None,
+                   *, group: Optional[str] = None) -> Optional[dict]:
     """Compute fairness stats from a solved result grid.
 
     ``grid``          -- ``SolveJob.result_grid`` = {"days":[...], "rows":[{name, cells:[...]}]}.
@@ -60,9 +70,16 @@ def fairness_stats(grid: dict[str, Any],
                          EXCLUDED from ``spread`` so the fairness range reflects
                          the interchangeable staff, not rule-bound outliers.
 
+    ``group``         -- staff group key ('rn' / 'pn_na'): only rows whose
+                         ``row["group"]`` equals it are summarised. None (the
+                         default) keeps every row, so ungrouped and pre-existing
+                         flat grids behave exactly as before.
+
     Returns None if the grid has no rows (nothing to summarise).
     """
     rows = (grid or {}).get("rows") or []
+    if group is not None:
+        rows = [r for r in rows if r.get("group") == group]
     if not rows:
         return None
     seniors = {int(i) for i in (senior_indices or [])}
@@ -82,12 +99,15 @@ def fairness_stats(grid: dict[str, Any],
         c = {"day": 0, "evening": 0, "night": 0}
         working_days = 0
         vac_days = 0
+        offward_days = 0
         weekend_shifts = 0
         night_weekend = 0
         for i, cell in enumerate(cells):
             keys = _parse_cell(cell)
             if keys:
                 working_days += 1
+                if parse_offward(cell) is not None:
+                    offward_days += 1
             elif str(cell).strip().lower() == _VAC:
                 vac_days += 1
             for k in keys:
@@ -110,6 +130,7 @@ def fairness_stats(grid: dict[str, Any],
             # so working_days + off_days + vac_days == num_days).
             "off_days": num_days - working_days - vac_days,
             "vac_days": vac_days,
+            "offward_days": offward_days,
             "weekend_shifts": weekend_shifts,
             "night_weekend": night_weekend,
         })
@@ -119,7 +140,8 @@ def fairness_stats(grid: dict[str, Any],
         return [n[key] for n in src]
 
     totals = {k: sum(col(k)) for k in
-              ("day", "evening", "night", "shifts", "weekend_shifts", "vac_days")}
+              ("day", "evening", "night", "shifts", "weekend_shifts", "vac_days",
+                "offward_days")}
     # Spread reflects the interchangeable staff: drop rule-bound seniors, but
     # never end up with an empty basis (fall back to everyone if all are senior).
     regular = [n for n in per_nurse if not n["senior"]]
@@ -131,6 +153,7 @@ def fairness_stats(grid: dict[str, Any],
         "num_days": num_days,
         "num_nurses": len(per_nurse),
         "has_vacations": any(n["vac_days"] for n in per_nurse),
+        "has_offward": any(n["offward_days"] for n in per_nurse),
         "senior_excluded": len([n for n in per_nurse if n["senior"]]) if regular else 0,
         "per_nurse": per_nurse,
         "totals": totals,
