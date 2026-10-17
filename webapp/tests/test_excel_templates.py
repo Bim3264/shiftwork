@@ -140,5 +140,32 @@ class AllGeneratedTemplatesTests(unittest.TestCase):
         self.assertIn("RN,PN,NA", formulas)
 
 
+@unittest.skipUnless(_AVAILABLE, "openpyxl / tools.gen_templates unavailable")
+class ExampleTemplateSolvesTests(unittest.TestCase):
+    """The example workbook must actually produce a schedule.
+
+    `validate()` only checks the shape of the input, so it passed for months
+    while the shipped example was INFEASIBLE: NurseF had a Night refer duty on
+    day 21 and a Day shift on 22, which allow_night_to_day forbids. A head nurse
+    opening the example to see what the tool does would have got nothing back.
+    Solver-backed, so it is slower than the rest of this module.
+    """
+
+    def test_example_workbook_solves(self):
+        from webapp.core.solver_runner import run_schedule
+
+        si = ScheduleInput.from_xlsx(_to_bytes(build_workbook(_spec("example"))))
+        result = run_schedule(si, 90)
+        self.assertTrue(
+            result.solved,
+            f"the example workbook does not solve: {result.solver_status}",
+        )
+        # Every group must solve, not just the roster as a whole.
+        groups = (result.grid or {}).get("groups") or []
+        self.assertEqual([g["key"] for g in groups], ["rn", "pn_na"])
+        for group in groups:
+            self.assertIn(group["solver_status"], ("OPTIMAL", "FEASIBLE"))
+
+
 if __name__ == "__main__":
     unittest.main()

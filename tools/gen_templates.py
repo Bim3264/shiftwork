@@ -230,7 +230,10 @@ _EXAMPLE_ROWS = (
     ("NurseC", None, "rn", {5: "vac", 8: "off", 10: "flt:ช", 24: "off", 26: "off"}),
     ("NurseD", None, "rn", {2: "off", 5: "off", 14: "ช/บ", 17: "off"}),
     ("NurseE", None, "rn", {9: "off", 24: "no:บ"}),
-    ("NurseF", None, "rn", {7: "ช", 18: "off", 21: "ref:ด", 22: "ช", 27: "off",
+    # Day 23, not 22: a Night refer duty on 21 followed by a Day shift the next
+    # morning is a Night->Day transition, which allow_night_to_day forbids by
+    # default — it made this example workbook INFEASIBLE as shipped.
+    ("NurseF", None, "rn", {7: "ช", 18: "off", 21: "ref:ด", 23: "ช", 27: "off",
                             28: "off"}),
     ("NurseG", "new", "rn", {1: "off", 3: "ช", 5: "ช", 6: "ช", 8: "ช",
                              9: "ช", 11: "off", 13: "ช", 25: "off"}),
