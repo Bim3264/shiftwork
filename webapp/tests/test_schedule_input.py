@@ -137,11 +137,11 @@ class ScheduleInputActiveTest(unittest.TestCase):
         self.assertEqual([n.name for n in reparsed.nurses], ["N0", "N2"])
 
     def test_validate_counts_active_not_total(self):
-        # Two nurses but only one active -> senior rule needs 2 active -> raises.
-        si = self._three([True, False])
+        # Only inactive nurses -> nothing to solve -> raises.
+        si = self._three([False, False])
         with self.assertRaises(ValueError):
             si.validate()
-        # Re-enable the second -> valid.
+        # One active is enough: the senior rule has no minimum head-count.
         si.nurses[1].active = True
         si.validate()
 
@@ -254,16 +254,15 @@ class ScheduleInputValidationTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             si.validate()
 
-    def test_rejects_single_nurse_when_senior_rule_on(self):
-        # Guards the solver crash: head+deputy rule needs >=2 nurses.
+    def test_allows_single_nurse_when_senior_rule_on(self):
+        # Seniority is type-driven: no minimum head-count, no seniors = no-op.
         si = ScheduleInput.from_grid(
             ward_meta={"ward_name": "W"},
             settings={"num_days": 7, "weekends": [6, 7],
                       "head_nurse_special_shift": True},
             nurses=[Nurse(name="Solo", shifts={1: "ช"})],
         )
-        with self.assertRaises(ValueError):
-            si.validate()
+        si.validate()  # should not raise
 
     def test_allows_single_nurse_when_senior_rule_off(self):
         si = ScheduleInput.from_grid(
@@ -648,11 +647,10 @@ class GroupEmissionTest(unittest.TestCase):
         # The group's number is written under the solver-facing legacy name.
         self.assertIn("coverage_weekday_day,2", pn)
         self.assertIn("coverage_weekday_day,6", rn)
-        # Head and deputy are RNs: the PN/NA solve must not run the senior rule.
-        self.assertIn("head_nurse_special_shift,false", pn)
+        # Seniority is the Type column, so the flag is no longer forced off for
+        # PN/NA: a group with nobody typed senior simply gets no rule.
+        self.assertIn("head_nurse_special_shift,true", pn)
         self.assertIn("head_nurse_special_shift,true", rn)
-        # The ward-wide setting itself is untouched by the override.
-        self.assertTrue(si.settings["head_nurse_special_shift"])
 
     def test_group_csv_remaps_holiday_band(self):
         si = _classed_ward(rn=4, pn=3, settings={

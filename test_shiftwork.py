@@ -460,8 +460,59 @@ class _SmallWardTest(unittest.TestCase):
         return s, status, log.getvalue()
 
     @staticmethod
-    def _plain(n, days=7):
-        return [("N%d" % i, "", [""] * days) for i in range(n)]
+    def _plain(n, days=7, seniors=()):
+        return [("N%d" % i, "senior" if i in seniors else "", [""] * days)
+                for i in range(n)]
+
+
+class SeniorByTypeTest(_SmallWardTest):
+    """constraint.md section 16/17: seniority comes from the Type column, not
+    from row position. Any number of seniors (zero included)."""
+
+    def _check_seniors(self, s, senior_set):
+        for n in range(s.num_nurses):
+            for d in range(s.num_days):
+                if n in senior_set:
+                    off = d in s.weekends
+                    self.assertEqual(s.solver.Value(s.assignments[n][d][Shift.EVENING]), 0)
+                    self.assertEqual(s.solver.Value(s.assignments[n][d][Shift.NIGHT]), 0)
+                    if off:
+                        self.assertEqual(s.solver.Value(s.assignments[n][d][Shift.OFF]), 1)
+
+    def test_senior_in_the_middle_is_constrained_and_rows_0_1_are_not(self):
+        # Regression: rows 0/1 used to be hard-wired as head/deputy.
+        s, st, _ = self._run(7, self._plain(8, seniors=(4,)), cov=(1, 1, 1),
+                             senior="true", weekends="6 7")
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(s.senior_nurse_indices, {4})
+        self._check_seniors(s, {4})
+        # Rows 0/1 are free: with 1 senior pinned to Day/OFF, evening+night
+        # coverage (1+1 every day) must come from the other nurses; rows 0 and 1
+        # are not forced off weekends.
+        self.assertTrue(any(
+            s.solver.Value(s.assignments[n][d][Shift.OFF]) == 0
+            for n in (0, 1) for d in (5, 6)),
+            "nurses 0/1 must no longer be pinned OFF on weekends")
+
+    def test_no_senior_makes_the_rule_a_noop_and_ward_solves(self):
+        s, st, _ = self._run(7, self._plain(6), cov=(1, 1, 1), senior="true",
+                             weekends="6 7")
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(s.senior_nurse_indices, set())
+
+    def test_thai_senior_synonym_is_accepted(self):
+        rows = self._plain(6)
+        rows[3] = ("N3", "อาวุโส", [""] * 7)
+        s, st, _ = self._run(7, rows, cov=(1, 1, 1), senior="true", weekends="6 7")
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(s.senior_nurse_indices, {3})
+
+    def test_three_seniors_are_all_constrained(self):
+        s, st, _ = self._run(7, self._plain(9, seniors=(1, 5, 8)), cov=(1, 1, 1),
+                             senior="true", weekends="6 7")
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(s.senior_nurse_indices, {1, 5, 8})
+        self._check_seniors(s, {1, 5, 8})
 
 
 class OffWardDutyTest(_SmallWardTest):
@@ -560,8 +611,8 @@ class HolidayBandTest(_SmallWardTest):
         # C4. Day 3 is a holiday but NOT in weekends. With the senior rule on,
         # the head nurse (nurse 0) must be OFF that day: Solver.weekends has to
         # be the union, or head nurses start working public holidays.
-        s, st, _ = self._run(7, self._plain(6), cov=(1, 1, 1), senior="true",
-                             weekends="", holidays="3")
+        s, st, _ = self._run(7, self._plain(6, seniors=(0,)), cov=(1, 1, 1),
+                             senior="true", weekends="", holidays="3")
         self.assertIn(st, _SOLVED)
         self.assertEqual(s.holidays, {2})
         self.assertIn(2, s.weekends)
@@ -650,7 +701,7 @@ class SaturdaySundayBandTest(_SmallWardTest):
     def test_weekends_is_the_union_and_saturday_is_non_working_for_senior(self):
         # Day 3 is listed ONLY in saturdays (not in weekends): it must still be
         # in Solver.weekends, so the head nurse is OFF (senior rule, section 16).
-        s, st, _ = self._run(7, self._plain(6), cov=(1, 1, 1), senior="true",
+        s, st, _ = self._run(7, self._plain(6, seniors=(0,)), cov=(1, 1, 1), senior="true",
                              weekends="", extra="saturdays,3\n")
         self.assertIn(st, _SOLVED)
         self.assertIn(2, s.weekends)

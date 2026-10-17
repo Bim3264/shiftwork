@@ -127,7 +127,7 @@ a[n][d][s] == 1    for each (d, shifts) in nurse[n].requested_shifts, for each s
 (≤ `MAX_REQ_SHIFT = 5`), counted **per cell**; excess cells are randomly sampled down whole.
 Soft mode (`min_request_percent < 100`): one `sat` var per cell — both shifts kept or dropped together.
 
-**Skip-guards** (request dropped, not a contradiction): head/deputy (§16/§17) asking for any cell
+**Skip-guards** (request dropped, not a contradiction): senior nurses (§16/§17) asking for any cell
 on a weekend or any cell containing EVENING/NIGHT; a new nurse (§14) asking for `ด/บ`.
 
 **Location:** `handleHolidaysAndReq()`
@@ -167,9 +167,9 @@ only — a nurse may be working and still not count toward this ward's coverage:
 
 ---
 
-## 10. Head nurse (nurse index 0)
+## 10. Senior nurse (Type column)
 
-**Rule:** The head nurse (index 0) may only work Day shift or be OFF on weekdays,
+**Rule:** Every nurse typed `senior` (see §18) may only work Day shift or be OFF on weekdays,
 and must always be OFF on weekends.
 
 ```
@@ -184,7 +184,7 @@ Weekend:  a[0][d][OFF]     == 1
 ```
 
 **Settings:**
-- `HEAD_NURSE_INDEX = 0` — which nurse is the head nurse
+- `senior_nurse_indices` — rows typed senior in the Type column (any number, zero = rule is a no-op)
 - `HEAD_NURSE_SPEACIAL_SHIFT = True` — set to `False` to disable this entire block
 
 **Location:** `optionHeadNurse()`
@@ -309,19 +309,18 @@ meetings contribute on DAY and off-ward duties contribute on their own shift.
 
 **Original (Thai):** หัวหน้า และรองหัวหน้าลอยเช้า
 
-**Rule:** Both the head nurse (index 0) and the deputy head nurse (index 1) may only
+**Rule:** Every senior nurse (Type column, §18; any number) may only
 work Day shift or be OFF on weekdays. Evening and Night shifts are forbidden.
 
 ```
 Weekday:  a[n][d][DAY] + a[n][d][OFF] == 1
           a[n][d][EVENING] == 0
           a[n][d][NIGHT]   == 0
-    for n in {HEAD_NURSE_INDEX, DEPUTY_NURSE_INDEX}
+    for n in senior_nurse_indices
 ```
 
 **Settings:**
-- `HEAD_NURSE_INDEX = 0`
-- `DEPUTY_NURSE_INDEX = 1`
+- `senior_nurse_indices` (from the Type column)
 - `HEAD_NURSE_SPEACIAL_SHIFT = True` — set to `False` to disable this rule entirely
 
 **Location:** `optionHeadNurse()`
@@ -332,36 +331,31 @@ Weekday:  a[n][d][DAY] + a[n][d][OFF] == 1
 
 **Original (Thai):** หัวหน้า และรองหัวหน้าไม่ขึ้นเวรวันหยุด
 
-**Rule:** Both the head nurse and deputy head nurse must be OFF on all weekend days.
+**Rule:** Every senior nurse must be OFF on all weekend days.
 
 ```
 Weekend:  a[n][d][OFF]     == 1
           a[n][d][DAY]     == 0
           a[n][d][EVENING] == 0
           a[n][d][NIGHT]   == 0
-    for n in {HEAD_NURSE_INDEX, DEPUTY_NURSE_INDEX}
+    for n in senior_nurse_indices
 ```
 
 **Location:** `optionHeadNurse()` (same block as constraint 16)
 
 ---
 
-## 18. Seniority — nurse index assignment
+## 18. Seniority — from the Type column
 
-**Original (Thai):** ชื่อที่ 1 และ 2 จะต้องเป็นหัวหน้าและรองหัวหน้าเสมอ
+**Rule:** Seniority is NOT positional. A nurse is senior iff the `Type` column is
+`senior`, `อาวุโส` or `ซีเนียร์` (case-insensitive; same mechanism as the `new`
+flags `new`/`junior`/`น้องใหม่`). Any number of seniors works: zero, one, five.
+No senior typed = §10/§16/§17 do nothing. There is no minimum nurse count.
+The rule applies in every staff group (a senior PN is constrained like a senior RN).
 
-**Rule:** The first nurse in the CSV (row 0) is always the head nurse;
-the second nurse (row 1) is always the deputy head nurse.
-
-```
-HEAD_NURSE_INDEX    = 0   (row 0 in the CSV)
-DEPUTY_NURSE_INDEX  = 1   (row 1 in the CSV)
-```
-
-This is enforced by `optionHeadNurse()` using these index constants.
-To change who the head/deputy is, reorder rows in the CSV or update the index constants.
-
-**Location:** `initShiftSettings()` constants
+**Location:** `DataImporter.transform()` fills `seniorNurseIndices`; `Solver`
+copies it to `senior_nurse_indices`. Mirrored in `presolve._SENIOR_FLAGS` and
+`app._fairness_for_job` (the web layer reads `type` from the stored input).
 
 ---
 
@@ -372,7 +366,7 @@ To change who the head/deputy is, reorder rows in the CSV or update the index co
 **Rule:** Nurses in the CSV must be listed in descending order of seniority
 (most senior first). The solver does not enforce this — it is a data entry convention.
 
-Most senior → row 0 (head nurse), row 1 (deputy), …, least senior → last row.
+Most senior first, …, least senior last (display convention only; the senior rule follows the Type column, not the position).
 Newly joined nurses ("new") should appear at the bottom.
 
 **Location:** Input CSV only — no solver constraint.
@@ -493,8 +487,8 @@ symbols `ช/บ` / `ด/บ`, which have no way to say "the night half was off-
 `max_req_shifts` / `max_holidays` quotas, and are not tier-gated. They are management
 facts, like `mtg` and `vac`, not preferences.
 
-**Skip-guard (known failure mode 1).** §16/§17 pin head (0) and deputy (1) to
-Day-or-OFF on weekdays and OFF at weekends. An off-ward cell on nurse 0 or 1 that
+**Skip-guard (known failure mode 1).** §16/§17 pin every senior nurse to
+Day-or-OFF on weekdays and OFF at weekends. An off-ward cell on a senior nurse that
 falls on a weekend/holiday, or asks for Evening or Night, would therefore make the
 model infeasible, so it is **dropped** with a printed
 `[Info] Nurse n flt:night on day D skipped (conflicts with senior nurse rule).`
@@ -587,7 +581,7 @@ non-working sees exactly what it saw before:
 | Consumer | Reads |
 |---|---|
 | `_rebuild_days()` band selection | `self.holidays`, `self.sundays`, `self.saturdays`, then `self.weekends` |
-| §16 / §17 senior head & deputy rules | `self.weekends` (the union) |
+| §16 / §17 senior nurse rules | `self.weekends` (the union) |
 | §21 off-ward senior skip-guard | `self.weekends` (the union) |
 | `_build_warm_start()` | `self.weekends` (the union) |
 | `presolve` senior rules, `_explain_day` | union; `presolve._day_band` splits |
@@ -684,7 +678,7 @@ different request and is deliberately not offered.
 
 **Skip-guard: none needed.** One cell holds one token, so a negation can never share a
 day with `mtg`, an off-ward cell, `off` or `vac`. The senior rule (§16/§17) leaves
-Day-or-OFF on weekdays, so `no:ช` for head/deputy just means OFF — feasible. The only
+Day-or-OFF on weekdays, so `no:ช` for a senior just means OFF — feasible. The only
 way a negation can make the model infeasible is coverage (everyone negating a shift
 that is needed), which presolve reports as `coverage_day` and, in soft mode, the
 request floor lets the solver drop.

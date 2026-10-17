@@ -456,8 +456,8 @@ def _fairness_for_job(job) -> list[dict]:
     Pure derivation from the stored result_grid - no solver run, works on old
     jobs too. A pre-existing (or ungrouped) grid has no ``groups`` key and yields
     ONE entry with an empty key/label. A grouped grid yields one entry per group;
-    the senior (head/deputy) rule applies to the RN group only, so ``seniors`` is
-    the first two RN indices (empty for PN/NA). Not succeeded / no grid -> [].
+    ``seniors`` are the active nurses typed senior (any group, any number).
+    Not succeeded / no grid -> [].
     """
     if job.status.value != "succeeded" or not job.result_grid:
         return []
@@ -468,19 +468,20 @@ def _fairness_for_job(job) -> list[dict]:
                       | set(settings.get("saturdays") or ())
                       | set(settings.get("sundays") or ()))
     senior_on = bool(settings.get("head_nurse_special_shift"))
+    # Seniority is the Type column. Grid nurse_index = position among ACTIVE nurses.
+    nurses = [n for n in ((getattr(job.input, "data", None) or {}).get("nurses") or [])
+              if n.get("active", True)]
+    seniors = ({i for i, n in enumerate(nurses)
+                if str(n.get("type", "")).strip().lower() in ("senior", "อาวุโส", "ซีเนียร์")}
+               if senior_on else set())
     grid = job.result_grid
     groups = grid.get("groups") or []
     if not groups:
-        seniors = {0, 1} if senior_on else set()
         return [{"key": "", "label": "",
                  "fair": fairness_stats(grid, weekends, seniors)}]
     out = []
     for g in groups:
         key = g.get("key", "")
-        if key == GROUP_RN and senior_on:
-            seniors = set(sorted(g.get("nurse_indices") or [])[:2])
-        else:
-            seniors = set()
         out.append({
             "key": key,
             "label": g.get("label") or GROUP_LABELS.get(key, key),

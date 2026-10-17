@@ -128,8 +128,9 @@ class Solver():
         self.ALLOW_SHIFT_N_D = False
         self.ALLOW_SHIFT_E_N = False
 
-        self.HEAD_NURSE_INDEX = 0
-        self.DEPUTY_NURSE_INDEX = 1
+        # Seniors come from the Type column (DataImporter.seniorNurseIndices);
+        # any number, including zero. No positional head/deputy.
+        self.senior_nurse_indices: set = set()
         self.HEAD_NURSE_SPEACIAL_SHIFT = True
         self.enable_meetings = True
 
@@ -270,6 +271,7 @@ class Solver():
         }
 
         self.new_nurse_indices = set(data.newNurseIndices)
+        self.senior_nurse_indices = set(data.seniorNurseIndices)
         self.meeting_days = {n: days for n, days in enumerate(data.reqMeetings) if days}
 
         # Off-ward duties: one cell = one nurse, one day, one shift, one kind.
@@ -385,11 +387,11 @@ class Solver():
 
 
     def handleHolidaysAndReq(self):
-        # Senior nurses (head + deputy) have role constraints that take precedence
+        # Senior nurses (Type column) have role constraints that take precedence
         # over shift requests in the CSV. Conflicting requests are silently dropped.
         senior_indices: set = set()
         if self.HEAD_NURSE_SPEACIAL_SHIFT:
-            senior_indices = {self.HEAD_NURSE_INDEX, self.DEPUTY_NURSE_INDEX}
+            senior_indices = set(self.senior_nurse_indices)
 
         soft = self.MIN_REQUEST_PERCENT < 100
         self.request_soft = []
@@ -543,19 +545,17 @@ class Solver():
 
 
     def optionHeadNurse(self):
-        """Apply senior nurse rules to head nurse and deputy head nurse.
+        """Apply senior nurse rules to every nurse typed 'senior' in the Type column.
 
         On weekdays:  DAY or OFF only (no Evening or Night).
         On weekends:  OFF only.
-        Controlled by HEAD_NURSE_INDEX (0) and DEPUTY_NURSE_INDEX (1).
+        Controlled by senior_nurse_indices (Type column); no seniors = no-op.
         Disable entirely by setting HEAD_NURSE_SPEACIAL_SHIFT = False.
         """
         if not self.HEAD_NURSE_SPEACIAL_SHIFT:
             return
 
-        senior_indices = [self.HEAD_NURSE_INDEX, self.DEPUTY_NURSE_INDEX]
-
-        for n in senior_indices:
+        for n in sorted(self.senior_nurse_indices):
             for d in range(self.num_days):
                 is_weekend = d in self.weekends
                 if not is_weekend:
@@ -661,7 +661,7 @@ class Solver():
         """
         _cycle = [Shift.DAY, Shift.EVENING, Shift.NIGHT, Shift.OFF]
         senior_indices = (
-            {self.HEAD_NURSE_INDEX, self.DEPUTY_NURSE_INDEX}
+            set(self.senior_nurse_indices)
             if self.HEAD_NURSE_SPEACIAL_SHIFT else set()
         )
 

@@ -622,9 +622,9 @@ class ScheduleInput:
 
         With group=None the output is the legacy single-roster CSV. With
         group='rn' / 'pn_na' only that group's active nurses are emitted, the
-        nine solver-facing coverage keys carry that group's coverage numbers, and
-        for 'pn_na' head_nurse_special_shift is forced false (head and deputy are
-        RNs). The solver never learns that staff classes exist.
+        nine solver-facing coverage keys carry that group's coverage numbers. The
+        senior rule follows each nurse's Type column in every group. The solver
+        never learns that staff classes exist.
         """
         if group is not None and group not in _GROUP_COVERAGE_PREFIX:
             raise ValueError(f"Unknown staff group '{group}'.")
@@ -647,8 +647,6 @@ class ScheduleInput:
             out.write(f"{dkey},{days}\n")
         for key in _BOOL_SETTING_KEYS:
             value = self.settings[key]
-            if group == GROUP_PN_NA and key == "head_nurse_special_shift":
-                value = False
             out.write(f"{key},{'true' if value else 'false'}\n")
         out.write(f"min_request_percent,{self.settings['min_request_percent']}\n")
         for key in _LEGACY_COVERAGE_KEYS:
@@ -739,26 +737,6 @@ class ScheduleInput:
                         f"Nurse '{nurse.name}' has no staff class. Set RN or "
                         f"PN/NA for every nurse, or clear them all."
                     )
-        # The senior-nurse rule assigns a head (index 0) and deputy (index 1),
-        # so the solver needs at least two active nurses when it is enabled;
-        # fewer would crash the solver. Surface it here as a clear message.
-        # When the roster is grouped the rule applies to the RN group only (the
-        # PN/NA solve forces it off), so count the RN group - and skip the check
-        # for a grouped roster that has no RN group at all.
-        groups = self.solve_groups()
-        if groups:
-            senior_pool = self.active_nurses(GROUP_RN) if GROUP_RN in groups else None
-        else:
-            senior_pool = active
-        if (
-            self.settings["head_nurse_special_shift"]
-            and senior_pool is not None
-            and len(senior_pool) < 2
-        ):
-            raise ValueError(
-                "The head/deputy senior-nurse rule needs at least 2 active nurses. "
-                "Enable another nurse, or turn off 'head nurse special shift'."
-            )
         for nurse in self.nurses:
             for day, token in nurse.shifts.items():
                 if not (1 <= day <= num_days):

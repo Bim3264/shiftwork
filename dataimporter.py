@@ -202,6 +202,7 @@ class DataImporter():
         self.reqOffward      = []
         self.reqNegShifts    = []   # per nurse {0-based day: Shift} -- 'no:X' cells
         self.newNurseIndices = []
+        self.seniorNurseIndices = []   # rows typed senior in the Type column (§16/§17)
 
         # --- Parse sections ---
         sections, self.has_metadata = self._parse_sections(filename)
@@ -309,17 +310,21 @@ class DataImporter():
         """Transform the schedule grid into structured inputs for the solver.
 
         Populates reqShifts ({day: [Shift, ...]} per nurse), reqDayOff, reqMeetings,
-        and newNurseIndices.
+        newNurseIndices and seniorNurseIndices.
         Meeting cells ('mtg') are silently ignored on the Free tier.
         Excess requests beyond configured maximums are randomly sampled down.
         """
         day_cols = [col for col in self.df.columns if str(col).strip().isdigit()]
 
         _new_flags = {"new", "junior", "น้องใหม่"}
+        _senior_flags = {"senior", "อาวุโส", "ซีเนียร์"}
         if "Type" in self.df.columns:
             for idx, row in self.df.iterrows():
-                if self.clean(row.get("Type", "")).lower() in _new_flags:
+                t = self.clean(row.get("Type", "")).lower()
+                if t in _new_flags:
                     self.newNurseIndices.append(idx)
+                elif t in _senior_flags:
+                    self.seniorNurseIndices.append(idx)
 
         # Shifts each request cell asks for. A double-shift cell (ช/บ, ด/บ) is ONE
         # request for TWO shifts: it is sampled against the quota as one cell and

@@ -185,9 +185,9 @@ EXAMPLE_SUNDAYS = "7 14 21 28"
 # nurse is classed, ScheduleInput.validate() requires EVERY one to be), a
 # special-holiday list, a holiday band of its own, and off-ward cells.
 #
-# NurseA/NurseB are the RN group's index 0/1, i.e. head and deputy, so neither
-# carries a request the §16/§17 senior rules would force the solver to drop
-# (Day or OFF on weekdays only) — and neither carries an off-ward cell, which
+# NurseA is the only nurse typed "senior" (seniority is the Type column, not the
+# row position), so she carries no request the §16/§17 senior rules would force
+# the solver to drop (Day or OFF on weekdays only) and no off-ward cell, which
 # the §21 skip-guard would discard.
 _EXAMPLE_ROWS = (
     ("NurseA", "senior", "rn", {2: "off", 3: "ช", 30: "off"}),

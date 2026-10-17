@@ -526,15 +526,15 @@ class SolveAndJobRoutes(WebTestBase):
         self.assertEqual(r.headers["location"], f"/jobs/{jobs[0].id}")
 
     def test_solve_invalid_input_reports_friendly_error(self):
-        # Single nurse + head-nurse rule -> validate() raises; expect 400, no job.
+        # No nurse rows -> validate() raises; expect 400, no job.
         bad_csv = (
             "[settings]\nnum_days,7\nhead_nurse_special_shift,true\n"
-            "[schedule]\nName,Type,1,2,3,4,5,6,7\nSolo,,,,,,,,\n"
+            "[schedule]\nName,Type,1,2,3,4,5,6,7\n"
         )
         input_id = self._make_input(csv_text=bad_csv, source="grid")
         r = self.client.post(f"/inputs/{input_id}/solve")
         self.assertEqual(r.status_code, 400)
-        self.assertIn("at least 2 active nurses", r.text)
+        self.assertIn("active nurse is required", r.text)
         with self.Session() as db:
             self.assertEqual(db.query(SolveJob).count(), 0)
 
@@ -580,6 +580,28 @@ class SolveAndJobRoutes(WebTestBase):
         self.assertIn("ช Day", r.text)                 # per-nurse table header
         self.assertIn("· senior", r.text)              # seniors tagged in table
         self.assertIn("excludes 2 day-only seniors", r.text)  # spread caption
+
+    def test_fairness_marks_the_typed_senior_not_rows_0_and_1(self):
+        # Seniority is the Type column: only the nurse at index 2 is senior.
+        csv_text = (
+            "[settings]\nnum_days,2\nhead_nurse_special_shift,true\n"
+            "[schedule]\nName,Type,1,2\nA,,,\nB,,,\nC,senior,,\nD,,,\n"
+        )
+        input_id = self._make_input(csv_text=csv_text, source="grid")
+        grid = {"days": [1, 2], "rows": [
+            {"nurse_index": 0, "name": "A", "cells": ["ด", "ด"]},
+            {"nurse_index": 1, "name": "B", "cells": ["ด", "off"]},
+            {"nurse_index": 2, "name": "C", "cells": ["ช", "ช"]},
+            {"nurse_index": 3, "name": "D", "cells": ["ด", "ด"]},
+        ]}
+        job_id = self._make_job(
+            status=JobStatus.succeeded, solver_status="OPTIMAL",
+            result_grid=grid, result_csv="x", input_id=input_id,
+        )
+        r = self.client.get(f"/jobs/{job_id}/status")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("excludes 1 day-only senior", r.text)
+        self.assertEqual(r.text.count("· senior"), 1)
 
     def test_status_fragment_shows_request_acceptance_report(self):
         grid = {

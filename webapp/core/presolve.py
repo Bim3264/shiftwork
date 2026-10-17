@@ -57,7 +57,7 @@ _OFFWARD_LETTER = {Shift.DAY: D, Shift.EVENING: E, Shift.NIGHT: N}
 _GROUP_PREFIX = {GROUP_RN: "coverage_rn_", GROUP_PN_NA: "coverage_pnna_"}
 
 _NEW_FLAGS = {"new", "junior", "น้องใหม่"}
-_HEAD, _DEPUTY = 0, 1
+_SENIOR_FLAGS = {"senior", "อาวุโส", "ซีเนียร์"}   # mirrors DataImporter.transform
 
 
 @dataclass
@@ -140,11 +140,9 @@ def _check_group(rep: PresolveReport, si, group, limits, tier) -> None:
     sundays = set(s.get("sundays") or ())                # 1-based
     weekends = set(s["weekends"]) | holidays | saturdays | sundays  # 1-based
     soft = s["min_request_percent"] < 100
-    # Head/deputy are RNs: the senior rule never applies to the PN/NA group
-    # (schedule_input.to_solver_csv forces head_nurse_special_shift false there).
-    seniors = ({_HEAD, _DEPUTY}
-               if s["head_nurse_special_shift"] and group in (None, GROUP_RN)
-               else set())
+    # Seniority is the Type column (any number, zero included), in any group.
+    seniors = ({n for n, x in enumerate(nurses) if x.type.strip().lower() in _SENIOR_FLAGS}
+               if s["head_nurse_special_shift"] else set())
 
     new_idx = {n for n, x in enumerate(nurses) if x.type.strip().lower() in _NEW_FLAGS}
 

@@ -97,7 +97,8 @@ def _pair_si(allow_evening_to_night=False):
 
 
 def _senior_meeting_si():
-    nurses = [Nurse(name="Head"), Nurse(name="Deputy"), Nurse(name="C")]
+    nurses = [Nurse(name="Head", type="senior"), Nurse(name="Deputy", type="senior"),
+              Nurse(name="C")]
     nurses[0].shifts[6] = "mtg"
     settings = {
         "num_days": 7, "weekends": [6, 7],
@@ -269,7 +270,7 @@ class PresolveKernelTests(unittest.TestCase):
         self.assertIn("tier_meetings", _codes(report.warnings))
 
     def test_senior_weekend_request_warns(self):
-        nurses = [Nurse(name="Head", shifts={6: "ช"}), Nurse(name="Deputy"),
+        nurses = [Nurse(name="Head", type="senior", shifts={6: "ช"}), Nurse(name="Deputy"),
                   Nurse(name="C")]
         settings = {
             "num_days": 7, "weekends": [6, 7],
@@ -311,7 +312,7 @@ def _offward_base(**over):
     return s
 
 
-def _holiday_si(**over):
+def _holiday_si(senior_idx=0, **over):
     """6 nurses, 7 days. All three bands default to 2/1/1 so a test changes
     exactly one band's number and nothing else."""
     s = {"num_days": 7, "weekends": [], "holidays": [],
@@ -323,7 +324,9 @@ def _holiday_si(**over):
          "coverage_holiday_night": 1,
          "head_nurse_special_shift": False}
     s.update(over)
-    return _si(settings=s, nurses=[Nurse(name=f"N{i}") for i in range(6)])
+    return _si(settings=s, nurses=[
+        Nurse(name=f"N{i}", type=("senior" if i == senior_idx else ""))
+        for i in range(6)])
 
 
 # Cell tokens, spelled as escapes so this file stays ASCII: ช = day,
@@ -398,7 +401,8 @@ class PresolveOffwardTests(unittest.TestCase):
         self.assertTrue(result.solved, result.solver_status)
 
     def test_presolve_grouped_messages_and_bands(self):
-        nurses = ([Nurse(name=f"RN{i}", staff_class="rn") for i in range(4)]
+        nurses = ([Nurse(name=f"RN{i}", staff_class="rn", type=("senior" if i == 0 else ""))
+                   for i in range(4)]
                   + [Nurse(name=f"PN{i}", staff_class="pn") for i in range(3)])
         # PN/NA has 3 nurses and needs 4 on Day; RN has 4 and needs 1.
         nurses[0].shifts[1] = "ref:ด"      # RN head on night -> warning
@@ -486,6 +490,20 @@ class PresolveHolidayBandTests(unittest.TestCase):
         si = _holiday_si(holidays=[3], sundays=[3], coverage_sunday_day=10,
                          coverage_holiday_day=2)
         self.assertEqual(presolve.check(si).errors, [])
+
+    def test_senior_in_the_middle_is_the_one_warned(self):
+        # Seniority is the Type column: nurse 3 is senior, nurses 0/1 are not.
+        si = _holiday_si(senior_idx=3, holidays=[3], head_nurse_special_shift=True)
+        si.nurses[0].shifts[3] = "ช"
+        self.assertNotIn("senior_request", _codes(presolve.check(si).warnings))
+        si.nurses[3].shifts[3] = "ช"
+        self.assertIn("senior_request", _codes(presolve.check(si).warnings))
+
+    def test_no_senior_typed_means_no_senior_warning(self):
+        si = _holiday_si(senior_idx=-1, holidays=[3], head_nurse_special_shift=True)
+        for n in si.nurses:
+            n.shifts[3] = "ช"
+        self.assertNotIn("senior_request", _codes(presolve.check(si).warnings))
 
     def test_saturday_is_non_working_for_the_senior_rule(self):
         # A Saturday NOT in `weekends` still counts as a no-senior day.

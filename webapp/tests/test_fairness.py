@@ -120,6 +120,23 @@ class SeniorExclusionTests(unittest.TestCase):
         # totals still cover everyone
         self.assertEqual(s["totals"]["day"], 2)
 
+    def test_spread_excludes_seniors_that_are_not_rows_0_and_1(self):
+        # Seniors at rows 1 and 3 of 5: spread must be taken over rows 0, 2, 4.
+        grid = {"days": ["1", "2"], "rows": [
+            {"nurse_index": 0, "name": "R0", "cells": ["ด", "ด"]},
+            {"nurse_index": 1, "name": "S1", "cells": ["ช", "ช"]},
+            {"nurse_index": 2, "name": "R2", "cells": ["ด", "off"]},
+            {"nurse_index": 3, "name": "S3", "cells": ["ช", "ช"]},
+            {"nurse_index": 4, "name": "R4", "cells": ["ด", "ด"]},
+        ]}
+        s = fairness_stats(grid, senior_indices=[1, 3])
+        self.assertEqual([p["senior"] for p in s["per_nurse"]],
+                         [False, True, False, True, False])
+        self.assertEqual(s["senior_excluded"], 2)
+        # nights: R0=2, R2=1, R4=2 -> range 1 (seniors' 0 nights not counted)
+        self.assertEqual(s["spread"]["night"]["min"], 1)
+        self.assertEqual(s["spread"]["night"]["range"], 1)
+
     def test_falls_back_when_all_senior(self):
         s = fairness_stats(self._grid(), senior_indices=[0, 1, 2])
         self.assertEqual(s["senior_excluded"], 0)          # no exclusion applied
