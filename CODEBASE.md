@@ -167,6 +167,9 @@ Run: `python3 -m unittest discover -s webapp/tests -p "test_*.py"` (from repo ro
 | `holidays` | `[]` | yes · `Special holidays` | special holidays (§22). 1-based in file/ScheduleInput, 0-based in Solver; **empty→empty** (the opposite of `weekends`). Absent key→`[]`, which is what keeps already-saved months on the weekend band |
 | `allow_evening_to_night` | false | yes · `Allow Evening→Night` | E→N transition |
 | `allow_night_to_day` | false | yes · `Allow Night→Day` | N→D transition |
+| `limit_consecutive_nights` | false | yes · `Limit consecutive nights` | §24a: cap nights in a row at `max_consecutive_nights` |
+| `max_consecutive_nights` | 3 | yes · `Max consecutive nights` | int ≥ 1; only read when the toggle is on |
+| `no_consecutive_day_eve` | false | yes · `No consecutive Day+Evening double` | §24b: no ช/บ on two adjacent days |
 | `head_nurse_special_shift` | true | yes · `Head-nurse special shift` | senior Day/OFF rule; needs ≥2 active nurses |
 | `min_request_percent` | 100 | **no** — web/CSV only | 100 = hard requests; <100 = soft (keep max, floor at %) |
 | `relax_days_off` | false | **no** — web/CSV only | if soft: also drop requested days-off (else shifts only) |

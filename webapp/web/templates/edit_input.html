@@ -224,6 +224,19 @@
         Allow night → day transition
       </label><br>
       <label>
+        <input type="checkbox" name="limit_consecutive_nights"
+               {% if settings.limit_consecutive_nights %}checked{% endif %}>
+        Limit consecutive night shifts (ด) to
+        <input type="number" name="max_consecutive_nights"
+               value="{{ settings.max_consecutive_nights | default(3) }}" min="1" max="31" style="width:3.5rem">
+        in a row
+      </label><br>
+      <label>
+        <input type="checkbox" name="no_consecutive_day_eve"
+               {% if settings.no_consecutive_day_eve %}checked{% endif %}>
+        No consecutive ช/บ (Day+Evening double on two days in a row)
+      </label><br>
+      <label>
         <input type="checkbox" name="head_nurse_special_shift"
                {% if settings.head_nurse_special_shift %}checked{% endif %}>
         Head-nurse special shift (senior DAY/OFF rule)

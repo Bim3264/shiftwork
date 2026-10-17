@@ -262,6 +262,32 @@ def _check_group(rep: PresolveReport, si, group, limits, tier) -> None:
                     "request_transition",
                     f"{nurse.name}: บ on day {d} then ด on day {d + 1} — "
                     f"Evening→Night is not allowed.", days=[d, d + 1], nurse=nurse.name))
+    # §24 fatigue rules, mirrored for requests that are hard (forced) cells.
+    if s.get("limit_consecutive_nights") or s.get("no_consecutive_day_eve"):
+        k = s["max_consecutive_nights"]
+        for n, nurse in enumerate(nurses):
+            def _worked(day):
+                nd = fixed[n].get(day)
+                return set() if nd is None else (nd.forced | ({D} if nd.meeting else set()))
+            if s.get("limit_consecutive_nights"):
+                run = 0
+                for d in range(1, num_days + 1):
+                    run = run + 1 if N in _worked(d) else 0
+                    if run == k + 1:
+                        rep.errors.append(Issue(
+                            "request_consecutive_nights",
+                            f"{nurse.name}: ด requested on days {d - k}–{d} "
+                            f"({k + 1} nights in a row) — the limit is {k}.",
+                            days=list(range(d - k, d + 1)), nurse=nurse.name))
+            if s.get("no_consecutive_day_eve"):
+                for d in range(1, num_days):
+                    a, b = _worked(d), _worked(d + 1)
+                    if {D, E} <= a and {D, E} <= b:
+                        rep.errors.append(Issue(
+                            "request_consecutive_day_eve",
+                            f"{nurse.name}: ช/บ on day {d} and day {d + 1} — "
+                            f"ช/บ on consecutive days is not allowed.",
+                            days=[d, d + 1], nurse=nurse.name))
     if len(rep.errors) == n_err_before:
         rep.passed.append("No conflicting requests")
     explained = {tuple(i.days) for i in rep.errors[n_err_before:]}
@@ -276,7 +302,7 @@ def _check_group(rep: PresolveReport, si, group, limits, tier) -> None:
         if not _feasible(ctx, [d]):
             bad_days.add(d)
             rep.errors.append(Issue("coverage_day", _explain_day(ctx, d), days=[d]))
-    if not (allow_e_n and allow_n_d):
+    if not (allow_e_n and allow_n_d) or s.get("no_consecutive_day_eve"):
         for d in range(1, num_days):
             if d in bad_days or d + 1 in bad_days or (d, d + 1) in explained:
                 continue
@@ -373,6 +399,10 @@ def _feasible(ctx, days: list[int]) -> bool:
                 m.Add(x[n, d, E] + x[n, d + 1, N] <= 1)
             if not s["allow_night_to_day"]:
                 m.Add(x[n, d, N] + x[n, d + 1, D] <= 1)
+            if s.get("no_consecutive_day_eve"):           # §24b
+                m.Add(x[n, d, D] + x[n, d, E] + x[n, d + 1, D] + x[n, d + 1, E] <= 3)
+            if s.get("limit_consecutive_nights") and s["max_consecutive_nights"] == 1:
+                m.Add(x[n, d, N] + x[n, d + 1, N] <= 1)   # §24a, only k=1 fits a pair
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = 2.0
     solver.parameters.num_search_workers = 1

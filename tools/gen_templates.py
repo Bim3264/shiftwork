@@ -129,11 +129,11 @@ _LETTERS = "WTFSSMT"
 
 # Row map (Roster).
 R_CARD_HDR = 4
-R_CODES_HDR = 24
-R_LEGEND = 25
-R_HDR = 28
-R_SUB = 29
-R_FIRST = 30
+R_CODES_HDR = 27
+R_LEGEND = 28
+R_HDR = 31
+R_SUB = 32
+R_FIRST = 33
 
 
 # ── Card content ─────────────────────────────────────────────────────────────
@@ -155,6 +155,9 @@ _SETTINGS = (
     ("Rest days / วันหยุด", DEFAULT_REST_DAYS),
     ("Allow Evening→Night / บ่ายต่อดึก", "No"),
     ("Allow Night→Day / ดึกต่อเช้า", "No"),
+    ("Limit consecutive nights / จำกัดดึกติดกัน", "No"),
+    ("Max consecutive nights / ดึกติดกันสูงสุด", 3),
+    ("No consecutive Day+Evening double / ห้ามช/บติดกัน", "No"),
     ("Head-nurse special shift / เวรพิเศษหัวหน้า", "Yes"),
     ("Weekday need D / E / N", "5 / 3 / 3"),
     ("Weekend need D / E / N", "4 / 2 / 2"),

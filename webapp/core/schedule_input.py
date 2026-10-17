@@ -91,6 +91,11 @@ _DEFAULT_SETTINGS: dict[str, Any] = {
     "allow_evening_to_night": False,
     "allow_night_to_day": False,
     "head_nurse_special_shift": True,
+    # Fatigue rules (constraint.md 24). Both OFF by default: a new hard rule
+    # that defaulted on would change every existing ward's schedule.
+    "limit_consecutive_nights": False,
+    "max_consecutive_nights": 3,
+    "no_consecutive_day_eve": False,
     # Partial request acceptance: 100 = every request required (default);
     # below 100 the solver may drop requests to reach feasibility, keeping as
     # many as possible. relax_days_off allows dropping requested days off too.
@@ -144,6 +149,8 @@ _BOOL_SETTING_KEYS = (
     "head_nurse_special_shift",
     "relax_days_off",
     "enforce_vacation",
+    "limit_consecutive_nights",
+    "no_consecutive_day_eve",
 )
 
 # The fifteen legacy coverage keys: the only ones the solver/DataImporter know.
@@ -365,6 +372,15 @@ class ScheduleInput:
                 elif label.startswith("allow") and "day" in label:
                     if val is not None:
                         settings["allow_night_to_day"] = _yesno(val)
+                elif label.startswith("limit consecutive nights"):
+                    if val is not None:
+                        settings["limit_consecutive_nights"] = _yesno(val)
+                elif label.startswith("max consecutive nights"):
+                    if _cell_str(val):
+                        settings["max_consecutive_nights"] = max(1, int(float(val)))
+                elif label.startswith("no consecutive day"):
+                    if val is not None:
+                        settings["no_consecutive_day_eve"] = _yesno(val)
                 elif "special shift" in label:
                     if val is not None:
                         settings["head_nurse_special_shift"] = _yesno(val)
@@ -499,6 +515,11 @@ class ScheduleInput:
         if "min_request_percent" in raw and str(raw["min_request_percent"]).strip() != "":
             try:
                 s["min_request_percent"] = max(0, min(100, int(raw["min_request_percent"])))
+            except (TypeError, ValueError):
+                pass
+        if "max_consecutive_nights" in raw and str(raw["max_consecutive_nights"]).strip() != "":
+            try:
+                s["max_consecutive_nights"] = max(1, int(raw["max_consecutive_nights"]))
             except (TypeError, ValueError):
                 pass
         for key in _COVERAGE_KEYS:
@@ -649,6 +670,7 @@ class ScheduleInput:
             value = self.settings[key]
             out.write(f"{key},{'true' if value else 'false'}\n")
         out.write(f"min_request_percent,{self.settings['min_request_percent']}\n")
+        out.write(f"max_consecutive_nights,{self.settings['max_consecutive_nights']}\n")
         for key in _LEGACY_COVERAGE_KEYS:
             if group is None:
                 value = self.settings[key]

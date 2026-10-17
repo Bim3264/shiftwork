@@ -803,5 +803,89 @@ class NegativeRequestTest(_SmallWardTest):
             len(nurse["requested_shifts"]) + len(nurse["requested_negations"]), quota)
 
 
+class FatigueRulesTest(_SmallWardTest):
+    """constraint.md section 24: opt-in max-consecutive-nights and
+    no-consecutive-ช/บ. Coverage is 0 so only the rule under test can make a
+    ward infeasible."""
+
+    ON_N3 = "limit_consecutive_nights,true\nmax_consecutive_nights,3\n"
+    ON_DE = "no_consecutive_day_eve,true\n"
+
+    def _status(self, cells, extra, days=10):
+        _s, status, _out = self._run(days, [("A", "", cells)], cov=(0, 0, 0),
+                                     extra=extra)
+        return status
+
+    def test_four_nights_infeasible_at_limit_3(self):
+        self.assertEqual(self._status(["ด"] * 4, self.ON_N3), cp_model.INFEASIBLE)
+
+    def test_three_nights_ok_at_limit_3(self):
+        self.assertIn(self._status(["ด"] * 3, self.ON_N3), _SOLVED)
+
+    def test_nights_split_by_a_gap_ok(self):
+        self.assertIn(self._status(["ด", "ด", "ด", "", "ด", "ด", "ด"], self.ON_N3),
+                      _SOLVED)
+
+    def test_nights_toggle_off_is_no_constraint(self):
+        self.assertIn(self._status(["ด"] * 4, "max_consecutive_nights,3\n"), _SOLVED)
+
+    def test_nights_limit_longer_than_month_is_noop(self):
+        extra = "limit_consecutive_nights,true\nmax_consecutive_nights,20\n"
+        self.assertIn(self._status(["ด"] * 4, extra, days=5), _SOLVED)
+
+    def test_nights_limit_is_configurable(self):
+        extra = "limit_consecutive_nights,true\nmax_consecutive_nights,2\n"
+        self.assertEqual(self._status(["ด"] * 3, extra), cp_model.INFEASIBLE)
+        self.assertIn(self._status(["ด"] * 2, extra), _SOLVED)
+
+    def test_two_adjacent_day_eve_doubles_infeasible(self):
+        self.assertEqual(self._status(["ช/บ", "ช/บ"], self.ON_DE), cp_model.INFEASIBLE)
+
+    def test_day_eve_then_day_only_ok(self):
+        self.assertIn(self._status(["ช/บ", "ช"], self.ON_DE), _SOLVED)
+
+    def test_day_eve_toggle_off_is_no_constraint(self):
+        self.assertIn(self._status(["ช/บ", "ช/บ"], ""), _SOLVED)
+
+    def test_day_eve_not_adjacent_ok(self):
+        self.assertIn(self._status(["ช/บ", "", "ช/บ"], self.ON_DE), _SOLVED)
+
+    def test_solved_schedule_respects_both_rules(self):
+        """No requests: a busy ward (4 nurses, 1/1/2 nights) solved with both
+        rules on must contain no run of 4 nights and no adjacent ช/บ."""
+        days = 14
+        rows = [("N%d" % i, "", [""] * days) for i in range(4)]
+        s, status, _out = self._run(days, rows, cov=(1, 1, 2),
+                                    extra=self.ON_N3 + self.ON_DE)
+        self.assertIn(status, _SOLVED)
+        for n in range(4):
+            night = [s.solver.Value(s.assignments[n][d][Shift.NIGHT]) for d in range(days)]
+            day = [s.solver.Value(s.assignments[n][d][Shift.DAY]) for d in range(days)]
+            eve = [s.solver.Value(s.assignments[n][d][Shift.EVENING]) for d in range(days)]
+            for d in range(days - 3):
+                self.assertLessEqual(sum(night[d:d + 4]), 3, f"nurse {n} 4 nights from {d}")
+            for d in range(days - 1):
+                self.assertFalse(day[d] and eve[d] and day[d + 1] and eve[d + 1],
+                                 f"nurse {n} ช/บ on days {d},{d+1}")
+
+    def test_diagnose_names_the_requests_for_nights(self):
+        _s, diag = self._diag([["ด"] * 4], self.ON_N3)
+        self.assertEqual(diag["reason"], "requests")
+        self.assertEqual(sorted(r["day"] for r in diag["requests"]), [1, 2, 3, 4])
+
+    def test_diagnose_names_the_requests_for_day_eve(self):
+        _s, diag = self._diag([["ช/บ", "ช/บ"]], self.ON_DE)
+        self.assertEqual(diag["reason"], "requests")
+        self.assertEqual(sorted(r["day"] for r in diag["requests"]), [1, 2])
+
+    def _diag(self, cell_rows, extra):
+        s, status, _out = self._run(
+            10, [("A%d" % i, "", c) for i, c in enumerate(cell_rows)],
+            cov=(0, 0, 0), extra=extra)
+        self.assertEqual(status, cp_model.INFEASIBLE)
+        with contextlib.redirect_stdout(io.StringIO()):
+            return s, s.diagnose(10)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

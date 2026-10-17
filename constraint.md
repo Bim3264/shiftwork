@@ -693,3 +693,33 @@ Web: `schedule_input.VALID_CELL_TOKENS` / `_normalize_token` (`NO:บ` → `no:�
 `presolve.py` (`_NurseDay.forbidden`, `_feasible`, `_explain_day`);
 `edit_input.html` legend + `cell--neg` tint; `tools/gen_templates.py` dropdown
 (`negate_tokens()`), conditional format, legend cell, Guide row.
+
+
+## 24. Fatigue rules — max consecutive nights, no consecutive ช/บ
+
+**Original (customer):** "max consecutive night shift (ด) = 3" and "no consecutive ช/บ".
+Two **opt-in** hard rules; both default OFF so existing wards are unchanged.
+
+**(a) Max consecutive nights** — `limit_consecutive_nights` (bool, false) with
+`max_consecutive_nights` (int ≥ 1, default 3). Sliding window: for every nurse and every
+window of `k+1` consecutive days, `sum(Night) <= k`. No-op when `k >= num_days`.
+
+**(b) No consecutive ช/บ** — `no_consecutive_day_eve` (bool, false). A nurse works at most
+two shifts a day, so "ช/บ on d" is exactly `Day_d + Eve_d == 2`; forbidding it on `d` and
+`d+1` is the linear constraint `Day_d + Eve_d + Day_{d+1} + Eve_{d+1} <= 3`. It adds **no
+variables** and deliberately does not use `double_shift_vars` (that means "any 2 shifts",
+ด/บ included, and feeds the objective). **ด/บ is not covered**; with the default E→N ban
+(§5) two adjacent ด/บ days are already impossible anyway.
+
+**Conflict with requests:** a request cell is hard, so `ด` x4 at limit 3 or ช/บ on two
+adjacent days is a silent "No solution found". `Solver.diagnose()` (§20) rebuilds through
+`constraints()`, gates every request, and the unsat core names exactly those cells
+(tested: reason `requests`, the 4 night cells / the 2 ช/บ cells). Presolve mirrors both
+as errors `request_consecutive_nights` / `request_consecutive_day_eve`, and the coverage
+pair check models rule (b) (and (a) when k = 1).
+
+**Location:** `shiftwork.py` `Solver._add_fatigue_rules()` (called at the end of
+`_add_shift_transition_rules()`); flags `LIMIT_CONSECUTIVE_NIGHTS`,
+`MAX_CONSECUTIVE_NIGHTS`, `NO_CONSECUTIVE_DAY_EVE` set in `loadReqShifts`;
+`dataimporter.py` settings dict; `webapp/core/presolve.py` §3 block + `_feasible`.
+Tests: `test_shiftwork.FatigueRulesTest`, `webapp/tests/test_fatigue_rules.py`.

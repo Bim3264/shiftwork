@@ -128,6 +128,12 @@ class Solver():
         self.ALLOW_SHIFT_N_D = False
         self.ALLOW_SHIFT_E_N = False
 
+        # Fatigue rules (constraint.md section 24). Both default OFF so an
+        # existing ward's schedule is unchanged.
+        self.LIMIT_CONSECUTIVE_NIGHTS = False
+        self.MAX_CONSECUTIVE_NIGHTS = 3
+        self.NO_CONSECUTIVE_DAY_EVE = False
+
         # Seniors come from the Type column (DataImporter.seniorNurseIndices);
         # any number, including zero. No positional head/deputy.
         self.senior_nurse_indices: set = set()
@@ -204,6 +210,9 @@ class Solver():
                                       | self.saturdays | self.sundays)
         self.ALLOW_SHIFT_E_N       = s['allow_evening_to_night']
         self.ALLOW_SHIFT_N_D       = s['allow_night_to_day']
+        self.LIMIT_CONSECUTIVE_NIGHTS = bool(s.get('limit_consecutive_nights', False))
+        self.MAX_CONSECUTIVE_NIGHTS   = max(1, int(s.get('max_consecutive_nights', 3)))
+        self.NO_CONSECUTIVE_DAY_EVE   = bool(s.get('no_consecutive_day_eve', False))
         self.HEAD_NURSE_SPEACIAL_SHIFT = s['head_nurse_special_shift']
         self.enable_meetings       = s['enable_meetings']
         self.MIN_REQUEST_PERCENT   = max(0, min(100, int(s.get('min_request_percent', 100))))
@@ -367,6 +376,35 @@ class Solver():
                     self.model.Add(eve_v + next_night_v <= 1)   # E -> N
                 if not allow_n_d:
                     self.model.Add(night_v + next_day_v <= 1)   # N -> D
+
+        self._add_fatigue_rules()
+
+    def _add_fatigue_rules(self):
+        """constraint.md section 24. Both rules are off by default.
+
+        (a) At most MAX_CONSECUTIVE_NIGHTS nights in a row: every window of
+            max+1 consecutive days holds at most max Night assignments. No-op
+            when max >= num_days.
+        (b) No Day+Evening double (ช/บ) on two adjacent days. A nurse works at
+            most 2 shifts a day, so "ช/บ on d" is exactly Day_d + Eve_d == 2;
+            forbidding it on d and d+1 is the linear form sum of the four <= 3.
+            This does NOT use double_shift_vars (that means "any 2 shifts",
+            ด/บ included) and adds no variables.
+        """
+        if self.LIMIT_CONSECUTIVE_NIGHTS:
+            k = self.MAX_CONSECUTIVE_NIGHTS
+            for n in range(self.num_nurses):
+                for start in range(self.num_days - k):      # window start..start+k
+                    self.model.Add(sum(self.assignments[n][d][Shift.NIGHT]
+                                       for d in range(start, start + k + 1)) <= k)
+        if self.NO_CONSECUTIVE_DAY_EVE:
+            for n in range(self.num_nurses):
+                for d in range(self.num_days - 1):
+                    self.model.Add(
+                        self.assignments[n][d][Shift.DAY]
+                        + self.assignments[n][d][Shift.EVENING]
+                        + self.assignments[n][d + 1][Shift.DAY]
+                        + self.assignments[n][d + 1][Shift.EVENING] <= 3)
 
     def _add_double_shift_tracking(self):
         """Create one indicator per nurse-day that is true when the nurse works
