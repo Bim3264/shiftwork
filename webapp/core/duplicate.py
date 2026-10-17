@@ -41,6 +41,8 @@ def next_month_input(si: ScheduleInput) -> ScheduleInput:
         md = month_dates(year, month, [])
         settings["num_days"] = md["num_days"]
         settings["weekends"] = md["weekends"]
+        settings["saturdays"] = md["saturdays"]
+        settings["sundays"] = md["sundays"]
         settings["holidays"] = md["holiday_days"]
         settings["extra_holidays"] = []
 

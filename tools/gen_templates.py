@@ -12,9 +12,9 @@ Layout (Roster sheet)
     row 4        WARD INFO (A:F) / SETTINGS (H:T) card headers
     rows 5-11    WARD INFO labels A:B / values C:F
     rows 5-16    SETTINGS labels H:O / values P:T
-    row 18       SHIFT CODES header; rows 19-21 legend
-    rows 22-23   grid header (day numbers / weekday letters)
-    rows 24+     nurse rows   (A Nurse, B Type, C Class, D:AH days 1-31)
+    row 24       SHIFT CODES header; rows 25-27 legend
+    rows 28-29   grid header (day numbers / weekday letters)
+    rows 30+     nurse rows   (A Nurse, B Type, C Class, D:AH days 1-31)
 
 The cell-token dropdown is built from ``constant.py`` (never a hardcoded
 string) so adding a token there without touching this file fails the anti-drift
@@ -146,11 +146,11 @@ _LETTERS = "WTFSSMT"
 
 # Row map (Roster).
 R_CARD_HDR = 4
-R_CODES_HDR = 18
-R_LEGEND = 19
-R_HDR = 22
-R_SUB = 23
-R_FIRST = 24
+R_CODES_HDR = 24
+R_LEGEND = 25
+R_HDR = 28
+R_SUB = 29
+R_FIRST = 30
 
 
 def _fill(hex_):
@@ -205,12 +205,23 @@ _SETTINGS = (
     ("Weekend need D / E / N", "4 / 2 / 2"),
     ("PN/NA weekday need D / E / N", "3 / 2 / 2"),
     ("PN/NA weekend need D / E / N", "2 / 1 / 1"),
+    ("Saturdays / วันเสาร์", "<saturdays>"),
+    ("Saturday need D / E / N", "4 / 2 / 2"),
+    ("PN/NA saturday need D / E / N", "2 / 1 / 1"),
+    ("Sundays / วันอาทิตย์", "<sundays>"),
+    ("Sunday need D / E / N", "4 / 2 / 2"),
+    ("PN/NA sunday need D / E / N", "2 / 1 / 1"),
     ("Special holidays / วันหยุดพิเศษ", "<holidays>"),
     ("Holiday need D / E / N", "4 / 2 / 2"),
     ("PN/NA holiday need D / E / N", "2 / 1 / 1"),
 )
 
 EXAMPLE_HOLIDAYS = "29 30"
+# The example's rest days are 6 7 13 14 20 21 27 28 (the blank template's
+# pattern); the first of each pair is the Saturday. Blank in the blank templates
+# (= those days keep the Weekend need).
+EXAMPLE_SATURDAYS = "6 13 20 27"
+EXAMPLE_SUNDAYS = "7 14 21 28"
 
 # Ward (example) roster: (name, type, staff_class, {day: token}).
 #
@@ -251,9 +262,13 @@ _EXAMPLE_ROWS = (
 _EXAMPLE_SETTINGS = {
     "Weekday need": "2 / 1 / 1",
     "Weekend need": "2 / 1 / 1",
+    "Saturday need": "2 / 2 / 1",
+    "Sunday need": "1 / 1 / 1",
     "Holiday need": "1 / 1 / 1",
     "PN/NA weekday need": "1 / 1 / 1",
     "PN/NA weekend need": "1 / 1 / 1",
+    "PN/NA saturday need": "1 / 1 / 1",
+    "PN/NA sunday need": "1 / 1 / 1",
     "PN/NA holiday need": "1 / 1 / 1",
 }
 
@@ -322,6 +337,10 @@ def _build_roster(ws, spec: TemplateSpec):
         r = R_CARD_HDR + 1 + i
         if value == "<holidays>":
             value = EXAMPLE_HOLIDAYS if spec.example else None
+        elif value == "<saturdays>":
+            value = EXAMPLE_SATURDAYS if spec.example else None
+        elif value == "<sundays>":
+            value = EXAMPLE_SUNDAYS if spec.example else None
         elif spec.example:
             head = label.split(" D / E / N")[0].strip()
             value = _EXAMPLE_SETTINGS.get(head, value)
@@ -481,6 +500,12 @@ _GUIDE_STEPS = (
      "(e.g. 29 30). Those days are staffed from 'Holiday need' (blank = same as "
      "Weekend need). Leave the cell blank if there are none. · "
      "ใส่วันที่หยุดพิเศษ เช่น 29 30", 44),
+    ("8. Saturday / Sunday",
+     "To staff Saturdays and Sundays differently, list the Saturday day numbers in "
+     "'Saturdays' and the Sunday day numbers in 'Sundays' (e.g. 6 13 20 27), then "
+     "set 'Saturday need' / 'Sunday need'. Days not listed there (blank = all of "
+     "them) use 'Weekend need'. Holidays take precedence. · "
+     "แยกเวรวันเสาร์ / วันอาทิตย์", 56),
 )
 
 _GUIDE_CODES_EXTRA = (

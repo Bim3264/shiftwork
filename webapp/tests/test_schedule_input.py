@@ -460,6 +460,33 @@ class FromXlsxTests(unittest.TestCase):
         self.assertEqual((s["coverage_holiday_day"], s["coverage_holiday_evening"],
                           s["coverage_holiday_night"]), (3, 2, 2))
 
+    def test_saturday_sunday_lists_and_needs_parsed(self):
+        s = self._s(extra_rows=[("Saturdays / วันเสาร์", "4"),
+                                ("Sundays / วันอาทิตย์", "5"),
+                                ("Saturday need D / E / N", "3 / 2 / 1"),
+                                ("Sunday need D / E / N", "6 / 5 / 4")])
+        self.assertEqual((s["saturdays"], s["sundays"]), ([4], [5]))
+        self.assertEqual((s["coverage_saturday_day"], s["coverage_saturday_evening"],
+                          s["coverage_saturday_night"]), (3, 2, 1))
+        self.assertEqual((s["coverage_sunday_day"], s["coverage_sunday_evening"],
+                          s["coverage_sunday_night"]), (6, 5, 4))
+        # RN inherits the legacy Saturday row (PN/NA override tested below).
+        self.assertEqual(s["coverage_rn_saturday_day"], 3)
+
+    def test_pnna_saturday_sunday_need_parsed(self):
+        s = self._s(extra_rows=[("PN/NA saturday need D / E / N", "2 / 1 / 0"),
+                                ("PN/NA sunday need D / E / N", "1 / 1 / 1")])
+        self.assertEqual((s["coverage_pnna_saturday_day"],
+                          s["coverage_pnna_saturday_night"]), (2, 0))
+        self.assertEqual(s["coverage_pnna_sunday_day"], 1)
+
+    def test_saturday_sunday_blank_lists_mean_empty_and_inherit_weekend(self):
+        s = self._s(weekend_need="3 / 2 / 2", extra_rows=[
+            ("Saturdays / วันเสาร์", None), ("Sundays / วันอาทิตย์", None)])
+        self.assertEqual((s["saturdays"], s["sundays"]), ([], []))
+        self.assertEqual(s["coverage_saturday_day"], 3)
+        self.assertEqual(s["coverage_sunday_evening"], 2)
+
     def test_pnna_needs_parsed(self):
         s = self._s(weekday_need="2 / 1 / 1", extra_rows=[
             ("PN/NA weekday need D / E / N", "3 / 2 / 2")])
@@ -544,6 +571,8 @@ class UngroupedEmissionTest(unittest.TestCase):
         "weekends,2\n"
         "holidays,\n"
         "extra_holidays,\n"
+        "saturdays,\n"
+        "sundays,\n"
         "allow_evening_to_night,false\n"
         "allow_night_to_day,false\n"
         "head_nurse_special_shift,true\n"
@@ -559,6 +588,12 @@ class UngroupedEmissionTest(unittest.TestCase):
         "coverage_holiday_day,4\n"
         "coverage_holiday_evening,2\n"
         "coverage_holiday_night,2\n"
+        "coverage_saturday_day,4\n"
+        "coverage_saturday_evening,2\n"
+        "coverage_saturday_night,2\n"
+        "coverage_sunday_day,4\n"
+        "coverage_sunday_evening,2\n"
+        "coverage_sunday_night,2\n"
         "\n"
         "[schedule]\n"
         "Name,Type,1,2,3\n"
@@ -568,7 +603,7 @@ class UngroupedEmissionTest(unittest.TestCase):
 
     def test_ungrouped_solver_csv_is_exact(self):
         # A ward with no staff classes must emit the single-roster CSV: the
-        # legacy nine coverage keys only, no group keys, and no Class column.
+        # legacy fifteen coverage keys only, no group keys, and no Class column.
         si = ScheduleInput.from_grid(
             ward_meta={"ward_name": "W", "tier": "ward"},
             settings={"num_days": 3, "weekends": [2]},
@@ -584,6 +619,7 @@ class UngroupedEmissionTest(unittest.TestCase):
         self.assertIn("holidays,", out.splitlines())
         self.assertIn("coverage_weekday_day,5", out.splitlines())
         self.assertIn("coverage_holiday_day,4", out.splitlines())
+        self.assertIn("coverage_saturday_day,4", out.splitlines())
         self.assertEqual(_schedule_lines(out)[0], ["Name", "Type", "1", "2", "3"])
 
 
@@ -818,6 +854,131 @@ class HolidayBandSettingsTest(unittest.TestCase):
             self.assertEqual(
                 [s[f"{prefix}holiday_{sh}"] for sh in ("day", "evening", "night")],
                 [4, 2, 2], prefix)
+
+
+class SaturdaySundayBandSettingsTest(unittest.TestCase):
+    """constraint.md 22: Saturday / Sunday bands. Same shape as the holiday band;
+    `weekends` is never touched."""
+
+    def _importer(self, si):
+        fd, path = tempfile.mkstemp(suffix=".csv")
+        os.close(fd)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(si.to_solver_csv())
+        try:
+            return DataImporter(path, 5, 5).transform()
+        finally:
+            os.unlink(path)
+
+    def test_lists_default_empty_and_round_trip(self):
+        c = ScheduleInput._coerce_settings
+        self.assertEqual(c({})["saturdays"], [])
+        self.assertEqual(c({})["sundays"], [])
+        self.assertEqual(c({"saturdays": "", "sundays": " "})["sundays"], [])
+        si = ScheduleInput.from_grid(
+            ward_meta={"ward_name": "W", "tier": "ward"},
+            settings={"num_days": 14, "weekends": [6, 7, 13, 14],
+                      "saturdays": [6, 13], "sundays": [7, 14]},
+            nurses=[Nurse(name="A", type="senior"), Nurse(name="B", type="senior")],
+        )
+        lines = si.to_solver_csv().splitlines()
+        self.assertIn("saturdays,6 13", lines)
+        self.assertIn("sundays,7 14", lines)
+        self.assertIn("weekends,6 7 13 14", lines)   # untouched union
+        back = ScheduleInput.from_csv(si.to_solver_csv()).settings
+        self.assertEqual((back["saturdays"], back["sundays"]), ([6, 13], [7, 14]))
+        d = ScheduleInput.from_dict(si.to_dict()).settings
+        self.assertEqual((d["saturdays"], d["sundays"]), ([6, 13], [7, 14]))
+        di = self._importer(si)
+        self.assertEqual((di.settings["saturdays"], di.settings["sundays"]),
+                         ([5, 12], [6, 13]))
+        self.assertEqual(di.settings["weekends"], [5, 6, 12, 13])
+
+    def test_saved_input_without_the_keys_is_unchanged(self):
+        # A pre-existing saved input: no saturdays/sundays, custom weekend need.
+        s = ScheduleInput._coerce_settings({"weekends": [6, 7],
+                                            "coverage_weekend_day": 7})
+        for band in ("saturday", "sunday"):
+            self.assertEqual(s[f"coverage_{band}_day"], 7)
+            self.assertEqual(s[f"coverage_rn_{band}_day"], 7)
+            self.assertEqual(s[f"coverage_pnna_{band}_day"], 7)
+        self.assertEqual(s["weekends"], [6, 7])
+
+    def test_coverage_inheritance_chain(self):
+        c = ScheduleInput._coerce_settings
+        for band in ("saturday", "sunday"):
+            other = "sunday" if band == "saturday" else "saturday"
+            # (a) legacy weekend -> legacy band and both groups
+            s = c({"coverage_weekend_night": 1})
+            self.assertEqual(s[f"coverage_{band}_night"], 1)
+            self.assertEqual(s[f"coverage_rn_{band}_night"], 1)
+            self.assertEqual(s[f"coverage_pnna_{band}_night"], 1)
+            # (b) a group's weekend -> that group's band only
+            s = c({"coverage_rn_weekend_night": 1})
+            self.assertEqual(s[f"coverage_rn_{band}_night"], 1)
+            self.assertEqual(s[f"coverage_pnna_{band}_night"], 2)
+            # (b2) group weekend beats legacy band; other group takes legacy band
+            s = c({"coverage_rn_weekend_night": 1, f"coverage_{band}_night": 5,
+                   "coverage_weekend_night": 6})
+            self.assertEqual(s[f"coverage_rn_{band}_night"], 1)
+            self.assertEqual(s[f"coverage_pnna_{band}_night"], 5)
+            # (c) explicit group band key beats everything; 0 is a value
+            s = c({f"coverage_rn_{band}_night": 0, "coverage_rn_weekend_night": 1,
+                   f"coverage_{band}_night": 5})
+            self.assertEqual(s[f"coverage_rn_{band}_night"], 0)
+            # Saturday and Sunday are independent of each other.
+            s = c({f"coverage_{band}_day": 9})
+            self.assertEqual(s[f"coverage_{other}_day"], 4)
+            # (d) nothing given -> 4/2/2
+            s = c({})
+            for prefix in ("coverage_", "coverage_rn_", "coverage_pnna_"):
+                self.assertEqual(
+                    [s[f"{prefix}{band}_{sh}"] for sh in ("day", "evening", "night")],
+                    [4, 2, 2])
+
+    def test_solver_csv_and_importer_carry_the_band(self):
+        si = ScheduleInput.from_grid(
+            ward_meta={"ward_name": "W", "tier": "ward"},
+            settings={"num_days": 14, "weekends": [6, 7], "saturdays": [6],
+                      "sundays": [7], "coverage_saturday_day": 6,
+                      "coverage_sunday_night": 0},
+            nurses=[Nurse(name="A", type="senior"), Nurse(name="B", type="senior")],
+        )
+        lines = si.to_solver_csv().splitlines()
+        self.assertIn("coverage_saturday_day,6", lines)
+        self.assertIn("coverage_sunday_night,0", lines)
+        di = self._importer(si)
+        self.assertEqual(di.settings["coverage_saturday_day"], 6)
+        self.assertEqual(di.settings["coverage_sunday_night"], 0)
+
+    def test_importer_falls_back_to_file_weekend_numbers(self):
+        # A solver CSV written before the bands existed: no saturday/sunday keys.
+        text = ("[ward]\nward_name,W\ntier,ward\n\n[settings]\nnum_days,3\n"
+                "weekends,2\ncoverage_weekend_day,7\ncoverage_weekend_evening,6\n"
+                "coverage_weekend_night,5\n\n[schedule]\nName,Type,1,2,3\nA,,,,\n")
+        fd, path = tempfile.mkstemp(suffix=".csv")
+        os.close(fd)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        try:
+            s = DataImporter(path, 5, 5).transform().settings
+        finally:
+            os.unlink(path)
+        self.assertEqual((s["saturdays"], s["sundays"]), ([], []))
+        for band in ("saturday", "sunday"):
+            self.assertEqual([s[f"coverage_{band}_{sh}"]
+                              for sh in ("day", "evening", "night")], [7, 6, 5])
+
+    def test_group_csv_remaps_saturday_band(self):
+        si = _classed_ward(rn=4, pn=3, settings={
+            "coverage_pnna_saturday_night": 1, "coverage_rn_saturday_night": 3,
+            "coverage_pnna_sunday_day": 1, "coverage_rn_sunday_day": 6})
+        pn = _setting_lines(si.to_solver_csv(group="pn_na"))
+        rn = _setting_lines(si.to_solver_csv(group="rn"))
+        self.assertIn("coverage_saturday_night,1", pn)
+        self.assertIn("coverage_saturday_night,3", rn)
+        self.assertIn("coverage_sunday_day,1", pn)
+        self.assertIn("coverage_sunday_day,6", rn)
 
 
 if __name__ == "__main__":

@@ -462,6 +462,39 @@ class PresolveHolidayBandTests(unittest.TestCase):
         self.assertIn("coverage_day", _codes(presolve.check(si2).errors))
         self.assertEqual(run_schedule(si2, 20).solver_status, "INFEASIBLE")
 
+    def test_saturday_band_is_a_coverage_error_and_really_infeasible(self):
+        si = _holiday_si(saturdays=[3], coverage_saturday_day=10)
+        self.assertIn("coverage_day", _codes(presolve.check(si).errors))
+        self.assertEqual(run_schedule(si, 20).solver_status, "INFEASIBLE")
+        # Control: same number, day not listed in saturdays -> no error.
+        ok = _holiday_si(coverage_saturday_day=10)
+        self.assertEqual(presolve.check(ok).errors, [])
+
+    def test_sunday_wins_over_saturday_and_weekend(self):
+        # Day 3 is in saturdays, sundays and weekends. Sunday's low number wins
+        # over the high Saturday/weekend numbers: no error, and it solves.
+        si = _holiday_si(saturdays=[3], sundays=[3], weekends=[3],
+                         coverage_weekend_day=10, coverage_saturday_day=10,
+                         coverage_sunday_day=2)
+        self.assertEqual(presolve.check(si).errors, [])
+        self.assertTrue(run_schedule(si, 20).solved)
+        # Reverse: high Sunday number on that day blocks.
+        si2 = _holiday_si(saturdays=[3], sundays=[3], coverage_sunday_day=10)
+        self.assertIn("coverage_day", _codes(presolve.check(si2).errors))
+
+    def test_holiday_wins_over_sunday(self):
+        si = _holiday_si(holidays=[3], sundays=[3], coverage_sunday_day=10,
+                         coverage_holiday_day=2)
+        self.assertEqual(presolve.check(si).errors, [])
+
+    def test_saturday_is_non_working_for_the_senior_rule(self):
+        # A Saturday NOT in `weekends` still counts as a no-senior day.
+        si = _holiday_si(saturdays=[3], head_nurse_special_shift=True)
+        si.nurses[0].shifts[3] = "\u0e0a"        # head nurse asks for Day on it
+        report = presolve.check(si)
+        self.assertIn("senior_request", _codes(report.warnings))
+        self.assertEqual(report.errors, [])
+
     def test_high_weekend_band_only_blocks_non_holiday_weekend_days(self):
         # Day 3 is a holiday (2 on Day: fine); day 6 is a plain weekend day and
         # carries the impossible weekend number, so ONLY day 6 is flagged.

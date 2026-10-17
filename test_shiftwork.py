@@ -396,8 +396,9 @@ _SOLVED = (cp_model.OPTIMAL, cp_model.FEASIBLE)
 
 
 def _ward_csv(num_days, rows, cov=(1, 1, 1), cov_hol=None, senior="false",
-              weekends="", holidays=""):
-    """Build a ward CSV. `rows` = [(name, type, [cells...])].
+              weekends="", holidays="", extra=""):
+    """Build a ward CSV. `extra` is raw text appended to [settings] (saturdays /
+    sundays lists and coverage_saturday_* / coverage_sunday_* keys). `rows` = [(name, type, [cells...])].
 
     `cov` fills BOTH the weekday and the weekend band. `cov_hol` (optional) adds
     explicit coverage_holiday_* keys; None omits them so the holiday band must
@@ -419,6 +420,7 @@ def _ward_csv(num_days, rows, cov=(1, 1, 1), cov_hol=None, senior="false",
         head += (f"coverage_holiday_day,{cov_hol[0]}\n"
                  f"coverage_holiday_evening,{cov_hol[1]}\n"
                  f"coverage_holiday_night,{cov_hol[2]}\n")
+    head += extra
     head += ("\n[schedule]\nName,Type,"
              + ",".join(str(d) for d in range(1, num_days + 1)) + "\n")
     for name, ntype, cells in rows:
@@ -593,6 +595,88 @@ class HolidayBandTest(_SmallWardTest):
         self.assertEqual(d["reason"], "coverage")
         self.assertTrue(
             any(c.get("band") == "holiday" and c["day"] == 3
+                for c in d["coverage"]), d["coverage"])
+
+
+class SaturdaySundayBandTest(_SmallWardTest):
+    """constraint.md section 22: Saturday / Sunday bands. Solver.weekends stays
+    the union; the two lists only pick the coverage band."""
+
+    _SAT = "saturdays,3\nsundays,4\n"
+    _SAT_NONE_NAMED = "coverage_saturday_evening,0\ncoverage_saturday_night,0\n"
+
+    def test_bands_default_to_weekend_when_absent(self):
+        # No saturdays/sundays lines: weekend days 3 and 4 keep the weekend band.
+        s, _, _ = self._run(7, self._plain(6), solve=False, cov=(2, 1, 1),
+                            weekends="3 4")
+        self.assertEqual((s.saturdays, s.sundays), (set(), set()))
+        self.assertEqual(s.days[2]['min_shifts'][Shift.DAY], 2)
+        self.assertEqual(s.days[3]['min_shifts'][Shift.DAY], 2)
+
+    def test_saturday_and_sunday_numbers_inherit_weekend_keys(self):
+        # Lists present but no coverage_saturday_* keys -> weekend numbers (2),
+        # not a hard-coded 4.
+        s, _, _ = self._run(7, self._plain(6), solve=False, cov=(2, 1, 1),
+                            weekends="3 4", extra=self._SAT)
+        self.assertEqual(s.saturdays, {2})
+        self.assertEqual(s.sundays, {3})
+        self.assertEqual(s.coverage['saturday'][Shift.DAY], 2)
+        self.assertEqual(s.coverage['sunday'][Shift.NIGHT], 1)
+
+    def test_saturday_and_sunday_bands_are_distinct_and_applied(self):
+        extra = (self._SAT + "coverage_saturday_day,5\ncoverage_saturday_evening,0\n"
+                 "coverage_saturday_night,0\ncoverage_sunday_day,3\n"
+                 "coverage_sunday_evening,0\ncoverage_sunday_night,0\n")
+        s, _, _ = self._run(7, self._plain(6), solve=False, cov=(2, 1, 1),
+                            weekends="3 4", extra=extra)
+        self.assertEqual(s.days[2]['min_shifts'][Shift.DAY], 5)   # Saturday
+        self.assertEqual(s.days[3]['min_shifts'][Shift.DAY], 3)   # Sunday
+        self.assertEqual(s.days[0]['min_shifts'][Shift.DAY], 2)   # weekday
+
+    def test_precedence_holiday_over_sunday_over_saturday(self):
+        # Day 3 is holiday AND saturday; day 4 is sunday AND weekend.
+        extra = self._SAT + "coverage_saturday_day,5\ncoverage_sunday_day,3\n"
+        s, _, _ = self._run(7, self._plain(6), solve=False, cov=(2, 1, 1),
+                            cov_hol=(6, 0, 0), weekends="3 4", holidays="3",
+                            extra=extra)
+        self.assertEqual(s.days[2]['min_shifts'][Shift.DAY], 6)   # holiday wins
+        self.assertEqual(s.days[3]['min_shifts'][Shift.DAY], 3)   # sunday wins
+        # Sunday beats Saturday if a day is (wrongly) in both lists.
+        extra = "saturdays,4\nsundays,4\ncoverage_saturday_day,5\ncoverage_sunday_day,3\n"
+        s, _, _ = self._run(7, self._plain(6), solve=False, cov=(2, 1, 1),
+                            weekends="4", extra=extra)
+        self.assertEqual(s.days[3]['min_shifts'][Shift.DAY], 3)
+
+    def test_weekends_is_the_union_and_saturday_is_non_working_for_senior(self):
+        # Day 3 is listed ONLY in saturdays (not in weekends): it must still be
+        # in Solver.weekends, so the head nurse is OFF (senior rule, section 16).
+        s, st, _ = self._run(7, self._plain(6), cov=(1, 1, 1), senior="true",
+                             weekends="", extra="saturdays,3\n")
+        self.assertIn(st, _SOLVED)
+        self.assertIn(2, s.weekends)
+        self.assertEqual(s.solver.Value(s.assignments[0][2][Shift.OFF]), 1)
+
+    def test_saturday_band_drives_solver(self):
+        # Day 1 has no preceding day. Saturday needs 7 Day (> 6 nurses) ->
+        # INFEASIBLE; the control (no saturdays list) solves.
+        extra = "saturdays,1\ncoverage_saturday_day,7\n" + self._SAT_NONE_NAMED
+        s, st, _ = self._run(7, self._plain(6), cov=(1, 1, 1), weekends="1",
+                             extra=extra)
+        self.assertEqual(st, cp_model.INFEASIBLE)
+        s, st, _ = self._run(7, self._plain(6), cov=(1, 1, 1), weekends="1",
+                             extra=extra.replace("saturdays,1", "saturdays,"))
+        self.assertIn(st, _SOLVED)
+
+    def test_infeasible_saturday_floor_is_named_in_diagnosis(self):
+        extra = "saturdays,3\ncoverage_saturday_day,7\n" + self._SAT_NONE_NAMED
+        s, st, _ = self._run(7, self._plain(6), cov=(1, 1, 1), weekends="3",
+                             extra=extra)
+        self.assertEqual(st, cp_model.INFEASIBLE)
+        with contextlib.redirect_stdout(io.StringIO()):
+            d = s.diagnose(8.0)
+        self.assertEqual(d["reason"], "coverage")
+        self.assertTrue(
+            any(c.get("band") == "saturday" and c["day"] == 3
                 for c in d["coverage"]), d["coverage"])
 
 

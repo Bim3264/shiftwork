@@ -538,15 +538,33 @@ pass 2 as a coverage item.
 ("a public holiday is not staffed like a Saturday — we need to set it separately").
 
 **Rule:** A day belongs to exactly one **coverage band**, which supplies the §9
-minimums for that day. There are three bands and the precedence is strict:
+minimums for that day. There are five bands and the precedence is strict:
 
 ```
 band(d) = 'holiday'  if d in holidays
+          'sunday'   elif d in sundays
+          'saturday' elif d in saturdays
           'weekend'  elif d in weekends
           'weekday'  otherwise
 ```
 
 A public holiday that falls on a Saturday is in both sets, and `holiday` wins.
+
+**Saturday / Sunday bands (follow-on, same pattern).** Wards asked to staff Saturday and
+Sunday differently, so `saturdays` and `sundays` are two more 1-based day lists that pick
+the `saturday` / `sunday` band and **nothing else**. `weekends` stays the non-working-day
+union: `Solver.weekends = weekends ∪ holidays ∪ saturdays ∪ sundays`, so §16/§17, the §21
+skip-guard, warm start, presolve and fairness are untouched. `'weekend'` remains the band
+for a rest day that is in no list (a ward that typed its rest days by hand has no weekday
+information). Backwards compatible: absent `saturdays`/`sundays` default to `[]`, so every
+existing weekend day keeps the weekend band, and the new `coverage_{saturday,sunday}_*`
+keys inherit the weekend numbers exactly like the holiday keys do. Legacy (ungrouped)
+`coverage_saturday_*` / `coverage_sunday_*` keys **exist** (an ungrouped ward edits the
+legacy keys on the edit page), inheriting `coverage_weekend_*`. `calendar_util.month_dates`
+returns `saturdays` / `sundays`; auto-fill and "next month" write them. Code:
+`shiftwork.py:_rebuild_days`, `dataimporter.py`, `schedule_input._coerce_settings`,
+`presolve._day_band`. Tests: `test_shiftwork.SaturdaySundayBandTest`,
+`test_schedule_input.SaturdaySundayBandSettingsTest`, `test_presolve` (saturday/sunday).
 
 **The holiday band defaults to the weekend band.** This is the whole point of the
 design, not a convenience: it makes the split behaviour-preserving. Resolution order,
@@ -556,6 +574,8 @@ first hit wins:
 |---|---|
 | `coverage_holiday_{shift}` | `coverage_weekend_{shift}` (from the same file) → 4/2/2 |
 | `coverage_{rn,pnna}_holiday_{shift}` | that group's `_weekend_` → legacy `coverage_holiday_` → legacy `coverage_weekend_` → 4/2/2 |
+| `coverage_{saturday,sunday}_{shift}` | `coverage_weekend_{shift}` (from the same file) → 4/2/2 |
+| `coverage_{rn,pnna}_{saturday,sunday}_{shift}` | that group's `_weekend_` → legacy `coverage_{saturday,sunday}_` → legacy `coverage_weekend_` → 4/2/2 |
 
 **`weekends` keeps its old meaning everywhere except the band.** Before this section,
 the month auto-fill stored `weekends ∪ public holidays ∪ extra_holidays` into
@@ -566,7 +586,7 @@ non-working sees exactly what it saw before:
 
 | Consumer | Reads |
 |---|---|
-| `_rebuild_days()` band selection | `self.holidays`, then `self.weekends` |
+| `_rebuild_days()` band selection | `self.holidays`, `self.sundays`, `self.saturdays`, then `self.weekends` |
 | §16 / §17 senior head & deputy rules | `self.weekends` (the union) |
 | §21 off-ward senior skip-guard | `self.weekends` (the union) |
 | `_build_warm_start()` | `self.weekends` (the union) |
@@ -581,6 +601,15 @@ halves, are now reachable from **both** input paths:
 | Web edit page | holidays input + auto-fill | coverage table, holiday row | PN/NA columns (shown once a nurse is classed) |
 | CSV (`[settings]`) | `holidays,` | `coverage_holiday_*` | `coverage_pnna_holiday_*` |
 | Excel template | `Special holidays` card row | `Holiday need D / E / N` | `PN/NA holiday need D / E / N` |
+| Saturday / Sunday: web | `saturdays` / `sundays` inputs + auto-fill | coverage table, Saturday / Sunday rows | same rows per group |
+| Saturday / Sunday: CSV | `saturdays,` / `sundays,` | `coverage_{saturday,sunday}_*` | `coverage_{rn,pnna}_{saturday,sunday}_*` |
+| Saturday / Sunday: Excel | `Saturdays` / `Sundays` card rows | `Saturday need` / `Sunday need` | `PN/NA saturday need` / `PN/NA sunday need` |
+
+**Edit-page layout (regression).** The coverage control is ONE table with the three shift
+symbols (ช บ ด) as its only numeric columns and band (and, for a grouped ward, a
+group sub-header row) going down the rows. A band-per-column layout reached 527px and
+overflowed its 399px `settings-grid` column, hiding the PN/NA inputs. Guarded by
+`test_web.CoverageBandsEditTests.test_coverage_table_stays_three_numeric_columns`.
 
 The Excel card is keyed by label text through `ScheduleInput._label_key`, which
 strips a `/`-delimited segment only when it contains Thai characters — a plain

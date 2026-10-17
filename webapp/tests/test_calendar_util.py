@@ -41,6 +41,18 @@ class MonthDatesTest(unittest.TestCase):
         self.assertTrue(set(md["weekends"]).issubset(set(md["combined"])))
 
 
+    def test_saturdays_and_sundays_split_the_weekends(self):
+        # July 2026: the 4th is a Saturday, the 5th a Sunday.
+        md = month_dates(2026, 7)
+        self.assertEqual(md["saturdays"], [4, 11, 18, 25])
+        self.assertEqual(md["sundays"], [5, 12, 19, 26])
+        # `weekends` is still the union, in order, and nothing is dropped.
+        self.assertEqual(md["weekends"], sorted(md["saturdays"] + md["sundays"]))
+        for d in md["saturdays"]:
+            self.assertEqual(calendar.weekday(2026, 7, d), 5)
+        for d in md["sundays"]:
+            self.assertEqual(calendar.weekday(2026, 7, d), 6)
+
     def test_month_dates_holiday_days(self):
         # April 2026: Chakri (6th, a Monday) and Songkran (13-15) are public
         # holidays on weekdays; the 4th/5th are a real Sat/Sun.

@@ -109,7 +109,7 @@ def _settings_from_form(form, current: dict | None = None) -> dict:
     ``enable_meetings`` is deliberately NOT read here: it is tier-derived, shown
     read-only, and never user-editable. Checkboxes are present-iff-checked.
 
-    ``holidays`` and the coverage keys (legacy 9 + per-staff-group 18) are
+    ``holidays`` and the coverage keys (legacy 15 + per-staff-group 30) are
     different: the edit page
     renders only the block that applies (the PN/NA half is hidden until a nurse
     is classed), so a key the form did not submit means "not shown", never
@@ -127,7 +127,7 @@ def _settings_from_form(form, current: dict | None = None) -> dict:
         "enforce_vacation": form.get("enforce_vacation") is not None,
         "extra_holidays": form.get("extra_holidays", ""),
     }
-    for key in ("holidays",) + tuple(_COVERAGE_KEYS):
+    for key in ("holidays", "saturdays", "sundays") + tuple(_COVERAGE_KEYS):
         value = form.get(key)
         if value is not None:
             settings[key] = value
@@ -373,6 +373,8 @@ async def autofill_dates(input_id: int, request: Request, user=Depends(require_u
     md = month_dates(year, month, schedule_input.settings.get("extra_holidays", []))
     schedule_input.settings["num_days"] = md["num_days"]
     schedule_input.settings["weekends"] = md["weekends"]
+    schedule_input.settings["saturdays"] = md["saturdays"]
+    schedule_input.settings["sundays"] = md["sundays"]
     schedule_input.settings["holidays"] = md["holiday_days"]
     row.data = schedule_input.to_dict()
     db.commit()
@@ -461,7 +463,9 @@ def _fairness_for_job(job) -> list[dict]:
     settings = (getattr(job.input, "data", None) or {}).get("settings", {}) or {}
     # The fairness "weekend" columns count holidays too (union, as the solver does).
     weekends = sorted(set(settings.get("weekends") or ())
-                      | set(settings.get("holidays") or ()))
+                      | set(settings.get("holidays") or ())
+                      | set(settings.get("saturdays") or ())
+                      | set(settings.get("sundays") or ()))
     senior_on = bool(settings.get("head_nurse_special_shift"))
     grid = job.result_grid
     groups = grid.get("groups") or []
@@ -559,8 +563,14 @@ def _render_edit(request, user, row, schedule_input, error, check=None, status_c
             "coverage_defaults": {
                 "weekday": {"day": 5, "evening": 3, "night": 3},
                 "weekend": {"day": 4, "evening": 2, "night": 2},
+                "saturday": {"day": 4, "evening": 2, "night": 2},
+                "sunday": {"day": 4, "evening": 2, "night": 2},
                 "holiday": {"day": 4, "evening": 2, "night": 2},
             },
+            "saturdays_str": " ".join(
+                str(d) for d in schedule_input.settings.get("saturdays", [])),
+            "sundays_str": " ".join(
+                str(d) for d in schedule_input.settings.get("sundays", [])),
             "weekends_str": " ".join(str(d) for d in schedule_input.settings["weekends"]),
             "holidays_str": " ".join(
                 str(d) for d in schedule_input.settings.get("holidays", [])),

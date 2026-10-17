@@ -147,6 +147,19 @@ class NextMonthInputTests(unittest.TestCase):
         # Source untouched.
         self.assertEqual(si.settings["holidays"], [7, 8])
 
+    def test_duplicate_recomputes_saturdays_and_sundays(self):
+        si = _si(
+            ward_meta={"month": "9", "year": "2026"},
+            settings={"num_days": 30, "weekends": [5, 6, 12, 13],
+                      "saturdays": [5, 12], "sundays": [6, 13]},
+        )
+        new = next_month_input(si)
+        md = month_dates(2026, 10, [])
+        self.assertEqual(new.settings["saturdays"], md["saturdays"])
+        self.assertEqual(new.settings["sundays"], md["sundays"])
+        self.assertEqual(new.settings["saturdays"], [3, 10, 17, 24, 31])
+        self.assertEqual(si.settings["saturdays"], [5, 12])   # source untouched
+
     def test_duplicate_undated_copies_holidays_unchanged(self):
         si = _si(
             ward_meta={"ward_name": "Ward 4B"},

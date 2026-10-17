@@ -241,6 +241,10 @@ class DataImporter():
             'num_days':                 int(raw_settings.get('num_days', 31)),
             'weekends':                 self._parse_weekends(raw_settings.get('weekends', '')),
             'holidays':                 self._parse_holidays(raw_settings.get('holidays', '')),
+            # Band-selecting day lists (section 22). Absent -> empty: every weekend
+            # day keeps the weekend band. `weekends` itself is not touched.
+            'saturdays':                self._parse_holidays(raw_settings.get('saturdays', '')),
+            'sundays':                  self._parse_holidays(raw_settings.get('sundays', '')),
             'allow_evening_to_night':   raw_settings.get('allow_evening_to_night', 'false').lower() == 'true',
             'allow_night_to_day':       raw_settings.get('allow_night_to_day',     'false').lower() == 'true',
             'head_nurse_special_shift': raw_settings.get('head_nurse_special_shift', 'true').lower() == 'true',
@@ -259,6 +263,13 @@ class DataImporter():
             'coverage_holiday_day':     int(str(raw_settings.get('coverage_holiday_day',     _cov_weekend_day)).strip()     or _cov_weekend_day),
             'coverage_holiday_evening': int(str(raw_settings.get('coverage_holiday_evening', _cov_weekend_evening)).strip() or _cov_weekend_evening),
             'coverage_holiday_night':   int(str(raw_settings.get('coverage_holiday_night',   _cov_weekend_night)).strip()   or _cov_weekend_night),
+            # Saturday / Sunday bands default to THIS FILE's weekend band too.
+            'coverage_saturday_day':     int(str(raw_settings.get('coverage_saturday_day',     _cov_weekend_day)).strip()     or _cov_weekend_day),
+            'coverage_saturday_evening': int(str(raw_settings.get('coverage_saturday_evening', _cov_weekend_evening)).strip() or _cov_weekend_evening),
+            'coverage_saturday_night':   int(str(raw_settings.get('coverage_saturday_night',   _cov_weekend_night)).strip()   or _cov_weekend_night),
+            'coverage_sunday_day':       int(str(raw_settings.get('coverage_sunday_day',       _cov_weekend_day)).strip()     or _cov_weekend_day),
+            'coverage_sunday_evening':   int(str(raw_settings.get('coverage_sunday_evening',   _cov_weekend_evening)).strip() or _cov_weekend_evening),
+            'coverage_sunday_night':     int(str(raw_settings.get('coverage_sunday_night',     _cov_weekend_night)).strip()   or _cov_weekend_night),
         }
 
         # Build schedule DataFrame from [schedule] section (or whole file for legacy)

@@ -88,6 +88,33 @@ class GeneratedTemplateRoundTripTests(unittest.TestCase):
         self.assertTrue(tokens & OFFWARD_TOKENS,
                         f"no off-ward token round-tripped; got {sorted(tokens)}")
 
+    def test_saturday_sunday_lists_and_needs_survive(self):
+        s = self.si.settings
+        self.assertEqual(s["saturdays"], [6, 13, 20, 27])
+        self.assertEqual(s["sundays"], [7, 14, 21, 28])
+        # Every listed day is also a rest day (weekends stays the union).
+        self.assertTrue(set(s["saturdays"]) | set(s["sundays"]) <= set(s["weekends"]))
+        sat = tuple(s[f"coverage_saturday_{k}"] for k in ("day", "evening", "night"))
+        sun = tuple(s[f"coverage_sunday_{k}"] for k in ("day", "evening", "night"))
+        wkd = tuple(s[f"coverage_weekend_{k}"] for k in ("day", "evening", "night"))
+        self.assertNotEqual(sat, wkd, "Saturday need must be set, not inherited")
+        self.assertNotEqual(sat, sun, "Saturday and Sunday are separate bands")
+        self.assertEqual(s["coverage_pnna_saturday_day"], 1)
+
+    def test_blank_templates_leave_saturday_sunday_empty(self):
+        si = ScheduleInput.from_xlsx(_to_bytes(build_workbook(_spec("Ward (blank)"))))
+        self.assertEqual((si.settings["saturdays"], si.settings["sundays"]), ([], []))
+        # ...so they inherit the Weekend need: nothing changes for a blank ward.
+        for k in ("day", "evening", "night"):
+            self.assertEqual(si.settings[f"coverage_saturday_{k}"],
+                             si.settings[f"coverage_weekend_{k}"])
+
+    def test_solver_csv_emits_saturday_sunday(self):
+        for group in self.si.solve_groups():
+            csv_text = self.si.to_solver_csv(group=group)
+            self.assertIn("saturdays,6 13 20 27", csv_text)
+            self.assertIn("sundays,7 14 21 28", csv_text)
+
     def test_solver_csv_emits_groups_and_holidays(self):
         for group in self.si.solve_groups():
             csv_text = self.si.to_solver_csv(group=group)

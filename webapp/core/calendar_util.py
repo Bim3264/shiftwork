@@ -28,6 +28,9 @@ def month_dates(year: int, month: int, extra_holidays=None) -> dict:
 
     - num_days: days in the month.
     - weekends: 1-based day numbers that fall on Sat/Sun.
+    - saturdays / sundays: the same days split by weekday; they select the
+      Saturday / Sunday coverage bands (constraint.md section 22) while
+      `weekends` stays the union.
     - holidays: [{day, name}] public holidays in that month.
     - extra: the manual holiday day numbers (clamped to the month).
     - combined: sorted union of weekends + holiday days + extra (legacy: what
@@ -41,6 +44,9 @@ def month_dates(year: int, month: int, extra_holidays=None) -> dict:
         d for d in range(1, num_days + 1)
         if calendar.weekday(year, month, d) >= 5  # 5=Sat, 6=Sun
     ]
+
+    saturdays = [d for d in weekends if calendar.weekday(year, month, d) == 5]
+    sundays = [d for d in weekends if calendar.weekday(year, month, d) == 6]
 
     try:
         cal = _holidays.country_holidays(HOLIDAY_COUNTRY, years=year)
@@ -59,6 +65,8 @@ def month_dates(year: int, month: int, extra_holidays=None) -> dict:
     return {
         "num_days": num_days,
         "weekends": weekends,
+        "saturdays": saturdays,
+        "sundays": sundays,
         "holidays": holidays_list,
         "extra": extra,
         "combined": combined,

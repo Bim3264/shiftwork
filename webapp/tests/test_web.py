@@ -852,24 +852,85 @@ class CoverageBandsEditTests(WebTestBase):
         iid = self._make_input()
         r = self.client.get(f"/inputs/{iid}/edit")
         self.assertEqual(r.status_code, 200)
-        # Unclassed ward: 3 bands x 3 shifts, legacy keys only.
-        self.assertEqual(len(re.findall(r'name="coverage_', r.text)), 9)
+        # Unclassed ward: 5 bands x 3 shifts, legacy keys only.
+        self.assertEqual(len(re.findall(r'name="coverage_', r.text)), 15)
         self.assertNotIn("coverage_pnna", r.text)
         self.assertIn('name="coverage_holiday_day"', r.text)
         self.assertIn('name="coverage_holiday_evening"', r.text)
         self.assertIn('name="coverage_holiday_night"', r.text)
         self.assertIn('name="holidays"', r.text)
 
-        # Classify every nurse -> 3 bands x 3 shifts x 2 groups.
+        # Classify every nurse -> 5 bands x 3 shifts x 2 groups.
         form = self._form(class_0="rn", class_1="RN", class_2="na",
                           coverage_weekday_day="9")
         self.assertEqual(self.client.post(f"/inputs/{iid}", data=form).status_code, 303)
         r = self.client.get(f"/inputs/{iid}/edit")
-        self.assertEqual(len(re.findall(r'name="coverage_', r.text)), 18)
+        self.assertEqual(len(re.findall(r'name="coverage_', r.text)), 30)
         self.assertNotIn('name="coverage_weekday_day"', r.text)
         self.assertIn('name="coverage_rn_holiday_day"', r.text)
         self.assertIn('name="coverage_pnna_holiday_night"', r.text)
         self.assertIn('name="holidays"', r.text)
+
+    def _coverage_table(self, html):
+        m = re.search(r'<table class="opts cov" id="coverage-table">(.*?)</table>',
+                      html, re.S)
+        self.assertIsNotNone(m, "coverage table missing")
+        return m.group(1)
+
+    def test_coverage_table_stays_three_numeric_columns(self):
+        # Layout regression: the table once had one column per band/group (up to
+        # 7, 527px) and overflowed its 399px grid column, hiding the PN/NA
+        # inputs. Shifts are the ONLY numeric columns; bands/groups go down the
+        # rows. A future band must add a row, never a column.
+        iid = self._make_input()
+        t = self._coverage_table(self.client.get(f"/inputs/{iid}/edit").text)
+        for tr in re.findall(r"<tr.*?</tr>", t, re.S):
+            self.assertLessEqual(
+                len(re.findall(r"<t[dh]\b", tr)), 4,
+                "coverage table row has more than label + 3 shift cells")
+        # Ungrouped: header + 5 band rows, 15 inputs, no group sub-headers.
+        self.assertEqual(len(re.findall(r'<input type="number"', t)), 15)
+        self.assertEqual(t.count("cov-group"), 0)
+        form = self._form(class_0="rn", class_1="RN", class_2="na")
+        self.assertEqual(self.client.post(f"/inputs/{iid}", data=form).status_code, 303)
+        t = self._coverage_table(self.client.get(f"/inputs/{iid}/edit").text)
+        for tr in re.findall(r"<tr.*?</tr>", t, re.S):
+            self.assertLessEqual(len(re.findall(r"<t[dh]\b", tr)), 4)
+        self.assertEqual(len(re.findall(r'<input type="number"', t)), 30)
+        self.assertEqual(t.count("cov-group"), 2)     # RN and PN/NA sub-headers
+        self.assertEqual(len(re.findall(r"<tr", t)), 1 + 2 * (1 + 5))
+
+    def test_edit_page_has_saturday_sunday_rows_and_lists(self):
+        iid = self._make_input()
+        t = self.client.get(f"/inputs/{iid}/edit").text
+        for n in ("coverage_saturday_day", "coverage_saturday_night",
+                  "coverage_sunday_day", "coverage_sunday_evening",
+                  "saturdays", "sundays"):
+            self.assertIn(f'name="{n}"', t)
+
+    def test_saturday_sunday_save_and_no_clobber(self):
+        iid = self._make_input()
+        form = self._form(saturdays="6", sundays="7", coverage_saturday_day="9")
+        self.assertEqual(self.client.post(f"/inputs/{iid}", data=form).status_code, 303)
+        st = self._settings(iid)
+        self.assertEqual((st["saturdays"], st["sundays"]), ([6], [7]))
+        self.assertEqual(st["coverage_saturday_day"], 9)
+        # A save that omits the keys must not reset them.
+        self.assertEqual(self.client.post(f"/inputs/{iid}", data=self._form()).status_code, 303)
+        st = self._settings(iid)
+        self.assertEqual((st["saturdays"], st["sundays"]), ([6], [7]))
+        self.assertEqual(st["coverage_saturday_day"], 9)
+
+    def test_autofill_splits_saturdays_and_sundays(self):
+        iid = self._make_input()
+        r = self.client.post(f"/inputs/{iid}/autofill",
+                             data={"month": "4", "year": "2026", "num_days": "31",
+                                   "weekends": "", "row_count": "0"})
+        self.assertEqual(r.status_code, 303)
+        st = self._settings(iid)
+        self.assertEqual(st["saturdays"], [4, 11, 18, 25])
+        self.assertEqual(st["sundays"], [5, 12, 19, 26])
+        self.assertEqual(st["weekends"], [4, 5, 11, 12, 18, 19, 25, 26])
 
     def test_save_omitting_group_coverage_does_not_clobber(self):
         iid = self._make_input()

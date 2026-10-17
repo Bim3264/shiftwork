@@ -28,6 +28,10 @@ class Solver():
         # apart. A rule that ever needs calendar weekends ONLY must use
         # `self.weekends - self.holidays`.
         self.holidays = set()
+        # Saturday / Sunday days (0-based), constraint.md §22. Like holidays they
+        # pick a coverage band and NOTHING else; self.weekends is the union.
+        self.saturdays = set()
+        self.sundays = set()
 
         # Shift transition overrides (caller can override SettingLoader defaults)
         self._init_allow_e_n = allow_shift_e_n
@@ -92,11 +96,16 @@ class Solver():
         """
         self.days = []
         for day in range(self.num_days):
-            # Band precedence: holiday > weekend > weekday (constraint.md §22).
-            # self.weekends is the UNION, so a public holiday falling on a Sunday
-            # is in both sets and the holiday band must win.
+            # Band precedence: holiday > sunday > saturday > weekend > weekday
+            # (constraint.md §22). self.weekends is the UNION, so a public
+            # holiday falling on a Sunday is in both sets and the holiday band
+            # must win. 'weekend' is the fallback for rest days with no weekday.
             if day in self.holidays:
                 band = self.coverage['holiday']
+            elif day in self.sundays:
+                band = self.coverage['sunday']
+            elif day in self.saturdays:
+                band = self.coverage['saturday']
             elif day in self.weekends:
                 band = self.coverage['weekend']
             else:
@@ -148,6 +157,8 @@ class Solver():
             # Defaults equal the weekend band: a special holiday is staffed as a
             # weekend until the ward says otherwise (constraint.md §22).
             'holiday': {Shift.DAY: 4, Shift.EVENING: 2, Shift.NIGHT: 2},
+            'saturday': {Shift.DAY: 4, Shift.EVENING: 2, Shift.NIGHT: 2},
+            'sunday': {Shift.DAY: 4, Shift.EVENING: 2, Shift.NIGHT: 2},
         }
 
         # Apply caller overrides (from GUI or CLI; may be further overridden by file)
@@ -185,8 +196,11 @@ class Solver():
         s = data.settings
         self.num_days              = s['num_days']
         self.holidays              = set(s.get('holidays', ()))
+        self.saturdays             = set(s.get('saturdays', ()))
+        self.sundays               = set(s.get('sundays', ()))
         # UNION, deliberately — see the note on self.holidays in __init__.
-        self.weekends              = set(s['weekends']) | self.holidays
+        self.weekends              = (set(s['weekends']) | self.holidays
+                                      | self.saturdays | self.sundays)
         self.ALLOW_SHIFT_E_N       = s['allow_evening_to_night']
         self.ALLOW_SHIFT_N_D       = s['allow_night_to_day']
         self.HEAD_NURSE_SPEACIAL_SHIFT = s['head_nurse_special_shift']
@@ -210,6 +224,19 @@ class Solver():
                                              s.get('coverage_weekend_evening', 2)),
                         Shift.NIGHT:   s.get('coverage_holiday_night',
                                              s.get('coverage_weekend_night', 2))},
+            # Saturday / Sunday bands: same inheritance from this file's weekend.
+            'saturday': {Shift.DAY:     s.get('coverage_saturday_day',
+                                              s.get('coverage_weekend_day', 4)),
+                         Shift.EVENING: s.get('coverage_saturday_evening',
+                                              s.get('coverage_weekend_evening', 2)),
+                         Shift.NIGHT:   s.get('coverage_saturday_night',
+                                              s.get('coverage_weekend_night', 2))},
+            'sunday':   {Shift.DAY:     s.get('coverage_sunday_day',
+                                              s.get('coverage_weekend_day', 4)),
+                         Shift.EVENING: s.get('coverage_sunday_evening',
+                                              s.get('coverage_weekend_evening', 2)),
+                         Shift.NIGHT:   s.get('coverage_sunday_night',
+                                              s.get('coverage_weekend_night', 2))},
         }
         self._rebuild_days()       # refresh: num_days + weekends + holidays + coverage
 
@@ -504,6 +531,8 @@ class Solver():
                     # Carry the band so an infeasible HOLIDAY floor is nameable
                     # in the diagnosis text, not just "day 13" (§20, §22).
                     band = ('holiday' if d in self.holidays
+                            else 'sunday' if d in self.sundays
+                            else 'saturday' if d in self.saturdays
                             else 'weekend' if d in self.weekends else 'weekday')
                     self._diag_gated.append(
                         (lit, {'day': d + 1, 'shift': shift.value,

@@ -22,6 +22,12 @@
   .settings-grid > .card { margin:0; padding:14px; }
   .settings-grid .card h3 { margin-top:0; }
   .settings-grid label { display:block; margin:.3rem 0; }
+  /* Coverage table must fit its grid column: fixed layout, no overflow. */
+  table.cov { width:100%; table-layout:fixed; }
+  table.cov td, table.cov th { padding:.25rem .3rem; }
+  table.cov th:first-child, table.cov td:first-child { width:38%; }
+  table.cov input { width:100%; box-sizing:border-box; min-width:0; padding:6px 4px; }
+  table.cov tr.cov-group th { background:#F3F4F6; text-align:left; }
 
   /* ── Request grid (wireframe 1j: colored request layer + coverage footer) ── */
   .legend { display:flex; flex-wrap:wrap; gap:14px; font-size:11px; color:#6B7280; margin:6px 0 10px; }
@@ -110,6 +116,12 @@
       <input type="text" name="extra_holidays" value="{{ extra_holidays_str }}" size="22"></label>
     <label>Holidays (day numbers, space-separated):
       <input type="text" name="holidays" value="{{ holidays_str }}" size="22"></label>
+    <label>Saturdays (day numbers, space-separated):
+      <input type="text" name="saturdays" value="{{ saturdays_str }}" size="22"></label>
+    <label>Sundays (day numbers, space-separated):
+      <input type="text" name="sundays" value="{{ sundays_str }}" size="22"></label>
+    <span class="muted">Saturdays / Sundays &mdash; staffed by their own rows below
+      (blank = Weekend row). Auto-fill sets both from the month.</span>
     <span class="muted">Special holidays &mdash; staffed by the Holiday row below.
       Auto-fill sets this from Thai public holidays + your extra dates.</span>
     <br>
@@ -127,35 +139,40 @@
 
   <div class="card">
     <h3>อัตรากำลังต่อเวร / Coverage — nurses required per shift</h3>
-    {# ONE table: rows = day bands, a column group per staff group. The PN/NA
-       group only exists once a nurse is classed (coverage_groups has 1 entry,
-       the legacy six fields, until then). #}
+    {# ONE table, THREE numeric columns (ช บ ด): rows = band, and a sub-header
+       row per staff group when the ward is grouped. Width is capped to its grid
+       column on purpose -- a wide band-per-column table overflowed the card and
+       hid the PN/NA inputs. The PN/NA group only exists once a nurse is classed
+       (coverage_groups has 1 entry, the legacy fields, until then). #}
     {% set bands = [("weekday", "จ–ศ Weekday"), ("weekend", "ส–อา Weekend"),
+                 ("saturday", "ส Saturday"), ("sunday", "อา Sunday"),
                  ("holiday", "วันหยุดพิเศษ Holiday")] %}
     {% set shifts = [("day", "ช", "#14B8A6", "Day"), ("evening", "บ", "#F59E0B", "Evening"),
                      ("night", "ด", "#102A43", "Night")] %}
-    <table class="opts">
+    <table class="opts cov" id="coverage-table">
+      <tr><th></th>
+        {% for key, sym, color, label in shifts %}
+        <th><b style="color:{{ color }}">{{ sym }}</b></th>
+        {% endfor %}
+      </tr>
+      {% for g in coverage_groups %}
       {% if coverage_groups|length > 1 %}
-      <tr><th></th>
-        {% for g in coverage_groups %}<th colspan="3" style="text-align:center">{{ g.label }}</th>{% endfor %}
-      </tr>
+      <tr class="cov-group"><th colspan="4">{{ g.label }}</th></tr>
       {% endif %}
-      <tr><th></th>
-        {% for g in coverage_groups %}{% for key, sym, color, label in shifts %}
-        <th><b style="color:{{ color }}">{{ sym }}</b> {{ label if coverage_groups|length == 1 else '' }}</th>
-        {% endfor %}{% endfor %}
-      </tr>
       {% for band, band_label in bands %}
       <tr>
         <td class="muted">{{ band_label }}</td>
-        {% for g in coverage_groups %}{% for key, sym, color, label in shifts %}
+        {% for key, sym, color, label in shifts %}
         {% set fname = g.prefix ~ band ~ "_" ~ key %}
         <td><input type="number" name="{{ fname }}" min="0"
-                   value="{{ settings.get(fname, coverage_defaults[band][key]) }}" style="width:3.5rem"></td>
-        {% endfor %}{% endfor %}
+                   value="{{ settings.get(fname, coverage_defaults[band][key]) }}"></td>
+        {% endfor %}
       </tr>
       {% endfor %}
+      {% endfor %}
     </table>
+    <span class="muted">Band precedence: Holiday, then Sunday, then Saturday, then Weekend
+      (rest days with no weekday), then Weekday. ช = Day, บ = Evening, ด = Night.</span><br>
     <span class="muted">Higher values need more staff; lower them for a small ward.
       {% if coverage_groups|length > 1 %}RN and PN/NA are scheduled separately, each with its own numbers.
       {% else %}To set RN and PN/NA separately, choose a class for every nurse and save.{% endif %}</span>
@@ -261,7 +278,7 @@
         <tr>
           <th class="namecell">พยาบาล / Nurse</th>
           {% for d in days %}
-          <th class="{% if d in settings.weekends or d in settings.get('holidays', []) %}wknd{% endif %}">{{ d }}</th>
+          <th class="{% if d in settings.weekends or d in settings.get('holidays', []) or d in settings.get('saturdays', []) or d in settings.get('sundays', []) %}wknd{% endif %}">{{ d }}</th>
           {% endfor %}
         </tr>
       </thead>

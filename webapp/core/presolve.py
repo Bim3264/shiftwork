@@ -136,7 +136,9 @@ def _check_group(rep: PresolveReport, si, group, limits, tier) -> None:
     # The union, exactly as shiftwork.Solver keeps it: a holiday is non-working
     # for the senior rule. Only the coverage band tells the two apart (§22).
     holidays = set(s.get("holidays") or ())              # 1-based
-    weekends = set(s["weekends"]) | holidays             # 1-based
+    saturdays = set(s.get("saturdays") or ())            # 1-based
+    sundays = set(s.get("sundays") or ())                # 1-based
+    weekends = set(s["weekends"]) | holidays | saturdays | sundays  # 1-based
     soft = s["min_request_percent"] < 100
     # Head/deputy are RNs: the senior rule never applies to the PN/NA group
     # (schedule_input.to_solver_csv forces head_nurse_special_shift false there).
@@ -269,7 +271,8 @@ def _check_group(rep: PresolveReport, si, group, limits, tier) -> None:
     # ── 4. Coverage: exact per-day, then consecutive-day windows ─────────────
     n_err_before = len(rep.errors)
     ctx = dict(s=s, nurses=nurses, fixed=fixed, weekends=weekends,
-               holidays=holidays, seniors=seniors, new_idx=new_idx, group=group)
+               holidays=holidays, saturdays=saturdays, sundays=sundays,
+               seniors=seniors, new_idx=new_idx, group=group)
     bad_days = set()
     for d in range(1, num_days + 1):
         if not _feasible(ctx, [d]):
@@ -299,15 +302,20 @@ def _check_group(rep: PresolveReport, si, group, limits, tier) -> None:
 
 
 def _day_band(ctx, d: int) -> str:
-    """Coverage band for a 1-based day: holiday > weekend > weekday (§22).
-    Mirrors shiftwork.Solver._rebuild_days."""
+    """Coverage band for a 1-based day: holiday > sunday > saturday > weekend >
+    weekday (§22). Mirrors shiftwork.Solver._rebuild_days."""
     if d in ctx.get("holidays", ()):
         return "holiday"
+    if d in ctx.get("sundays", ()):
+        return "sunday"
+    if d in ctx.get("saturdays", ()):
+        return "saturday"
     return "weekend" if d in ctx["weekends"] else "weekday"
 
 
 def _band(s, band: str, group=None) -> dict[str, int]:
-    """Coverage minimums for a band name ('weekday' / 'weekend' / 'holiday').
+    """Coverage minimums for a band name ('weekday' / 'weekend' / 'saturday' /
+    'sunday' / 'holiday').
     `group` ('rn' / 'pn_na') selects that staff group's keys; None uses the
     legacy ungrouped keys."""
     pre = _GROUP_PREFIX[group] if group is not None else "coverage_"
