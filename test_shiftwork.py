@@ -843,6 +843,41 @@ class RestDayHardnessTest(_SmallWardTest):
         self.assertEqual(self._solve("vac", False, False), cp_model.INFEASIBLE)
         self.assertEqual(self._solve("vac", True, True), cp_model.INFEASIBLE)
 
+    def _choose(self, rows, cov_day):
+        """Both switches on, floor 0: the solver picks WHICH rest days to drop."""
+        path = os.path.join(self._workdir, "input", "w.csv")
+        text = _ward_csv(1, rows, cov=(cov_day, 0, 0))
+        text = text.replace("min_request_percent,100", "min_request_percent,0")
+        text = text.replace("relax_days_off,false", "relax_days_off,true")
+        text = text.replace("enforce_vacation,true", "enforce_vacation,false")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        with contextlib.redirect_stdout(io.StringIO()):
+            s = sw.Solver(path, 1, [], allow_shift_e_n=False, allow_shift_n_d=False)
+            st = s.run(max_time_seconds=10)
+        self.assertIn(st, _SOLVED)
+        return sorted(d["kind"] for d in s.request_report["dropped"])
+
+    def test_reject_scale_orders_shifts_below_off_below_vacation(self):
+        # The discriminating test for the per-kind drop penalty. A behavioural
+        # fixture does NOT pin this down: holiday-imbalance already excludes
+        # vacation from the discretionary-off balance, so small wards prefer
+        # dropping an `off` even with one flat weight. This asserts the
+        # mechanism itself, so flattening the scale fails here.
+        s, _st, _log = self._run(1, [("A", "", [""])], solve=False)
+        shift = s.REJECT_WEIGHT * s.REJECT_SCALE.get("shift", 1)
+        off = s.REJECT_WEIGHT * s.REJECT_SCALE.get("holiday", 1)
+        vac = s.REJECT_WEIGHT * s.REJECT_SCALE.get("vacation", 1)
+        self.assertLess(shift, off, "a shift request must be the cheapest to drop")
+        self.assertLess(off, vac, "approved leave must cost more than a day off")
+
+    def test_prefers_dropping_an_off_over_a_vacation(self):
+        # Outcome test for the same intent. Note it passes under a flattened
+        # scale too (see above), so it documents the behaviour rather than
+        # proving the weights cause it.
+        rows = [("V", "", ["vac"]), ("O", "", ["off"]), ("F", "", [""])]
+        self.assertEqual(self._choose(rows, 2), ["holiday"])
+
 
 class RequestFloorTest(_SmallWardTest):
     """The soft-request acceptance floor must not round up to "keep everything"

@@ -155,6 +155,15 @@ class Solver():
         # {nurse_index: set(0-based vacation days)} — populated by loadReqShifts.
         self.vacation_days = {}
 
+        # What dropping one request costs in the objective (soft mode). The base
+        # is far above any fairness term, so acceptance always outranks fairness;
+        # the per-kind scale then orders the drops among themselves —
+        # shifts < off < vacation (§8). Finite on purpose: 3 ordinary off-days
+        # still outrank 1 vacation day, so leave is protected without letting a
+        # single vacation cell veto an arbitrary number of other requests.
+        self.REJECT_WEIGHT = 100000
+        self.REJECT_SCALE = {'vacation': 9, 'holiday': 3}   # others default to 1
+
         # Per-shift coverage minimums (nurses required per shift), by day band.
         # Defaults preserve the original hard-coded values. loadReqShifts()
         # overrides these from the file's [settings] before _rebuild_days().
@@ -686,10 +695,21 @@ class Solver():
         # dropped request far more than any fairness term, so acceptance is the
         # overriding priority (fairness only breaks ties among equal-acceptance
         # solutions).
+        # Not every dropped request costs the same. The order of hardness is
+        # shifts < off < vacation (§8): giving up an ordinary requested day off
+        # should always be preferred to giving up approved leave. With one flat
+        # weight the solver was indifferent, so it would spend a nurse's
+        # vacation whenever that happened to be the cheaper single fix.
+        # The ratios are deliberately finite, not lexicographic: leave is
+        # protected, but not at the cost of an unbounded number of ordinary
+        # off-days (3 off-days outrank 1 vacation day).
         if self.request_soft:
-            reject_weight = 100000
-            satisfied = cp_model.LinearExpr.Sum([e['sat'] for e in self.request_soft])
-            objective = objective + reject_weight * (len(self.request_soft) - satisfied)
+            penalty = sum(
+                self.REJECT_WEIGHT * self.REJECT_SCALE.get(e['kind'], 1)
+                * e['sat'].Not()
+                for e in self.request_soft
+            )
+            objective = objective + penalty
 
         self.model.Minimize(objective)
 
