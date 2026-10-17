@@ -74,6 +74,11 @@ _OFFWARD_KINDS = {t.partition(OFFWARD_SEP)[0] for t in OFFWARD_TOKENS}
 _DEFAULT_SETTINGS: dict[str, Any] = {
     "num_days": 31,
     "weekends": [6, 7, 13, 14, 20, 21, 27, 28],
+    # Special-holiday day-numbers (1-based), staffed by the 'holiday' coverage
+    # band. Empty means EMPTY (parsed with _parse_day_list, not like weekends).
+    # An absent key in a saved input defaults to [] - that is the whole migration:
+    # every day already in `weekends` keeps the weekend band (constraint.md 22).
+    "holidays": [],
     "allow_evening_to_night": False,
     "allow_night_to_day": False,
     "head_nurse_special_shift": True,
@@ -97,11 +102,22 @@ _DEFAULT_SETTINGS: dict[str, Any] = {
     "coverage_weekend_day": 4,
     "coverage_weekend_evening": 2,
     "coverage_weekend_night": 2,
+    # The holiday band defaults to the weekend numbers (inherited, see
+    # _coerce_settings) so a holiday is staffed as a weekend until the ward says
+    # otherwise.
+    "coverage_holiday_day": 4,
+    "coverage_holiday_evening": 2,
+    "coverage_holiday_night": 2,
 }
+# Day bands, in precedence-neutral listing order (holiday > weekend > weekday
+# is applied by the solver, not here).
+_COVERAGE_BANDS = ("weekday", "weekend", "holiday")
 # Per-staff-group coverage (RN vs PN/NA). Defaults equal the legacy values; a
 # saved input that only has the legacy keys inherits them (see _coerce_settings).
 for _grp in ("rn", "pnna"):
-    for _band, _defaults in (("weekday", (5, 3, 3)), ("weekend", (4, 2, 2))):
+    for _band, _defaults in (
+        ("weekday", (5, 3, 3)), ("weekend", (4, 2, 2)), ("holiday", (4, 2, 2)),
+    ):
         for _shift, _val in zip(("day", "evening", "night"), _defaults):
             _DEFAULT_SETTINGS[f"coverage_{_grp}_{_band}_{_shift}"] = _val
 
@@ -113,17 +129,18 @@ _BOOL_SETTING_KEYS = (
     "enforce_vacation",
 )
 
-# The six legacy coverage keys: the only ones the solver/DataImporter know.
+# The nine legacy coverage keys: the only ones the solver/DataImporter know.
 _LEGACY_COVERAGE_KEYS = (
     "coverage_weekday_day", "coverage_weekday_evening", "coverage_weekday_night",
     "coverage_weekend_day", "coverage_weekend_evening", "coverage_weekend_night",
+    "coverage_holiday_day", "coverage_holiday_evening", "coverage_holiday_night",
 )
 # Prefix of a staff group's coverage keys (suffix = legacy key minus "coverage_").
 _GROUP_COVERAGE_PREFIX = {GROUP_RN: "coverage_rn_", GROUP_PN_NA: "coverage_pnna_"}
 _GROUP_COVERAGE_KEYS = tuple(
     f"coverage_{grp}_{band}_{shift}"
     for grp in ("rn", "pnna")
-    for band in ("weekday", "weekend")
+    for band in _COVERAGE_BANDS
     for shift in ("day", "evening", "night")
 )
 
@@ -389,6 +406,9 @@ class ScheduleInput:
         if "weekends" in raw:
             wk = raw["weekends"]
             s["weekends"] = wk if isinstance(wk, list) else _parse_weekends_1based(wk)
+        if "holidays" in raw:
+            # _parse_day_list, NOT _parse_weekends_1based: empty means empty.
+            s["holidays"] = _parse_day_list(raw["holidays"])
         if "extra_holidays" in raw:
             s["extra_holidays"] = _parse_day_list(raw["extra_holidays"])
         for key in _BOOL_SETTING_KEYS:
@@ -416,6 +436,27 @@ class ScheduleInput:
                     lkey = f"coverage_{band}_{shift}"
                     if gkey not in raw and lkey in raw:
                         s[gkey] = s[lkey]
+        # Holiday band inherits the WEEKEND band (constraint.md 22). Resolved in
+        # this exact order, first hit wins; sources are tested against `raw`.
+        for shift in ("day", "evening", "night"):
+            hkey = f"coverage_holiday_{shift}"
+            wkey = f"coverage_weekend_{shift}"
+            # legacy: itself -> legacy weekend -> default
+            if hkey not in raw and wkey in raw:
+                s[hkey] = s[wkey]
+            # group: itself -> group weekend -> legacy holiday -> legacy weekend
+            # -> default
+            for grp in ("rn", "pnna"):
+                gh = f"coverage_{grp}_holiday_{shift}"
+                gw = f"coverage_{grp}_weekend_{shift}"
+                if gh in raw:
+                    continue
+                if gw in raw:
+                    s[gh] = s[gw]
+                elif hkey in raw:
+                    s[gh] = s[hkey]
+                elif wkey in raw:
+                    s[gh] = s[wkey]
         return s
 
     @staticmethod
@@ -497,7 +538,7 @@ class ScheduleInput:
 
         With group=None the output is the legacy single-roster CSV. With
         group='rn' / 'pn_na' only that group's active nurses are emitted, the
-        six solver-facing coverage keys carry that group's coverage numbers, and
+        nine solver-facing coverage keys carry that group's coverage numbers, and
         for 'pn_na' head_nurse_special_shift is forced false (head and deputy are
         RNs). The solver never learns that staff classes exist.
         """
@@ -513,6 +554,8 @@ class ScheduleInput:
         out.write(f"num_days,{self.settings['num_days']}\n")
         weekends = " ".join(str(d) for d in self.settings["weekends"])
         out.write(f"weekends,{weekends}\n")
+        holidays = " ".join(str(d) for d in self.settings.get("holidays", []))
+        out.write(f"holidays,{holidays}\n")
         extra = " ".join(str(d) for d in self.settings.get("extra_holidays", []))
         out.write(f"extra_holidays,{extra}\n")
         for key in _BOOL_SETTING_KEYS:

@@ -53,6 +53,48 @@ class FairnessStatsTests(unittest.TestCase):
         self.assertEqual(s["totals"]["weekend_shifts"], 0)
 
 
+class OffwardStatsTests(unittest.TestCase):
+    """Off-ward duty (constraint.md section 21): a worked shift of its type."""
+
+    def test_offward_counts_as_a_worked_shift(self):
+        grid = {"days": ["1", "2"], "rows": [
+            {"nurse_index": 0, "name": "A", "cells": ["flt:ด", "off"]},
+        ]}
+        s = fairness_stats(grid)
+        a = s["per_nurse"][0]
+        self.assertEqual(a["night"], 1)          # the flt:ด cell is a night shift
+        self.assertEqual(a["shifts"], 1)
+        self.assertEqual(a["offward_days"], 1)
+        self.assertEqual(a["working_days"], 1)
+        # off_days is the 'off' cell ONLY. An unrecognised off-ward cell used to
+        # fall through to "day off", which would make this 2.
+        self.assertEqual(a["off_days"], 1)
+        self.assertEqual(s["totals"]["offward_days"], 1)
+        self.assertTrue(s["has_offward"])
+
+    def test_offward_days_partition_exactly(self):
+        grid = {"days": ["1", "2", "3"], "rows": [
+            {"nurse_index": 0, "name": "A", "cells": ["flt:ด", "off", "ref:ช"]},
+        ]}
+        s = fairness_stats(grid)
+        a = s["per_nurse"][0]
+        self.assertEqual(a["offward_days"], 2)
+        self.assertEqual(a["working_days"] + a["off_days"] + a["vac_days"],
+                         s["num_days"])
+
+    def test_no_offward_flag_false(self):
+        grid = {"days": ["1", "2"], "rows": [
+            {"nurse_index": 0, "name": "A", "cells": ["ช", "off"]},
+        ]}
+        s = fairness_stats(grid)
+        self.assertFalse(s["has_offward"])
+        self.assertEqual(s["per_nurse"][0]["offward_days"], 0)
+
+    def test_parse_cell_knows_offward_tokens(self):
+        self.assertEqual(_parse_cell("flt:ด"), ["night"])
+        self.assertEqual(_parse_cell("ref:ช"), ["day"])
+
+
 if __name__ == "__main__":
     unittest.main()
 

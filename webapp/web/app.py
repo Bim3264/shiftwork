@@ -109,7 +109,8 @@ def _settings_from_form(form, current: dict | None = None) -> dict:
     ``enable_meetings`` is deliberately NOT read here: it is tier-derived, shown
     read-only, and never user-editable. Checkboxes are present-iff-checked.
 
-    Coverage keys (legacy 6 + per-staff-group 12) are different: the edit page
+    ``holidays`` and the coverage keys (legacy 9 + per-staff-group 18) are
+    different: the edit page
     renders only the block that applies (the PN/NA half is hidden until a nurse
     is classed), so a key the form did not submit means "not shown", never
     "reset to default". An absent key therefore takes ``current[key]`` when
@@ -126,7 +127,7 @@ def _settings_from_form(form, current: dict | None = None) -> dict:
         "enforce_vacation": form.get("enforce_vacation") is not None,
         "extra_holidays": form.get("extra_holidays", ""),
     }
-    for key in _COVERAGE_KEYS:
+    for key in ("holidays",) + tuple(_COVERAGE_KEYS):
         value = form.get(key)
         if value is not None:
             settings[key] = value
@@ -351,9 +352,10 @@ async def update_input(input_id: int, request: Request, user=Depends(require_use
 
 @app.post("/inputs/{input_id}/autofill")
 async def autofill_dates(input_id: int, request: Request, user=Depends(require_user), db: Session = Depends(get_db)):
-    """Auto-fill num_days + weekends from the input's month/year: calendar days,
-    all Sat/Sun, public holidays (Thailand), plus the manual extra_holidays.
-    Applies any pending form edits first so nothing typed is lost."""
+    """Auto-fill num_days, weekends and holidays from the input's month/year:
+    calendar days, `weekends` = all Sat/Sun only, and `holidays` = public
+    holidays (Thailand) plus the manual extra_holidays (the special-holiday
+    coverage band, constraint.md section 22). Applies any pending form edits first so nothing typed is lost."""
     row = _load_input(db, user, input_id)
     form = await request.form(max_fields=100_000)
     schedule_input = _schedule_input_from_form(form, row)
@@ -370,7 +372,8 @@ async def autofill_dates(input_id: int, request: Request, user=Depends(require_u
     from webapp.core.calendar_util import month_dates
     md = month_dates(year, month, schedule_input.settings.get("extra_holidays", []))
     schedule_input.settings["num_days"] = md["num_days"]
-    schedule_input.settings["weekends"] = md["combined"]
+    schedule_input.settings["weekends"] = md["weekends"]
+    schedule_input.settings["holidays"] = md["holiday_days"]
     row.data = schedule_input.to_dict()
     db.commit()
     return RedirectResponse(url=f"/inputs/{row.id}/edit", status_code=303)
@@ -456,7 +459,9 @@ def _fairness_for_job(job) -> list[dict]:
     if job.status.value != "succeeded" or not job.result_grid:
         return []
     settings = (getattr(job.input, "data", None) or {}).get("settings", {}) or {}
-    weekends = settings.get("weekends")
+    # The fairness "weekend" columns count holidays too (union, as the solver does).
+    weekends = sorted(set(settings.get("weekends") or ())
+                      | set(settings.get("holidays") or ()))
     senior_on = bool(settings.get("head_nurse_special_shift"))
     grid = job.result_grid
     groups = grid.get("groups") or []
@@ -554,8 +559,11 @@ def _render_edit(request, user, row, schedule_input, error, check=None, status_c
             "coverage_defaults": {
                 "weekday": {"day": 5, "evening": 3, "night": 3},
                 "weekend": {"day": 4, "evening": 2, "night": 2},
+                "holiday": {"day": 4, "evening": 2, "night": 2},
             },
             "weekends_str": " ".join(str(d) for d in schedule_input.settings["weekends"]),
+            "holidays_str": " ".join(
+                str(d) for d in schedule_input.settings.get("holidays", [])),
             "extra_holidays_str": " ".join(
                 str(d) for d in schedule_input.settings.get("extra_holidays", [])),
             "holidays_preview": holidays_preview,

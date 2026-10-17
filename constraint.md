@@ -137,20 +137,23 @@ on a weekend or any cell containing EVENING/NIGHT; a new nurse (§14) asking for
 ## 9. Minimum nurse coverage
 
 **Rule:** Each work shift must have at least the required number of nurses every day.
-Weekday and weekend minimums differ.
+Weekday, weekend and special-holiday minimums differ (three bands — see §22).
 
 ```
 sum(a[n][d][s] for n in 0..N-1) >= min_shifts[d][s]
     for each d, for s in {DAY, EVENING, NIGHT}
 ```
 
-**Minimums (configurable in `initShiftSettings`):**
+**Minimums (configurable in `initShiftSettings`, overridden per file):**
 
-| Shift   | Weekday | Weekend |
-|---------|---------|---------|
-| DAY     | 5       | 4       |
-| EVENING | 3       | 2       |
-| NIGHT   | 3       | 2       |
+| Shift   | Weekday | Weekend | Holiday |
+|---------|---------|---------|---------|
+| DAY     | 5       | 4       | 4       |
+| EVENING | 3       | 2       | 2       |
+| NIGHT   | 3       | 2       | 2       |
+
+The holiday column **defaults to the weekend column** and is resolved per day by
+`_rebuild_days()` with precedence `holiday > weekend > weekday` (§22).
 
 **Nurses excluded from a coverage pool.** The sum is taken over *eligible* nurses
 only — a nurse may be working and still not count toward this ward's coverage:
@@ -399,6 +402,13 @@ Pass 2 — only if pass 1's core is EMPTY (the hard structure alone is contradic
   core                                                ->  the binding (day, shift) minimums
 ```
 
+Each pass-2 core item is `{day (1-based), shift, required, band}`. `band` is
+`weekday`/`weekend`/`holiday` (§22), so an infeasible **holiday** floor is nameable
+rather than reading as an ordinary day; `webapp/core/diagnosis.py` renders it as
+`day 13 (holiday): needs 4 ช` and omits the parenthetical for `weekday`. No extra
+gating pass is needed for the third band: `_rebuild_days()` has already resolved the
+band into `self.days[d]['min_shifts']` before `_constraintMinimumNurse()` runs.
+
 Reason resolution: non-empty pass-1 core → `requests`; empty pass-1 core + non-empty
 pass-2 core → `coverage`; both empty → `structural` (the daily/transition/senior rules
 contradict each other with no request or coverage involved); anything else, including a
@@ -519,3 +529,86 @@ pass 2 as a coverage item.
 `handleHolidaysAndReq()`; enforced in `handleHolidaysAndReq()`; excluded in
 `_constraintMinimumNurse()`; hinted in `_build_warm_start()`; rendered in
 `_write_schedule()`.
+
+---
+
+## 22. Special-holiday coverage band
+
+**Original (customer):** วันหยุดนักขัตฤกษ์อัตรากำลังไม่เหมือนเสาร์-อาทิตย์ ต้องตั้งแยกได้
+("a public holiday is not staffed like a Saturday — we need to set it separately").
+
+**Rule:** A day belongs to exactly one **coverage band**, which supplies the §9
+minimums for that day. There are three bands and the precedence is strict:
+
+```
+band(d) = 'holiday'  if d in holidays
+          'weekend'  elif d in weekends
+          'weekday'  otherwise
+```
+
+A public holiday that falls on a Saturday is in both sets, and `holiday` wins.
+
+**The holiday band defaults to the weekend band.** This is the whole point of the
+design, not a convenience: it makes the split behaviour-preserving. Resolution order,
+first hit wins:
+
+| Key | Falls back to |
+|---|---|
+| `coverage_holiday_{shift}` | `coverage_weekend_{shift}` (from the same file) → 4/2/2 |
+| `coverage_{rn,pnna}_holiday_{shift}` | that group's `_weekend_` → legacy `coverage_holiday_` → legacy `coverage_weekend_` → 4/2/2 |
+
+**`weekends` keeps its old meaning everywhere except the band.** Before this section,
+the month auto-fill stored `weekends ∪ public holidays ∪ extra_holidays` into
+`settings["weekends"]`, so a holiday was indistinguishable from a Sunday. The split
+moves holidays into their own list for **band selection only**. `Solver.weekends` is
+therefore set to the **union** of the two lists, so every rule that treats a day as
+non-working sees exactly what it saw before:
+
+| Consumer | Reads |
+|---|---|
+| `_rebuild_days()` band selection | `self.holidays`, then `self.weekends` |
+| §16 / §17 senior head & deputy rules | `self.weekends` (the union) |
+| §21 off-ward senior skip-guard | `self.weekends` (the union) |
+| `_build_warm_start()` | `self.weekends` (the union) |
+| `presolve` senior rules, `_explain_day` | union; `presolve._day_band` splits |
+| `fairness_stats` weekend columns | union (the caller passes it) |
+
+> **Naming caveat.** `Solver.weekends` means "weekend **or** holiday". The name is kept
+> because renaming it would touch four correct call sites inside the most delicate
+> rules for no behavioural gain. A future rule that needs calendar weekends only must
+> use `self.weekends - self.holidays`.
+
+**Already-saved months are not migrated and must not be.** An existing input has its
+holidays buried inside `weekends` with no record of which days they were, and they are
+not recoverable. An absent `holidays` key defaults to `[]`, so every one of those days
+keeps the **weekend** band and the month solves exactly as before. The lists separate
+only when the user presses auto-fill again, and because the bands are equal by default
+that re-run changes staffing by nothing. Re-deriving the holidays from the `holidays`
+library at read time was rejected: the Thai calendar changes between library releases,
+so the reclassification would depend on an installed package version rather than on
+what the user saw when they pressed the button, and undated inputs cannot be derived
+at all.
+
+**No new variables and no new constraints.** The band changes an integer on the
+right-hand side of the §9 constraint that already exists. A too-high holiday floor is
+not a silent infeasibility: it surfaces as presolve's existing `coverage_day` error
+and, after a failed solve, as a §20 `coverage` diagnosis item carrying
+`band: 'holiday'`.
+
+**Flags / settings:** `holidays` (1-based in the file and in `ScheduleInput.settings`,
+0-based in `Solver`; **empty means empty**, unlike `weekends` whose empty value means
+"the default weekends"). Minimums: `coverage_holiday_{day,evening,night}` and
+`coverage_{rn,pnna}_holiday_{day,evening,night}`. Written by
+`POST /inputs/{id}/autofill` from `calendar_util.month_dates(...)["holiday_days"]`
+(Thai public holidays ∪ `extra_holidays`); editable as the Holiday row of the coverage
+table and the "holidays" field on the edit page.
+
+**Location:** `Solver.holidays` + the union assignment in `loadReqShifts()`; band
+precedence in `_rebuild_days()`; `'holiday'` defaults in `initShiftSettings()`; band
+label in `_constraintMinimumNurse()`'s diagnosis branch.
+`DataImporter._parse_holidays()` and the `coverage_holiday_*` inheritance in its
+settings dict; `ScheduleInput._DEFAULT_SETTINGS` / `_COVERAGE_BANDS` /
+`_coerce_settings` inheritance chain / `to_solver_csv()`;
+`calendar_util.month_dates()["holiday_days"]`; `presolve._day_band()` / `_band()`;
+`webapp/core/diagnosis.py` band rendering; `duplicate.next_month_input()`;
+`edit_input.html` coverage table.

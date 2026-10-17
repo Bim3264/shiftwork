@@ -142,6 +142,24 @@ class DataImporter():
             return list(_DEFAULT_WEEKENDS)
 
     @staticmethod
+    def _parse_holidays(value):
+        """Parse space- or comma-separated 1-based day numbers into 0-based ints.
+
+        Unlike _parse_weekends, an empty value means an EMPTY list, not a default:
+        a ward with no special holidays is the normal case, and a saved month that
+        predates the holiday band has no `holidays` line at all -- it must keep
+        every one of its days in the weekend band (constraint.md section 22).
+        """
+        if not str(value).strip():
+            return []
+        parts = str(value).replace(',', ' ').split()
+        try:
+            return [int(p) - 1 for p in parts if p.strip()]
+        except ValueError:
+            print('[Settings] Could not parse holidays value; using none.')
+            return []
+
+    @staticmethod
     def _resolve_tier(ward_info):
         """Resolve effective tier from ward_info metadata.
 
@@ -215,9 +233,13 @@ class DataImporter():
 
         # Build effective settings dict (file values with sensible defaults)
         # enable_meetings is tier-gated and cannot be overridden from the file.
+        _cov_weekend_day     = int(str(raw_settings.get('coverage_weekend_day', 4)).strip() or 4)
+        _cov_weekend_evening = int(str(raw_settings.get('coverage_weekend_evening', 2)).strip() or 2)
+        _cov_weekend_night   = int(str(raw_settings.get('coverage_weekend_night', 2)).strip() or 2)
         self.settings = {
             'num_days':                 int(raw_settings.get('num_days', 31)),
             'weekends':                 self._parse_weekends(raw_settings.get('weekends', '')),
+            'holidays':                 self._parse_holidays(raw_settings.get('holidays', '')),
             'allow_evening_to_night':   raw_settings.get('allow_evening_to_night', 'false').lower() == 'true',
             'allow_night_to_day':       raw_settings.get('allow_night_to_day',     'false').lower() == 'true',
             'head_nurse_special_shift': raw_settings.get('head_nurse_special_shift', 'true').lower() == 'true',
@@ -228,9 +250,14 @@ class DataImporter():
             'coverage_weekday_day':     int(str(raw_settings.get('coverage_weekday_day', 5)).strip() or 5),
             'coverage_weekday_evening': int(str(raw_settings.get('coverage_weekday_evening', 3)).strip() or 3),
             'coverage_weekday_night':   int(str(raw_settings.get('coverage_weekday_night', 3)).strip() or 3),
-            'coverage_weekend_day':     int(str(raw_settings.get('coverage_weekend_day', 4)).strip() or 4),
-            'coverage_weekend_evening': int(str(raw_settings.get('coverage_weekend_evening', 2)).strip() or 2),
-            'coverage_weekend_night':   int(str(raw_settings.get('coverage_weekend_night', 2)).strip() or 2),
+            'coverage_weekend_day':     _cov_weekend_day,
+            'coverage_weekend_evening': _cov_weekend_evening,
+            'coverage_weekend_night':   _cov_weekend_night,
+            # The holiday band defaults to THIS FILE's weekend band, so a solver CSV
+            # written before the band existed produces identical staffing (section 22).
+            'coverage_holiday_day':     int(str(raw_settings.get('coverage_holiday_day',     _cov_weekend_day)).strip()     or _cov_weekend_day),
+            'coverage_holiday_evening': int(str(raw_settings.get('coverage_holiday_evening', _cov_weekend_evening)).strip() or _cov_weekend_evening),
+            'coverage_holiday_night':   int(str(raw_settings.get('coverage_holiday_night',   _cov_weekend_night)).strip()   or _cov_weekend_night),
         }
 
         # Build schedule DataFrame from [schedule] section (or whole file for legacy)
@@ -345,6 +372,7 @@ class SettingLoader():
     def __init__(self):
         self.num_days        = 31
         self.weekends        = [5, 6, 12, 13, 19, 20, 26, 27]
+        self.holidays        = []
         self.allow_shift_e_n = False
         self.allow_shift_n_d = False
 

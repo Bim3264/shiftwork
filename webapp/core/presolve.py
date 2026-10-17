@@ -131,7 +131,10 @@ def _check_group(rep: PresolveReport, si, group, limits, tier) -> None:
     s = si.settings
     nurses = si.active_nurses(group)
     num_days = s["num_days"]
-    weekends = set(s["weekends"])                       # 1-based
+    # The union, exactly as shiftwork.Solver keeps it: a holiday is non-working
+    # for the senior rule. Only the coverage band tells the two apart (§22).
+    holidays = set(s.get("holidays") or ())              # 1-based
+    weekends = set(s["weekends"]) | holidays             # 1-based
     soft = s["min_request_percent"] < 100
     # Head/deputy are RNs: the senior rule never applies to the PN/NA group
     # (schedule_input.to_solver_csv forces head_nurse_special_shift false there).
@@ -258,7 +261,7 @@ def _check_group(rep: PresolveReport, si, group, limits, tier) -> None:
     # ── 4. Coverage: exact per-day, then consecutive-day windows ─────────────
     n_err_before = len(rep.errors)
     ctx = dict(s=s, nurses=nurses, fixed=fixed, weekends=weekends,
-               seniors=seniors, new_idx=new_idx, group=group)
+               holidays=holidays, seniors=seniors, new_idx=new_idx, group=group)
     bad_days = set()
     for d in range(1, num_days + 1):
         if not _feasible(ctx, [d]):
@@ -287,13 +290,21 @@ def _check_group(rep: PresolveReport, si, group, limits, tier) -> None:
         rep.passed[n_pass0:] = [prefix + line for line in rep.passed[n_pass0:]]
 
 
-def _band(s, wk: bool, group=None) -> dict[str, int]:
-    """Coverage minimums for a weekday/weekend day. `group` ('rn' / 'pn_na')
-    selects that staff group's keys; None uses the legacy ungrouped keys."""
-    b = "weekend" if wk else "weekday"
+def _day_band(ctx, d: int) -> str:
+    """Coverage band for a 1-based day: holiday > weekend > weekday (§22).
+    Mirrors shiftwork.Solver._rebuild_days."""
+    if d in ctx.get("holidays", ()):
+        return "holiday"
+    return "weekend" if d in ctx["weekends"] else "weekday"
+
+
+def _band(s, band: str, group=None) -> dict[str, int]:
+    """Coverage minimums for a band name ('weekday' / 'weekend' / 'holiday').
+    `group` ('rn' / 'pn_na') selects that staff group's keys; None uses the
+    legacy ungrouped keys."""
     pre = _GROUP_PREFIX[group] if group is not None else "coverage_"
-    return {D: s[f"{pre}{b}_day"], E: s[f"{pre}{b}_evening"],
-            N: s[f"{pre}{b}_night"]}
+    return {D: s[f"{pre}{band}_day"], E: s[f"{pre}{band}_evening"],
+            N: s[f"{pre}{band}_night"]}
 
 
 def _feasible(ctx, days: list[int]) -> bool:
@@ -328,7 +339,7 @@ def _feasible(ctx, days: list[int]) -> bool:
                     m.Add(ev == 0)
                     m.Add(nv == 0)
     for d in days:                                        # §9 (+§15/§21 exclusion)
-        req = _band(s, d in ctx["weekends"], ctx.get("group"))
+        req = _band(s, _day_band(ctx, d), ctx.get("group"))
         for sh in _SHIFTS:
             pool = []
             for n in range(len(nurses)):
@@ -357,7 +368,7 @@ def _feasible(ctx, days: list[int]) -> bool:
 def _explain_day(ctx, d: int) -> str:
     s, nurses, fixed = ctx["s"], ctx["nurses"], ctx["fixed"]
     wk = d in ctx["weekends"]
-    req = _band(s, wk, ctx.get("group"))
+    req = _band(s, _day_band(ctx, d), ctx.get("group"))
     vac_or_off = meet = senior_off = offward = senior_day_only = 0
     for n in range(len(nurses)):
         nd = fixed[n].get(d)

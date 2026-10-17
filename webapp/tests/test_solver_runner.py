@@ -13,13 +13,17 @@ Run from the project root:  python3 -m unittest webapp.tests.test_solver_runner
 import os
 import sys
 import unittest
+from unittest import mock
 
 _PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _PROJECT_DIR not in sys.path:
     sys.path.insert(0, _PROJECT_DIR)
 
-from webapp.core.schedule_input import ScheduleInput, Nurse  # noqa: E402
-from webapp.core.solver_runner import run_schedule  # noqa: E402
+from webapp.core import solver_runner, tiers  # noqa: E402
+from webapp.core.schedule_input import (  # noqa: E402
+    ScheduleInput, Nurse, VALID_CELL_TOKENS,
+)
+from webapp.core.solver_runner import run_schedule, SolveResult  # noqa: E402
 
 
 def _feasible_ward():
@@ -140,6 +144,137 @@ class SolverRunnerTest(unittest.TestCase):
         self.assertIsNone(result.grid)
         self.assertIsNone(result.csv_text)
         self.assertEqual(os.getcwd(), cwd_before, "cwd must be restored after solve")
+
+
+def _classed_ward(rn, pn, tier="ward", extra_settings=None, na=0):
+    """A ward whose nurses carry a staff class (RN / PN / NA)."""
+    nurses = [Nurse(name=f"R{i}", staff_class="rn") for i in range(rn)]
+    nurses += [Nurse(name=f"P{i}", staff_class="pn") for i in range(pn)]
+    nurses += [Nurse(name=f"A{i}", staff_class="na") for i in range(na)]
+    settings = {"num_days": 7, "weekends": [6, 7]}
+    settings.update(extra_settings or {})
+    return ScheduleInput.from_grid(
+        ward_meta={"ward_name": "W", "tier": tier},
+        settings=settings, nurses=nurses)
+
+
+class StaffClassSolveTest(unittest.TestCase):
+    """Split solves per staff group (RN vs PN/NA) and their merged result."""
+
+    def test_two_groups_produce_two_group_grids(self):
+        cov = {}
+        for grp in ("rn", "pnna"):
+            for band in ("weekday", "weekend"):
+                for sh, n in (("day", 2), ("evening", 1), ("night", 1)):
+                    cov[f"coverage_{grp}_{band}_{sh}"] = n
+        si = _classed_ward(6, 6, extra_settings=cov)
+        r = run_schedule(si, 20)
+
+        self.assertTrue(r.solved, r.solver_status)
+        g = r.grid
+        self.assertEqual(len(g["groups"]), 2)
+        self.assertEqual([x["key"] for x in g["groups"]], ["rn", "pn_na"])
+        a, b = (set(x["nurse_indices"]) for x in g["groups"])
+        self.assertFalse(a & b, "group nurse_indices must be disjoint")
+        self.assertEqual(sorted(a | b), list(range(12)))
+        # The group-local -> global index remap: RN are roster 0..5, PN 6..11.
+        self.assertEqual(a, set(range(0, 6)))
+        self.assertEqual(b, set(range(6, 12)))
+
+        self.assertEqual(len(g["rows"]), 12)
+        self.assertTrue(all(row.get("group") for row in g["rows"]))
+        self.assertEqual([row["nurse_index"] for row in g["rows"]], list(range(12)))
+        # Names follow the GLOBAL index, i.e. the remap put each row in its place.
+        self.assertEqual([row["name"] for row in g["rows"]],
+                         [n.name for n in si.active_nurses()])
+        self.assertEqual([row["group"] for row in g["rows"]],
+                         ["rn"] * 6 + ["pn_na"] * 6)
+
+        lines = r.csv_text.splitlines()
+        self.assertEqual(lines[0], "," + ",".join(str(d) for d in range(1, 8)))
+        self.assertEqual(len(lines) - 1, 12)
+        self.assertEqual([ln.split(",")[0] for ln in lines[1:]],
+                         [str(i) for i in range(12)])
+
+    def test_combined_tier_cap_blocks_split(self):
+        # Free tier caps at 8 nurses ACROSS groups. Each group of 5 would pass
+        # DataImporter's per-file check on its own.
+        si = _classed_ward(5, 5, tier="free")
+        self.assertLessEqual(len(si.active_nurses("rn")), 8)
+        self.assertLessEqual(len(si.active_nurses("pn_na")), 8)
+        with self.assertRaises(ValueError):
+            tiers.enforce_max_nurses(si)
+        with self.assertRaises(ValueError):
+            run_schedule(si, 5)
+
+        # PN and NA both count towards the ceiling: 4 + 3 + 2 = 9 > 8.
+        si2 = _classed_ward(4, 3, tier="free", na=2)
+        with self.assertRaises(ValueError):
+            tiers.enforce_max_nurses(si2)
+        with self.assertRaises(ValueError):
+            run_schedule(si2, 5)
+
+        view = tiers.tier_view(si)
+        self.assertEqual(view["nurse_count"], 10)
+        self.assertTrue(view["over_max"])
+        self.assertEqual(view["by_group"], {"rn": 5, "pn_na": 5})
+
+    def test_budget_is_split_across_groups(self):
+        calls = []
+
+        def fake(si_, group, max_time, diag, relax):
+            calls.append((group, max_time, diag, relax))
+            n = len(si_.active_nurses(group))
+            grid = {"days": [1, 2],
+                    "rows": [{"nurse_index": i, "name": f"x{i}", "cells": ["ช", "off"]}
+                             for i in range(n)]}
+            return SolveResult("OPTIMAL", True, grid, "csv", "log")
+
+        with mock.patch.object(solver_runner, "_run_one", fake):
+            r = run_schedule(_classed_ward(6, 6), 100,
+                             diagnose_seconds=20, relax_seconds=10)
+        self.assertEqual(calls, [("rn", 50, 10, 5), ("pn_na", 50, 10, 5)])
+        self.assertTrue(r.solved)
+        self.assertEqual(len(r.grid["rows"]), 12)
+
+        # An ungrouped ward is ONE solve with the full, undivided budget.
+        calls.clear()
+        si_u = ScheduleInput.from_grid(
+            ward_meta={"tier": "ward"},
+            settings={"num_days": 7, "weekends": [6, 7]},
+            nurses=[Nurse(name=f"N{i}") for i in range(12)])
+        with mock.patch.object(solver_runner, "_run_one", fake):
+            run_schedule(si_u, 100, diagnose_seconds=20, relax_seconds=10)
+        self.assertEqual(calls, [(None, 100, 20, 10)])
+
+    def test_mixed_classed_and_unclassed_roster_is_refused(self):
+        bad = ScheduleInput.from_grid(
+            ward_meta={"tier": "ward"},
+            settings={"num_days": 7, "weekends": [6, 7]},
+            nurses=[Nurse(name="a", staff_class="rn"), Nurse(name="b")])
+        with self.assertRaises(ValueError):
+            run_schedule(bad, 5)
+
+
+class OffwardRenderTest(unittest.TestCase):
+
+    def test_offward_render_round_trips(self):
+        # A float duty on a non-senior nurse survives the solve and comes back
+        # as a token the input grid accepts (VALID_CELL_TOKENS), unchanged.
+        si = _feasible_ward()
+        si.nurses[8].shifts = {3: "flt:ช"}
+        result = run_schedule(si, max_time_seconds=8)
+
+        self.assertTrue(result.solved, result.solver_status)
+        row = result.grid["rows"][8]
+        self.assertEqual(row["name"], "N8")
+        self.assertEqual(row["cells"][2], "flt:ช")
+        for r in result.grid["rows"]:
+            for cell in r["cells"]:
+                self.assertIn(cell, VALID_CELL_TOKENS)
+        # The CSV carries the same token for that nurse/day.
+        data = [ln.split(",") for ln in result.csv_text.splitlines()[1:]]
+        self.assertEqual(data[8][3], "flt:ช")
 
 
 if __name__ == "__main__":

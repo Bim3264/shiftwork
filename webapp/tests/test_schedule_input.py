@@ -19,7 +19,9 @@ _PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 if _PROJECT_DIR not in sys.path:
     sys.path.insert(0, _PROJECT_DIR)
 
-from webapp.core.schedule_input import ScheduleInput, Nurse  # noqa: E402
+from webapp.core.schedule_input import (  # noqa: E402
+    ScheduleInput, Nurse, VALID_CELL_TOKENS,
+)
 from dataimporter import DataImporter  # noqa: E402
 
 _REAL_CSV = os.path.join(_PROJECT_DIR, "input", "Schedule 1.csv")
@@ -416,6 +418,282 @@ class FromXlsxTests(unittest.TestCase):
     def test_bad_bytes_raise_valueerror(self):
         with self.assertRaises(ValueError):
             ScheduleInput.from_xlsx(b"this is not a zip / xlsx")
+
+
+# -- Staff classes / off-ward duties / holiday band (regression cover) --------
+
+def _schedule_lines(csv_text):
+    """The rows of the [schedule] section (header first), as lists of cells."""
+    import csv as _csv
+    import io as _io
+    body = csv_text.split("[schedule]\n", 1)[1]
+    return list(_csv.reader(_io.StringIO(body)))
+
+
+def _setting_lines(csv_text):
+    """The raw lines of the [settings] section (between the two headers)."""
+    block = csv_text.split("[settings]\n", 1)[1].split("\n[schedule]", 1)[0]
+    return [ln for ln in block.splitlines() if ln]
+
+
+def _classed_ward(rn, pn, na=0, settings=None):
+    nurses = [Nurse(name=f"R{i}", staff_class="rn") for i in range(rn)]
+    nurses += [Nurse(name=f"P{i}", staff_class="pn") for i in range(pn)]
+    nurses += [Nurse(name=f"A{i}", staff_class="na") for i in range(na)]
+    base = {"num_days": 7, "weekends": [6, 7]}
+    base.update(settings or {})
+    return ScheduleInput.from_grid(
+        ward_meta={"ward_name": "W", "tier": "ward"}, settings=base, nurses=nurses)
+
+
+class UngroupedEmissionTest(unittest.TestCase):
+
+    _EXPECTED = (
+        "[ward]\n"
+        "ward_name,W\n"
+        "tier,ward\n"
+        "\n"
+        "[settings]\n"
+        "num_days,3\n"
+        "weekends,2\n"
+        "holidays,\n"
+        "extra_holidays,\n"
+        "allow_evening_to_night,false\n"
+        "allow_night_to_day,false\n"
+        "head_nurse_special_shift,true\n"
+        "relax_days_off,false\n"
+        "enforce_vacation,true\n"
+        "min_request_percent,100\n"
+        "coverage_weekday_day,5\n"
+        "coverage_weekday_evening,3\n"
+        "coverage_weekday_night,3\n"
+        "coverage_weekend_day,4\n"
+        "coverage_weekend_evening,2\n"
+        "coverage_weekend_night,2\n"
+        "coverage_holiday_day,4\n"
+        "coverage_holiday_evening,2\n"
+        "coverage_holiday_night,2\n"
+        "\n"
+        "[schedule]\n"
+        "Name,Type,1,2,3\n"
+        "A,,,,\n"
+        "B,,,,\n"
+    )
+
+    def test_ungrouped_solver_csv_is_exact(self):
+        # A ward with no staff classes must emit the single-roster CSV: the
+        # legacy nine coverage keys only, no group keys, and no Class column.
+        si = ScheduleInput.from_grid(
+            ward_meta={"ward_name": "W", "tier": "ward"},
+            settings={"num_days": 3, "weekends": [2]},
+            nurses=[Nurse(name="A"), Nurse(name="B")],
+        )
+        out = si.to_solver_csv()
+        self.assertEqual(out, self._EXPECTED)
+        # Spelled out so a failure names the leak rather than just "differs".
+        self.assertNotIn("coverage_rn_", out)
+        self.assertNotIn("coverage_pnna_", out)
+        self.assertNotIn("Class", out)
+        self.assertIn("weekends,2", out.splitlines())
+        self.assertIn("holidays,", out.splitlines())
+        self.assertIn("coverage_weekday_day,5", out.splitlines())
+        self.assertIn("coverage_holiday_day,4", out.splitlines())
+        self.assertEqual(_schedule_lines(out)[0], ["Name", "Type", "1", "2", "3"])
+
+
+class GroupEmissionTest(unittest.TestCase):
+
+    def test_group_csv_contains_only_that_group(self):
+        si = _classed_ward(rn=4, pn=3, na=1)
+        rn_rows = _schedule_lines(si.to_solver_csv(group="rn"))
+        pn_rows = _schedule_lines(si.to_solver_csv(group="pn_na"))
+        self.assertEqual(rn_rows[0][:3], ["Name", "Type", "Class"])
+        self.assertEqual(len(rn_rows) - 1, 4)
+        self.assertEqual([r[0] for r in rn_rows[1:]], ["R0", "R1", "R2", "R3"])
+        self.assertEqual(len(pn_rows) - 1, 4)
+        self.assertEqual([r[0] for r in pn_rows[1:]], ["P0", "P1", "P2", "A0"])
+        # Together they cover the whole active roster exactly once.
+        self.assertEqual(
+            [r[0] for r in rn_rows[1:] + pn_rows[1:]],
+            [n.name for n in si.active_nurses()],
+        )
+
+    def test_group_csv_uses_group_coverage(self):
+        si = _classed_ward(rn=4, pn=3, settings={
+            "coverage_pnna_weekday_day": 2, "coverage_rn_weekday_day": 6})
+        pn = _setting_lines(si.to_solver_csv(group="pn_na"))
+        rn = _setting_lines(si.to_solver_csv(group="rn"))
+        # The group's number is written under the solver-facing legacy name.
+        self.assertIn("coverage_weekday_day,2", pn)
+        self.assertIn("coverage_weekday_day,6", rn)
+        # Head and deputy are RNs: the PN/NA solve must not run the senior rule.
+        self.assertIn("head_nurse_special_shift,false", pn)
+        self.assertIn("head_nurse_special_shift,true", rn)
+        # The ward-wide setting itself is untouched by the override.
+        self.assertTrue(si.settings["head_nurse_special_shift"])
+
+    def test_group_csv_remaps_holiday_band(self):
+        si = _classed_ward(rn=4, pn=3, settings={
+            "coverage_pnna_holiday_night": 1, "coverage_rn_holiday_night": 3})
+        self.assertIn("coverage_holiday_night,1",
+                      _setting_lines(si.to_solver_csv(group="pn_na")))
+        self.assertIn("coverage_holiday_night,3",
+                      _setting_lines(si.to_solver_csv(group="rn")))
+
+    def test_legacy_coverage_is_inherited(self):
+        # A saved input that predates staff groups has only the legacy keys; the
+        # group keys must take those numbers so its staffing does not change.
+        s = ScheduleInput._coerce_settings({"coverage_weekday_night": 1})
+        self.assertEqual(s["coverage_weekday_night"], 1)
+        self.assertEqual(s["coverage_rn_weekday_night"], 1)
+        self.assertEqual(s["coverage_pnna_weekday_night"], 1)
+        # Unrelated keys keep their defaults.
+        self.assertEqual(s["coverage_rn_weekday_day"], 5)
+
+    def test_mixed_staff_class_is_rejected(self):
+        si = ScheduleInput.from_grid(
+            ward_meta={"ward_name": "W"},
+            settings={"num_days": 7, "weekends": [6, 7]},
+            nurses=[Nurse(name="Rita", staff_class="rn"),
+                    Nurse(name="Blanca")],
+        )
+        with self.assertRaises(ValueError) as cm:
+            si.validate()
+        self.assertIn("Blanca", str(cm.exception))
+        # An INACTIVE blank nurse is exempt: she is never solved.
+        si.nurses[1].active = False
+        si.nurses.append(Nurse(name="Rita2", staff_class="rn"))  # senior rule needs 2
+        si.validate()
+
+
+class OffwardTokenTest(unittest.TestCase):
+
+    def _ward(self, shifts):
+        return ScheduleInput.from_grid(
+            ward_meta={"ward_name": "W"},
+            settings={"num_days": 7, "weekends": [6, 7]},
+            nurses=[Nurse(name="A", shifts=shifts), Nurse(name="B")],
+        )
+
+    def test_bare_flt_rejected(self):
+        for bare in ("flt", "ref"):
+            with self.subTest(token=bare):
+                with self.assertRaises(ValueError) as cm:
+                    self._ward({1: bare}).validate()
+                # The message must tell the user what to write instead.
+                self.assertIn(f"{bare}:ช", str(cm.exception))
+        # A well-formed off-ward cell is accepted.
+        self._ward({1: "flt:ช", 2: "ref:ด"}).validate()
+
+    def test_offward_case_is_normalised(self):
+        text = ("[ward]\nward_name,W\n\n[settings]\nnum_days,3\n\n[schedule]\n"
+                "Name,Type,1,2,3\nA,,FLT:ด,REF:ช,FLT\nB,,,,\n")
+        si = ScheduleInput.from_csv(text)
+        self.assertEqual(si.nurses[0].shifts[1], "flt:ด")
+        self.assertEqual(si.nurses[0].shifts[2], "ref:ช")
+        # A bare kind is lower-cased but never guessed into a shift ...
+        self.assertEqual(si.nurses[0].shifts[3], "flt")
+        # ... and validate() then refuses it.
+        with self.assertRaises(ValueError):
+            si.validate()
+        self.assertIn("flt:ด", VALID_CELL_TOKENS)
+
+
+class HolidayBandSettingsTest(unittest.TestCase):
+
+    def _importer(self, si):
+        fd, path = tempfile.mkstemp(suffix=".csv")
+        os.close(fd)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(si.to_solver_csv())
+        try:
+            return DataImporter(path, 5, 5).transform()
+        finally:
+            os.unlink(path)
+
+    def test_holidays_setting_round_trips(self):
+        si = ScheduleInput.from_grid(
+            ward_meta={"ward_name": "W", "tier": "ward"},
+            settings={"num_days": 14, "weekends": [6, 7], "holidays": [3, 10]},
+            nurses=[Nurse(name="A", type="senior"), Nurse(name="B", type="senior")],
+        )
+        self.assertEqual(si.settings["holidays"], [3, 10])
+        self.assertIn("holidays,3 10", si.to_solver_csv().splitlines())
+        self.assertEqual(
+            ScheduleInput.from_csv(si.to_solver_csv()).settings["holidays"], [3, 10])
+        self.assertEqual(
+            ScheduleInput.from_dict(si.to_dict()).settings["holidays"], [3, 10])
+        # The solver's importer reads them as 0-based days.
+        di = self._importer(si)
+        self.assertEqual(di.settings["holidays"], [2, 9])
+        self.assertEqual(di.settings["weekends"], [5, 6])
+
+    def test_holidays_empty_means_empty(self):
+        # Absent key and empty string both give [] - never the weekends default.
+        self.assertEqual(ScheduleInput._coerce_settings({})["holidays"], [])
+        self.assertEqual(ScheduleInput._coerce_settings({"holidays": ""})["holidays"], [])
+        self.assertEqual(ScheduleInput._coerce_settings({"holidays": "  "})["holidays"], [])
+        self.assertEqual(
+            ScheduleInput._coerce_settings({"holidays": "3, 10"})["holidays"], [3, 10])
+        # Through the solver boundary too: a ward with no holidays has none, even
+        # though an empty `weekends` value would have meant "the default weekends".
+        si = ScheduleInput.from_grid(
+            ward_meta={"ward_name": "W", "tier": "ward"},
+            settings={"num_days": 14, "weekends": [6, 7]},
+            nurses=[Nurse(name="A", type="senior"), Nurse(name="B", type="senior")],
+        )
+        self.assertEqual(ScheduleInput.from_csv(si.to_solver_csv()).settings["holidays"], [])
+        self.assertEqual(self._importer(si).settings["holidays"], [])
+
+    def test_holiday_coverage_inheritance_chain(self):
+        c = ScheduleInput._coerce_settings
+
+        # (a) a legacy weekend number is inherited by the legacy holiday key and
+        # by both groups.
+        s = c({"coverage_weekend_night": 1})
+        self.assertEqual(s["coverage_holiday_night"], 1)
+        self.assertEqual(s["coverage_rn_holiday_night"], 1)
+        self.assertEqual(s["coverage_pnna_holiday_night"], 1)
+        # only the night key was given; the other shifts stay at 4/2/2
+        self.assertEqual(s["coverage_holiday_day"], 4)
+        self.assertEqual(s["coverage_holiday_evening"], 2)
+
+        # (b) a GROUP's weekend number is inherited by that group's holiday key
+        # only; the other group falls through to the default.
+        s = c({"coverage_rn_weekend_night": 1})
+        self.assertEqual(s["coverage_rn_holiday_night"], 1)
+        self.assertEqual(s["coverage_pnna_holiday_night"], 2)
+        self.assertEqual(s["coverage_holiday_night"], 2)
+
+        # (b2) ordering: the group's weekend beats the legacy holiday key ...
+        s = c({"coverage_rn_weekend_night": 1, "coverage_holiday_night": 5,
+               "coverage_weekend_night": 6})
+        self.assertEqual(s["coverage_rn_holiday_night"], 1)
+        # ... and the other group, having no weekend of its own, takes the
+        # legacy HOLIDAY key before the legacy weekend key.
+        self.assertEqual(s["coverage_pnna_holiday_night"], 5)
+        self.assertEqual(s["coverage_holiday_night"], 5)
+
+        # (b3) with only a legacy weekend given, the groups follow it.
+        s = c({"coverage_weekend_night": 6})
+        self.assertEqual(s["coverage_pnna_holiday_night"], 6)
+
+        # (c) an explicit group holiday key beats every other source.
+        s = c({"coverage_rn_holiday_night": 3, "coverage_rn_weekend_night": 1,
+               "coverage_holiday_night": 5, "coverage_weekend_night": 6})
+        self.assertEqual(s["coverage_rn_holiday_night"], 3)
+        # the legacy holiday key beats the legacy weekend key
+        self.assertEqual(s["coverage_holiday_night"], 5)
+        # an explicit 0 is a value, not "absent"
+        s = c({"coverage_rn_holiday_night": 0, "coverage_rn_weekend_night": 1})
+        self.assertEqual(s["coverage_rn_holiday_night"], 0)
+
+        # (d) nothing given: every holiday key is the 4/2/2 default.
+        s = c({})
+        for prefix in ("coverage_", "coverage_rn_", "coverage_pnna_"):
+            self.assertEqual(
+                [s[f"{prefix}holiday_{sh}"] for sh in ("day", "evening", "night")],
+                [4, 2, 2], prefix)
 
 
 if __name__ == "__main__":

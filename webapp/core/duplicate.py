@@ -5,7 +5,8 @@ requests cleared but the roster (names, types, active flags, order) and all
 settings/coverage preserved. When the source is dated (per
 ``months.parse_month_year``), the month is advanced (Dec -> Jan rolls the
 year) and ``num_days``/``weekends`` are recomputed for the new month via
-``calendar_util.month_dates``, with ``extra_holidays`` reset to []. When
+``calendar_util.month_dates`` (``weekends`` = Sat/Sun only, ``holidays`` = the
+new month's public holidays), with ``extra_holidays`` reset to []. When
 undated, ward_meta and settings are copied unchanged so the user can set the
 month and auto-fill themselves.
 
@@ -39,7 +40,8 @@ def next_month_input(si: ScheduleInput) -> ScheduleInput:
 
         md = month_dates(year, month, [])
         settings["num_days"] = md["num_days"]
-        settings["weekends"] = md["combined"]
+        settings["weekends"] = md["weekends"]
+        settings["holidays"] = md["holiday_days"]
         settings["extra_holidays"] = []
 
     nurses = [

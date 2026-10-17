@@ -107,12 +107,17 @@
              value="{{ ward_meta.get('year','') }}" style="width:6rem"></label>
     <label>Extra holidays (day numbers, space-separated):
       <input type="text" name="extra_holidays" value="{{ extra_holidays_str }}" size="22"></label>
+    <label>Holidays (day numbers, space-separated):
+      <input type="text" name="holidays" value="{{ holidays_str }}" size="22"></label>
+    <span class="muted">Special holidays &mdash; staffed by the Holiday row below.
+      Auto-fill sets this from Thai public holidays + your extra dates.</span>
     <br>
     <button class="btn secondary" type="submit"
             formaction="/inputs/{{ row.id }}/autofill">
-      Auto-fill days &amp; weekends from month</button>
-    <span class="muted">Fills schedule length + weekends + Thai public holidays
-      (+ your extra dates). Still editable below.</span>
+      Auto-fill days, weekends &amp; holidays from month</button>
+    <span class="muted">Fills schedule length + Sat/Sun weekends + Thai public holidays
+      (+ your extra dates) as holidays. Still editable below; re-running auto-fill
+      overwrites manual edits to weekends and holidays.</span>
     {% if holidays_preview %}
     <p class="muted">Public holidays this month:
       {% for h in holidays_preview %}{{ h.day }} ({{ h.name }}){% if not loop.last %}, {% endif %}{% endfor %}</p>
@@ -124,7 +129,8 @@
     {# ONE table: rows = day bands, a column group per staff group. The PN/NA
        group only exists once a nurse is classed (coverage_groups has 1 entry,
        the legacy six fields, until then). #}
-    {% set bands = [("weekday", "จ–ศ Weekday"), ("weekend", "ส–อา Weekend")] %}
+    {% set bands = [("weekday", "จ–ศ Weekday"), ("weekend", "ส–อา Weekend"),
+                 ("holiday", "วันหยุดพิเศษ Holiday")] %}
     {% set shifts = [("day", "ช", "#14B8A6", "Day"), ("evening", "บ", "#F59E0B", "Evening"),
                      ("night", "ด", "#102A43", "Night")] %}
     <table class="opts">
@@ -252,7 +258,7 @@
         <tr>
           <th class="namecell">พยาบาล / Nurse</th>
           {% for d in days %}
-          <th class="{% if d in settings.weekends %}wknd{% endif %}">{{ d }}</th>
+          <th class="{% if d in settings.weekends or d in settings.get('holidays', []) %}wknd{% endif %}">{{ d }}</th>
           {% endfor %}
         </tr>
       </thead>

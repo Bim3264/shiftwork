@@ -19,6 +19,16 @@ class Solver():
         self.num_nurses = None  # set after loading input data
         self.weekends = weekends  # 0-based day indices
 
+        # Special-holiday days (0-based), constraint.md §22. These pick the
+        # 'holiday' coverage band and NOTHING else: self.weekends is kept as the
+        # UNION of weekends and holidays, so every rule that treats a day as
+        # non-working (§16/§17 senior head/deputy, the off-ward skip-guard, the
+        # warm start) sees a holiday exactly as it did when the month auto-fill
+        # merged holidays into `weekends`. Only _rebuild_days() tells the two
+        # apart. A rule that ever needs calendar weekends ONLY must use
+        # `self.weekends - self.holidays`.
+        self.holidays = set()
+
         # Shift transition overrides (caller can override SettingLoader defaults)
         self._init_allow_e_n = allow_shift_e_n
         self._init_allow_n_d = allow_shift_n_d
@@ -75,15 +85,22 @@ class Solver():
 
 
     def _rebuild_days(self):
-        """Rebuild self.days[] based on current self.num_days and self.weekends.
+        """Rebuild self.days[] from current num_days, weekends, holidays, coverage.
 
-        Call this any time num_days or weekends changes (e.g. after loading
-        per-file settings from the [settings] section).
+        Call this any time num_days, weekends, holidays or coverage changes
+        (e.g. after loading per-file settings from the [settings] section).
         """
         self.days = []
         for day in range(self.num_days):
-            is_weekend = day in self.weekends
-            band = self.coverage['weekend'] if is_weekend else self.coverage['weekday']
+            # Band precedence: holiday > weekend > weekday (constraint.md §22).
+            # self.weekends is the UNION, so a public holiday falling on a Sunday
+            # is in both sets and the holiday band must win.
+            if day in self.holidays:
+                band = self.coverage['holiday']
+            elif day in self.weekends:
+                band = self.coverage['weekend']
+            else:
+                band = self.coverage['weekday']
             self.days.append({
                 'shifts': [Shift.NIGHT, Shift.DAY, Shift.EVENING, Shift.OFF],
                 'min_shifts': {Shift.NIGHT:   band[Shift.NIGHT],
@@ -128,6 +145,9 @@ class Solver():
         self.coverage = {
             'weekday': {Shift.DAY: 5, Shift.EVENING: 3, Shift.NIGHT: 3},
             'weekend': {Shift.DAY: 4, Shift.EVENING: 2, Shift.NIGHT: 2},
+            # Defaults equal the weekend band: a special holiday is staffed as a
+            # weekend until the ward says otherwise (constraint.md §22).
+            'holiday': {Shift.DAY: 4, Shift.EVENING: 2, Shift.NIGHT: 2},
         }
 
         # Apply caller overrides (from GUI or CLI; may be further overridden by file)
@@ -164,7 +184,9 @@ class Solver():
         # Apply per-file settings (new-format files only; legacy files get defaults)
         s = data.settings
         self.num_days              = s['num_days']
-        self.weekends              = set(s['weekends'])
+        self.holidays              = set(s.get('holidays', ()))
+        # UNION, deliberately — see the note on self.holidays in __init__.
+        self.weekends              = set(s['weekends']) | self.holidays
         self.ALLOW_SHIFT_E_N       = s['allow_evening_to_night']
         self.ALLOW_SHIFT_N_D       = s['allow_night_to_day']
         self.HEAD_NURSE_SPEACIAL_SHIFT = s['head_nurse_special_shift']
@@ -179,8 +201,17 @@ class Solver():
             'weekend': {Shift.DAY:     s.get('coverage_weekend_day', 4),
                         Shift.EVENING: s.get('coverage_weekend_evening', 2),
                         Shift.NIGHT:   s.get('coverage_weekend_night', 2)},
+            # The holiday band inherits THIS file's weekend numbers when the
+            # file has no holiday keys, so a solver CSV written before the band
+            # existed produces identical staffing (constraint.md §22).
+            'holiday': {Shift.DAY:     s.get('coverage_holiday_day',
+                                             s.get('coverage_weekend_day', 4)),
+                        Shift.EVENING: s.get('coverage_holiday_evening',
+                                             s.get('coverage_weekend_evening', 2)),
+                        Shift.NIGHT:   s.get('coverage_holiday_night',
+                                             s.get('coverage_weekend_night', 2))},
         }
-        self._rebuild_days()       # refresh with updated num_days + weekends + coverage
+        self._rebuild_days()       # refresh: num_days + weekends + holidays + coverage
 
         # Store ward identity for output naming and logging
         self.ward_info: dict = data.ward_info
@@ -461,8 +492,13 @@ class Solver():
                     # core can name the day whose coverage cannot be met.
                     lit = self.model.NewBoolVar(f'diag_cov_{d}_{shift.value}')
                     self.model.Add(sum(nurses_assigned) >= required).OnlyEnforceIf(lit)
+                    # Carry the band so an infeasible HOLIDAY floor is nameable
+                    # in the diagnosis text, not just "day 13" (§20, §22).
+                    band = ('holiday' if d in self.holidays
+                            else 'weekend' if d in self.weekends else 'weekday')
                     self._diag_gated.append(
-                        (lit, {'day': d + 1, 'shift': shift.value, 'required': required})
+                        (lit, {'day': d + 1, 'shift': shift.value,
+                               'required': required, 'band': band})
                     )
                 else:
                     self.model.Add(sum(nurses_assigned) >= required)
