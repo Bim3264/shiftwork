@@ -130,6 +130,23 @@ Soft mode (`min_request_percent < 100`): one `sat` var per cell — both shifts 
 **Skip-guards** (request dropped, not a contradiction): senior nurses (§16/§17) asking for any cell
 on a weekend or any cell containing EVENING/NIGHT; a new nurse (§14) asking for `ด/บ`.
 
+**Acceptance floor (soft mode).** At least `min_request_percent` of the relaxable
+requests must be satisfied:
+
+```
+sum(sat) >= floor,   floor = ceil(pct/100 * total)
+                     floor = min(floor, total - 1)   when pct < 100
+```
+
+The second line matters. A bare `ceil` rounds a *small* set up to "keep
+everything" — at 80% a 2-request group gets `ceil(1.6) = 2`, so nothing can ever
+be dropped and the setting silently does nothing. That bites hardest since RN and
+PN/NA became separate solves (see the staff-group split in `CODEBASE.md`), because
+each group's requests are now counted on their own and the smaller group loses all
+its slack. Below 100% the user has
+explicitly asked for relaxation, so at least one drop is always possible; at 100%
+the cap does not apply and every request stays hard.
+
 **Location:** `handleHolidaysAndReq()`
 
 ---

@@ -803,6 +803,43 @@ class NegativeRequestTest(_SmallWardTest):
             len(nurse["requested_shifts"]) + len(nurse["requested_negations"]), quota)
 
 
+class RequestFloorTest(_SmallWardTest):
+    """The soft-request acceptance floor must not round up to "keep everything"
+    for a small set of requests (constraint.md section 8)."""
+
+    def _ward(self, pct=None):
+        """One day; coverage needs BOTH nurses on Day, so A's `off` is impossible."""
+        path = os.path.join(self._workdir, "input", "w.csv")
+        text = _ward_csv(1, [("A", "", ["off"]), ("B", "", [""])], cov=(2, 0, 0))
+        text = text.replace("relax_days_off,false", "relax_days_off,true")
+        if pct is not None:
+            text = text.replace("min_request_percent,100",
+                                "min_request_percent,%d" % pct)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        with contextlib.redirect_stdout(io.StringIO()):
+            s = sw.Solver(path, 1, [], allow_shift_e_n=False, allow_shift_n_d=False)
+            return s, s.run(max_time_seconds=10)
+
+    def test_a_lone_request_can_still_be_dropped(self):
+        # Regression: the floor was a bare ceil(), so a SMALL set of relaxable
+        # requests rounded up to "keep everything" and the setting silently did
+        # nothing — ceil(0.5 * 1) == 1 leaves nothing to drop. It bit PN/NA
+        # hardest, because each staff group's requests are counted on their own
+        # since the split, so the smaller group lost all its slack.
+        s, st = self._ward(pct=50)
+        self.assertIn(st, _SOLVED)
+        rep = s.request_report
+        self.assertEqual((rep["total"], rep["accepted"]), (1, 0))
+        self.assertEqual(rep["dropped"][0]["kind"], "holiday")
+
+    def test_hundred_percent_stays_hard(self):
+        # The cap applies only BELOW 100%. At 100% every request is required, so
+        # the same ward must still be infeasible.
+        _s, st = self._ward()
+        self.assertEqual(st, cp_model.INFEASIBLE)
+
+
 class FatigueRulesTest(_SmallWardTest):
     """constraint.md section 24: opt-in max-consecutive-nights and
     no-consecutive-ช/บ. Coverage is 0 so only the rule under test can make a

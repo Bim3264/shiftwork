@@ -536,9 +536,18 @@ class Solver():
         # and adding it would only muddy the core.
         if soft and self.request_soft and not self._diag_mode:
             import math
-            floor = math.ceil(self.MIN_REQUEST_PERCENT / 100.0 * len(self.request_soft))
+            total = len(self.request_soft)
+            floor = math.ceil(self.MIN_REQUEST_PERCENT / 100.0 * total)
+            # ceil() rounds a small group's floor up to "keep everything": at 80%
+            # a 2-request group gets ceil(1.6) = 2, so nothing can ever be
+            # dropped and the setting silently does nothing. That bites hardest
+            # since RN and PN/NA became separate solves, because each group's
+            # requests are now counted on their own (§8). Below 100% the user
+            # has asked for relaxation, so guarantee it can drop at least one.
+            if self.MIN_REQUEST_PERCENT < 100:
+                floor = min(floor, total - 1)
             self.model.Add(sum(e['sat'] for e in self.request_soft) >= floor)
-            print(f'[Requests] Soft mode: {len(self.request_soft)} relaxable requests, '
+            print(f'[Requests] Soft mode: {total} relaxable requests, '
                   f'floor {floor} ({self.MIN_REQUEST_PERCENT}%).')
 
 
