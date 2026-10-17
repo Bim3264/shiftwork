@@ -158,6 +158,7 @@ _SETTINGS = (
     ("Limit consecutive nights / จำกัดดึกติดกัน", "No"),
     ("Max consecutive nights / ดึกติดกันสูงสุด", 3),
     ("No consecutive Day+Evening double / ห้ามช/บติดกัน", "No"),
+    ("Exact coverage / จำนวนเวรตรงตามกำหนด", "Yes"),
     ("Head-nurse special shift / เวรพิเศษหัวหน้า", "Yes"),
     ("Weekday need D / E / N", "5 / 3 / 3"),
     ("Weekend need D / E / N", "4 / 2 / 2"),

@@ -174,15 +174,30 @@ value (`min_request_percent_for(group)`). `relax_days_off` and `enforce_vacation
 
 ---
 
-## 9. Minimum nurse coverage
+## 9. Nurse coverage (floor, or exact)
 
-**Rule:** Each work shift must have at least the required number of nurses every day.
-Weekday, weekend and special-holiday minimums differ (three bands — see §22).
+**Rule:** Each work shift must have the required number of nurses every day.
+Weekday, weekend and special-holiday numbers differ (see §22). The comparison is
+set by `exact_coverage`:
 
 ```
-sum(a[n][d][s] for n in 0..N-1) >= min_shifts[d][s]
+exact_coverage = true  (web default):  sum(a[n][d][s]) == min_shifts[d][s]
+exact_coverage = false (solver/CSV default when the key is absent):
+                                       sum(a[n][d][s]) >= min_shifts[d][s]
     for each d, for s in {DAY, EVENING, NIGHT}
 ```
+
+The numbers are a staffing *plan*, so the web layer defaults to `==` (an extra nurse on
+a shift is a nurse who should have been off). `==` is much tighter: if the roster and
+the per-shift numbers do not reconcile on some day there is no schedule. Turning the
+flag off restores the old `>=` model exactly. The pool (below) is untouched. A saved
+input with no `exact_coverage` key takes the web default (true); a legacy solver CSV
+with no key stays `>=`.
+
+Mirrors: `presolve._feasible` adds the same `<=` (so over-supply from hard requests is
+a blocker, `presolve._forced_over` words it); `Solver.diagnose` pass 2 gates floor and
+ceiling as two assumptions (`side: 'short'` / `'over'`) and `diagnosis.render_text` says
+"needs N" vs "too many ... exactly N allowed".
 
 **Minimums (configurable in `initShiftSettings`, overridden per file):**
 

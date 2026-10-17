@@ -24,7 +24,7 @@ except Exception:  # pragma: no cover
 
 
 def _si(shifts, **flags):
-    settings = {"num_days": 10, "weekends": [],
+    settings = {"num_days": 10, "weekends": [], "exact_coverage": False,
                 "coverage_weekday_day": 0, "coverage_weekday_evening": 0,
                 "coverage_weekday_night": 0, "head_nurse_special_shift": False}
     settings.update(flags)

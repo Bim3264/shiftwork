@@ -999,6 +999,88 @@ class FatigueRulesTest(_SmallWardTest):
         with contextlib.redirect_stdout(io.StringIO()):
             return s, s.diagnose(10)
 
+class ExactCoverageTest(_SmallWardTest):
+    """constraint.md section 9: exact_coverage turns the per-shift numbers from a
+    floor (>=) into a staffing plan (==). Pools are unchanged (§15, §21)."""
+
+    ON = "exact_coverage,true\n"
+
+    def _counts(self, s, days, pool):
+        return {(d, sh): sum(s.solver.Value(s.assignments[n][d][sh]) for n in pool)
+                for d in range(days) for sh in (Shift.DAY, Shift.EVENING, Shift.NIGHT)}
+
+    def test_exact_gives_exactly_the_configured_count_every_day(self):
+        days, cov = 7, (2, 1, 1)
+        s, st, _ = self._run(days, self._plain(8, days), cov=cov, extra=self.ON)
+        self.assertIn(st, _SOLVED)
+        want = {Shift.DAY: 2, Shift.EVENING: 1, Shift.NIGHT: 1}
+        for (d, sh), got in self._counts(s, days, range(8)).items():
+            self.assertEqual(got, want[sh], f"day {d} {sh}")
+
+    def test_same_ward_overshoots_as_a_floor_but_not_as_exact(self):
+        # The bug being fixed: with >= the fairness objective piles extra nurses
+        # onto shifts (observed: 5 Evening where 1 is configured).
+        want = {Shift.DAY: 2, Shift.EVENING: 1, Shift.NIGHT: 1}
+        s, st, _ = self._run(7, self._plain(8, 7), cov=(2, 1, 1), extra='exact_coverage,false'+chr(10))
+        self.assertIn(st, _SOLVED)
+        self.assertTrue(any(v > want[sh] for (_d, sh), v in self._counts(s, 7, range(8)).items()))
+
+    def test_toggle_off_is_a_floor_and_may_overshoot(self):
+        # 3 nurses ask for Day on day 1, need is 2: legal as a floor.
+        rows = [("A", "", ["ช"]), ("B", "", ["ช"]), ("C", "", ["ช"])]
+        s, st, _ = self._run(1, rows, cov=(2, 0, 0), extra="exact_coverage,false\n")
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(self._counts(s, 1, range(3))[(0, Shift.DAY)], 3)
+
+    def test_absent_key_means_floor_for_legacy_csv(self):
+        rows = [("A", "", ["ช"]), ("B", "", ["ช"]), ("C", "", ["ช"])]
+        _s, st, _ = self._run(1, rows, cov=(2, 0, 0))
+        self.assertIn(st, _SOLVED)
+
+    def test_feasible_as_floor_infeasible_as_exact(self):
+        rows = [("A", "", ["ช"]), ("B", "", ["ช"]), ("C", "", ["ช"])]
+        _s, st, _ = self._run(1, rows, cov=(2, 0, 0), extra=self.ON)
+        self.assertEqual(st, cp_model.INFEASIBLE)
+
+    def test_meeting_attendee_is_not_counted_in_exact_total(self):
+        # A is in a meeting (Day, excluded from the pool). Need is exactly 1
+        # Day: exactly one of B/C works it (total Day cells = 2 with A).
+        rows = [("A", "", ["mtg"]), ("B", "", [""]), ("C", "", [""])]
+        s, st, _ = self._run(1, rows, cov=(1, 0, 0), extra=self.ON)
+        self.assertIn(st, _SOLVED)
+        c = self._counts(s, 1, range(3))[(0, Shift.DAY)]
+        self.assertEqual(c, 2)
+        self.assertEqual(self._counts(s, 1, [1, 2])[(0, Shift.DAY)], 1)
+
+    def test_offward_nurse_is_not_counted_in_exact_total(self):
+        rows = [("A", "", ["flt:ช"]), ("B", "", [""]), ("C", "", [""])]
+        s, st, _ = self._run(1, rows, cov=(1, 0, 0), extra=self.ON)
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(self._counts(s, 1, [1, 2])[(0, Shift.DAY)], 1)
+        self.assertEqual(s.solver.Value(s.assignments[0][0][Shift.DAY]), 1)
+
+    def test_diagnose_pass2_gates_floor_and_ceiling_separately(self):
+        # In exact mode each (day, shift) gets a 'short' AND an 'over' assumption,
+        # so a core can say "too many" apart from "too few". Floor mode: 'short' only.
+        def sides(extra):
+            s, _st, _ = self._run(2, self._plain(3, 2), cov=(1, 1, 1),
+                                  extra=extra, solve=False)
+            with contextlib.redirect_stdout(io.StringIO()):
+                gated = s._diag_build(gate_coverage=True)
+            return sorted(r["side"] for _l, r in gated if "side" in r)
+        self.assertEqual(sides(self.ON), ["over"] * 6 + ["short"] * 6)
+        self.assertEqual(sides(""), ["short"] * 6)
+
+    def test_diagnose_names_a_short_day_in_exact_mode(self):
+        rows = [("A", "", ["mtg", ""]), ("B", "", ["mtg", ""])]
+        s, st, _ = self._run(2, rows, cov=(1, 0, 0), extra=self.ON)
+        self.assertEqual(st, cp_model.INFEASIBLE)
+        with contextlib.redirect_stdout(io.StringIO()):
+            diag = s.diagnose(10)
+        self.assertEqual(diag["reason"], "coverage")
+        self.assertTrue(all(c["side"] == "short" for c in diag["coverage"]))
+        self.assertIn(1, [c["day"] for c in diag["coverage"]])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -50,7 +50,11 @@ def render_text(named: Optional[dict], relaxations: Optional[list]) -> str:
         for c in named.get("coverage", []):
             band = c.get("band")
             where = f"day {c['day']}" + (f" ({band})" if band and band != "weekday" else "")
-            lines.append(f"  · {where}: needs {c['required']} {c['shift']}")
+            if c.get("side") == "over":
+                lines.append(f"  · {where}: too many nurses forced onto {c['shift']} "
+                             f"- exactly {c['required']} allowed")
+            else:
+                lines.append(f"  · {where}: needs {c['required']} {c['shift']}")
         if named.get("truncated"):
             lines.append("  (list truncated)")
     elif reason == "structural":

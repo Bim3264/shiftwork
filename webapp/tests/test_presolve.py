@@ -362,7 +362,8 @@ class PresolveOffwardTests(unittest.TestCase):
     def test_presolve_offward_transition_error(self):
         zero = {"coverage_weekday_day": 0, "coverage_weekday_evening": 0,
                 "coverage_weekday_night": 0, "coverage_weekend_day": 0,
-                "coverage_weekend_evening": 0, "coverage_weekend_night": 0}
+                "coverage_weekend_evening": 0, "coverage_weekend_night": 0,
+                "exact_coverage": False}
 
         def ward(allow_night_to_day):
             settings = _offward_base(num_days=5,

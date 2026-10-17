@@ -170,6 +170,7 @@ Run: `python3 -m unittest discover -s webapp/tests -p "test_*.py"` (from repo ro
 | `limit_consecutive_nights` | false | yes · `Limit consecutive nights` | §24a: cap nights in a row at `max_consecutive_nights` |
 | `max_consecutive_nights` | 3 | yes · `Max consecutive nights` | int ≥ 1; only read when the toggle is on |
 | `no_consecutive_day_eve` | false | yes · `No consecutive Day+Evening double` | §24b: no ช/บ on two adjacent days |
+| `exact_coverage` | **true** in web (solver/CSV absent key: false) | yes · `Exact coverage` | §9: per-shift need is `==` not `>=`. Tighter; can make a ward infeasible. Off restores `>=` |
 | `head_nurse_special_shift` | true | yes · `Head-nurse special shift` | senior Day/OFF rule; needs ≥2 active nurses |
 | `min_request_percent` (+ `_rn`, `_pnna`) | 100 | **no** — web/CSV only | 100 = hard requests; <100 = soft (keep max, floor at %). Per staff group; group keys inherit the legacy key; solver sees only the legacy name |
 | `relax_days_off` | false | **no** — web/CSV only | if soft: also drop requested days-off (else shifts only) |

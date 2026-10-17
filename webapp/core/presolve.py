@@ -14,7 +14,7 @@ cross-check test in test_presolve.py (solver-feasible fixtures must produce no
 errors) guards the direction that matters (no false blockers).
 
 Mirrored as of 2026-10-17:
-  constraint.md §2–§6 daily/transition rules, §9 coverage (settings coverage_*),
+  constraint.md §2–§6 daily/transition rules, §9 coverage (settings coverage_*; >= or, with exact_coverage, ==),
   §14 new nurse, §15 meetings (tier-gated), §16/§17 head+deputy,
   §21 off-ward duty (flt/ref: hard, unsampled, exactly one shift, excluded from
   that shift's coverage pool, skip-guarded for head/deputy),
@@ -393,6 +393,8 @@ def _feasible(ctx, days: list[int]) -> bool:
                         continue                      # §21: off-ward, that shift
                 pool.append(x[n, d, sh])
             m.Add(sum(pool) >= req[sh])
+            if s.get("exact_coverage"):                   # §9 exact: also a ceiling
+                m.Add(sum(pool) <= req[sh])
     for d in days[:-1]:                                   # §5 / §6
         for n in range(len(nurses)):
             if not s["allow_evening_to_night"]:
@@ -446,6 +448,38 @@ def _explain_day(ctx, d: int) -> str:
         parts.append(f"{avoiders} asked not to work a shift (no:)")
     why = f" ({', '.join(parts)})" if parts else ""
     kind = "weekend/holiday" if wk else "weekday"
+    over = _forced_over(ctx, d, req) if s.get("exact_coverage") else []
+    if over:
+        # Exact coverage: the failure is too MANY nurses forced onto a shift
+        # (hard requests / meetings / off-ward), not too few.
+        detail = "; ".join(f"{sym} has {have} fixed but only {need} allowed"
+                           for sym, have, need in over)
+        return (f"Day {d} ({kind}): exact coverage needs {req[D]} ช + {req[E]} บ + "
+                f"{req[N]} ด, but more nurses are locked onto a shift than that "
+                f"({detail}). Remove a request, or untick Exact coverage.")
     return (f"Day {d} ({kind}): needs {req[D]} ช + {req[E]} บ + {req[N]} ด, but only "
             f"{avail} of {len(nurses)} nurses can cover{why}. A nurse works at most "
             f"2 shifts a day and never ช+ด together.")
+
+
+def _forced_over(ctx, d: int, req: dict) -> list[tuple]:
+    """Shifts where hard-fixed nurses alone already exceed the exact need.
+    Counts what the solver's pool counts: forced cells, minus meeting attendees
+    on Day and off-ward nurses on their own shift (both excluded from the pool).
+    Returns [(symbol, have, need)]; empty when the day is not over-supplied."""
+    nurses, fixed = ctx["nurses"], ctx["fixed"]
+    out = []
+    for sh in _SHIFTS:
+        have = 0
+        for n in range(len(nurses)):
+            nd = fixed[n].get(d)
+            if nd is None or sh not in nd.forced:
+                continue
+            if sh == D and nd.meeting:
+                continue
+            if nd.offward is not None and nd.offward[0] == sh:
+                continue
+            have += 1
+        if have > req[sh]:
+            out.append((_SYMBOL[sh], have, req[sh]))
+    return out

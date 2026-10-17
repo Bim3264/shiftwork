@@ -96,6 +96,10 @@ _DEFAULT_SETTINGS: dict[str, Any] = {
     "limit_consecutive_nights": False,
     "max_consecutive_nights": 3,
     "no_consecutive_day_eve": False,
+    # Coverage numbers are a staffing PLAN: exactly that many per shift, not a
+    # floor (constraint.md 9). Tighter than >=; turn off when a month will not
+    # reconcile. A saved input without the key takes this default.
+    "exact_coverage": True,
     # Partial request acceptance: 100 = every request required (default);
     # below 100 the solver may drop requests to reach feasibility, keeping as
     # many as possible. relax_days_off allows dropping requested days off too.
@@ -160,6 +164,7 @@ _BOOL_SETTING_KEYS = (
     "enforce_vacation",
     "limit_consecutive_nights",
     "no_consecutive_day_eve",
+    "exact_coverage",
 )
 
 # The fifteen legacy coverage keys: the only ones the solver/DataImporter know.
@@ -395,6 +400,9 @@ class ScheduleInput:
                 elif label.startswith("no consecutive day"):
                     if val is not None:
                         settings["no_consecutive_day_eve"] = _yesno(val)
+                elif label.startswith("exact coverage"):
+                    if val is not None:
+                        settings["exact_coverage"] = _yesno(val)
                 elif "special shift" in label:
                     if val is not None:
                         settings["head_nurse_special_shift"] = _yesno(val)

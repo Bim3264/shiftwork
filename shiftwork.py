@@ -134,6 +134,12 @@ class Solver():
         self.MAX_CONSECUTIVE_NIGHTS = 3
         self.NO_CONSECUTIVE_DAY_EVE = False
 
+        # Coverage semantics (constraint.md section 9). False = the per-shift
+        # numbers are a FLOOR (>=); True = exactly that many. Solver default is
+        # False so a legacy CSV without the key solves as it always did; the web
+        # layer writes the key explicitly (its default is True).
+        self.EXACT_COVERAGE = False
+
         # Seniors come from the Type column (DataImporter.seniorNurseIndices);
         # any number, including zero. No positional head/deputy.
         self.senior_nurse_indices: set = set()
@@ -222,6 +228,7 @@ class Solver():
         self.LIMIT_CONSECUTIVE_NIGHTS = bool(s.get('limit_consecutive_nights', False))
         self.MAX_CONSECUTIVE_NIGHTS   = max(1, int(s.get('max_consecutive_nights', 3)))
         self.NO_CONSECUTIVE_DAY_EVE   = bool(s.get('no_consecutive_day_eve', False))
+        self.EXACT_COVERAGE           = bool(s.get('exact_coverage', False))
         self.HEAD_NURSE_SPEACIAL_SHIFT = s['head_nurse_special_shift']
         self.enable_meetings       = s['enable_meetings']
         self.MIN_REQUEST_PERCENT   = max(0, min(100, int(s.get('min_request_percent', 100))))
@@ -565,7 +572,8 @@ class Solver():
 
 
     def _constraintMinimumNurse(self):
-        """Ensure at least the minimum required nurses per shift per day.
+        """Ensure the required nurses per shift per day: at least that many
+        (default), or EXACTLY that many when EXACT_COVERAGE is on (§9).
 
         For Day shift: nurses attending a meeting that day are excluded from
         the coverage count (they are present but not providing clinical coverage).
@@ -586,22 +594,29 @@ class Solver():
                     if n not in excluded
                 ]
                 if self._diag_mode and self._diag_gate_coverage:
-                    # Diagnosis pass 2: gate each (day, shift) minimum so the
-                    # core can name the day whose coverage cannot be met.
-                    lit = self.model.NewBoolVar(f'diag_cov_{d}_{shift.value}')
-                    self.model.Add(sum(nurses_assigned) >= required).OnlyEnforceIf(lit)
-                    # Carry the band so an infeasible HOLIDAY floor is nameable
-                    # in the diagnosis text, not just "day 13" (§20, §22).
+                    # Diagnosis pass 2: gate each (day, shift) bound so the core
+                    # can name the day whose coverage cannot be met. Carry the
+                    # band so an infeasible HOLIDAY floor is nameable in the
+                    # diagnosis text, not just "day 13" (§20, §22).
                     band = ('holiday' if d in self.holidays
                             else 'sunday' if d in self.sundays
                             else 'saturday' if d in self.saturdays
                             else 'weekend' if d in self.weekends else 'weekday')
-                    self._diag_gated.append(
-                        (lit, {'day': d + 1, 'shift': shift.value,
-                               'required': required, 'band': band})
-                    )
+                    rec = {'day': d + 1, 'shift': shift.value,
+                           'required': required, 'band': band}
+                    lit = self.model.NewBoolVar(f'diag_cov_{d}_{shift.value}')
+                    self.model.Add(sum(nurses_assigned) >= required).OnlyEnforceIf(lit)
+                    self._diag_gated.append((lit, dict(rec, side='short')))
+                    if self.EXACT_COVERAGE:
+                        # Exact mode: the ceiling is a SEPARATE assumption so the
+                        # core says "too many forced" apart from "too few".
+                        hi = self.model.NewBoolVar(f'diag_cov_hi_{d}_{shift.value}')
+                        self.model.Add(sum(nurses_assigned) <= required).OnlyEnforceIf(hi)
+                        self._diag_gated.append((hi, dict(rec, side='over')))
                 else:
                     self.model.Add(sum(nurses_assigned) >= required)
+                    if self.EXACT_COVERAGE:
+                        self.model.Add(sum(nurses_assigned) <= required)
 
 
     def optionHeadNurse(self):

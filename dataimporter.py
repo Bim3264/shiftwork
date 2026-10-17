@@ -251,6 +251,7 @@ class DataImporter():
             'limit_consecutive_nights': raw_settings.get('limit_consecutive_nights', 'false').lower() == 'true',
             'max_consecutive_nights':   max(1, int(str(raw_settings.get('max_consecutive_nights', 3)).strip() or 3)),
             'no_consecutive_day_eve':   raw_settings.get('no_consecutive_day_eve', 'false').lower() == 'true',
+            'exact_coverage':           raw_settings.get('exact_coverage', 'false').lower() == 'true',
             'head_nurse_special_shift': raw_settings.get('head_nurse_special_shift', 'true').lower() == 'true',
             'enable_meetings':          self.enable_meetings,
             'min_request_percent':      int(str(raw_settings.get('min_request_percent', 100)).strip() or 100),

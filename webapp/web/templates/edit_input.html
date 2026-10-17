@@ -243,6 +243,13 @@
         No consecutive ช/บ (Day+Evening double on two days in a row)
       </label><br>
       <label>
+        <input type="checkbox" name="exact_coverage"
+               {% if settings.exact_coverage %}checked{% endif %}>
+        Exact coverage &mdash; staff <b>exactly</b> the &ldquo;nurses required&rdquo; on every shift,
+        not at least. Stricter: if the roster and the numbers do not reconcile on some day there is
+        no schedule; untick to allow extra nurses on a shift.
+      </label><br>
+      <label>
         <input type="checkbox" name="head_nurse_special_shift"
                {% if settings.head_nurse_special_shift %}checked{% endif %}>
         Head-nurse special shift (senior DAY/OFF rule)
