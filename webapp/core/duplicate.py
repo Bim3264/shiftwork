@@ -5,7 +5,8 @@ requests cleared but the roster (names, types, active flags, order) and all
 settings/coverage preserved. When the source is dated (per
 ``months.parse_month_year``), the month is advanced (Dec -> Jan rolls the
 year) and ``num_days``/``weekends`` are recomputed for the new month via
-``calendar_util.month_dates``, with ``extra_holidays`` reset to []. When
+``calendar_util.month_dates`` (``weekends`` = Sat/Sun only, ``holidays`` = the
+new month's public holidays), with ``extra_holidays`` reset to []. When
 undated, ward_meta and settings are copied unchanged so the user can set the
 month and auto-fill themselves.
 
@@ -39,11 +40,17 @@ def next_month_input(si: ScheduleInput) -> ScheduleInput:
 
         md = month_dates(year, month, [])
         settings["num_days"] = md["num_days"]
-        settings["weekends"] = md["combined"]
+        settings["weekends"] = md["weekends"]
+        settings["saturdays"] = md["saturdays"]
+        settings["sundays"] = md["sundays"]
+        settings["holidays"] = md["holiday_days"]
         settings["extra_holidays"] = []
 
     nurses = [
-        Nurse(name=n.name, type=n.type, shifts={}, active=n.active)
+        # staff_class carries over: dropping it would silently turn a grouped
+        # ward (RN + PN/NA) back into one ungrouped schedule next month.
+        Nurse(name=n.name, type=n.type, shifts={}, active=n.active,
+              staff_class=n.staff_class, weekend_shifts=n.weekend_shifts)
         for n in si.nurses
     ]
 

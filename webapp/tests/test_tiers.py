@@ -9,7 +9,7 @@ if _PROJECT_DIR not in sys.path:
     sys.path.insert(0, _PROJECT_DIR)
 
 from webapp.core.schedule_input import ScheduleInput, Nurse  # noqa: E402
-from webapp.core.tiers import resolve_tier, tier_view  # noqa: E402
+from webapp.core.tiers import enforce_max_nurses, resolve_tier, tier_view  # noqa: E402
 
 
 class ResolveTierTest(unittest.TestCase):
@@ -70,6 +70,74 @@ class TierViewTest(unittest.TestCase):
         v = tier_view(_ward("free", 3))
         toggles = [o for o in v["options"] if "transition" in o["label"]]
         self.assertTrue(toggles and all(o["available"] for o in toggles))
+
+
+def _classed_ward(tier, rn, pn, na=0):
+    nurses = [Nurse(name=f"R{i}", staff_class="rn") for i in range(rn)]
+    nurses += [Nurse(name=f"P{i}", staff_class="pn") for i in range(pn)]
+    nurses += [Nurse(name=f"A{i}", staff_class="na") for i in range(na)]
+    return ScheduleInput.from_grid(
+        ward_meta={"ward_name": "W", "tier": tier},
+        settings={"num_days": 7, "weekends": [6, 7]},
+        nurses=nurses,
+    )
+
+
+class CombinedNurseCapTest(unittest.TestCase):
+    """The nurse ceiling is ONE figure across all staff groups. DataImporter only
+    sees one group's file at a time, so this guard is the only thing stopping a
+    ward from getting a separate allowance per group."""
+
+    def test_combined_tier_cap_blocks_split(self):
+        si = _classed_ward("free", rn=5, pn=5)      # free cap is 8
+        # Each half alone would pass the per-file cap - that is the whole point.
+        self.assertLessEqual(len(si.active_nurses("rn")), 8)
+        self.assertLessEqual(len(si.active_nurses("pn_na")), 8)
+        with self.assertRaises(ValueError) as cm:
+            enforce_max_nurses(si)
+        self.assertIn("10", str(cm.exception))
+        self.assertIn("8", str(cm.exception))
+
+        v = tier_view(si)
+        self.assertEqual(v["by_group"], {"rn": 5, "pn_na": 5})
+        self.assertEqual(v["nurse_count"], 10)
+        self.assertTrue(v["over_max"])
+
+    def test_nurse_assistants_count_toward_the_cap(self):
+        si = _classed_ward("free", rn=4, pn=3, na=2)   # 9 > 8
+        with self.assertRaises(ValueError):
+            enforce_max_nurses(si)
+        v = tier_view(si)
+        self.assertEqual(v["by_group"], {"rn": 4, "pn_na": 5})   # PN + NA together
+        self.assertEqual(v["nurse_count"], 9)
+        self.assertTrue(v["over_max"])
+
+    def test_exactly_at_cap_is_allowed(self):
+        si = _classed_ward("free", rn=4, pn=2, na=2)   # 8 == cap
+        enforce_max_nurses(si)                         # must not raise
+        v = tier_view(si)
+        self.assertEqual(v["nurse_count"], 8)
+        self.assertFalse(v["over_max"])
+
+    def test_higher_tier_accepts_the_same_roster(self):
+        si = _classed_ward("ward", rn=5, pn=5)         # ward cap is 15
+        enforce_max_nurses(si)
+        self.assertFalse(tier_view(si)["over_max"])
+
+    def test_inactive_nurses_do_not_count(self):
+        si = _classed_ward("free", rn=5, pn=5)
+        for n in si.nurses[:2]:                        # 10 -> 8 active
+            n.active = False
+        enforce_max_nurses(si)
+        v = tier_view(si)
+        self.assertEqual(v["nurse_count"], 8)
+        self.assertFalse(v["over_max"])
+        self.assertEqual(v["by_group"], {"rn": 3, "pn_na": 5})
+
+    def test_unclassed_ward_reports_empty_groups(self):
+        v = tier_view(_ward("free", 3))
+        self.assertEqual(v["by_group"], {"rn": 0, "pn_na": 0})
+        self.assertEqual(v["nurse_count"], 3)
 
 
 if __name__ == "__main__":

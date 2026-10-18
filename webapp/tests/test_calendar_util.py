@@ -41,5 +41,47 @@ class MonthDatesTest(unittest.TestCase):
         self.assertTrue(set(md["weekends"]).issubset(set(md["combined"])))
 
 
+    def test_saturdays_and_sundays_split_the_weekends(self):
+        # July 2026: the 4th is a Saturday, the 5th a Sunday.
+        md = month_dates(2026, 7)
+        self.assertEqual(md["saturdays"], [4, 11, 18, 25])
+        self.assertEqual(md["sundays"], [5, 12, 19, 26])
+        # `weekends` is still the union, in order, and nothing is dropped.
+        self.assertEqual(md["weekends"], sorted(md["saturdays"] + md["sundays"]))
+        for d in md["saturdays"]:
+            self.assertEqual(calendar.weekday(2026, 7, d), 5)
+        for d in md["sundays"]:
+            self.assertEqual(calendar.weekday(2026, 7, d), 6)
+
+    def test_month_dates_holiday_days(self):
+        # April 2026: Chakri (6th, a Monday) and Songkran (13-15) are public
+        # holidays on weekdays; the 4th/5th are a real Sat/Sun.
+        md = month_dates(2026, 4, extra_holidays=[2, 99])
+        public = {h["day"] for h in md["holidays"]}
+        self.assertTrue(public)
+        # holiday_days is exactly public holidays + (clamped) extras, sorted.
+        self.assertEqual(md["holiday_days"], sorted(public | {2}))
+        self.assertIn(2, md["holiday_days"])        # extra
+        self.assertIn(6, md["holiday_days"])        # public holiday
+        self.assertNotIn(99, md["holiday_days"])    # out-of-range extra clamped
+        # Sat/Sun are NOT holidays: they live in `weekends` only.
+        self.assertFalse(set(md["weekends"]) & set(md["holiday_days"]))
+        # combined is still the full union, so nothing that reads it breaks.
+        self.assertEqual(
+            md["combined"],
+            sorted(set(md["weekends"]) | set(md["holiday_days"])),
+        )
+        # And without extras, holiday_days is just the public holidays.
+        self.assertEqual(month_dates(2026, 4)["holiday_days"], sorted(public))
+
+    def test_holiday_on_a_weekend_is_in_both_lists(self):
+        # 5 Dec 2026 is a Saturday AND a public holiday: it must appear in
+        # weekends and holiday_days (the holiday band wins at solve time).
+        md = month_dates(2026, 12)
+        self.assertIn(5, md["weekends"])
+        self.assertIn(5, md["holiday_days"])
+        self.assertEqual(md["combined"].count(5), 1)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

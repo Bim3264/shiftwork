@@ -49,12 +49,12 @@ def _infeasible_input():
 
 
 def _bad_input():
-    # Single nurse + senior rule on -> validation rejects it.
+    # No active nurse -> validation rejects it.
     return ScheduleInput.from_grid(
         ward_meta={"ward_name": "BadWard"},
         settings={"num_days": 7, "weekends": [6, 7],
                   "head_nurse_special_shift": True},
-        nurses=[Nurse(name="Solo")],
+        nurses=[],
     )
 
 
@@ -121,7 +121,7 @@ class WorkerTaskTest(unittest.TestCase):
 
         job = self._reload(job_id)
         self.assertEqual(job.status, JobStatus.failed)
-        self.assertIn("2 active nurses", job.error)
+        self.assertIn("active nurse", job.error)
         self.assertIsNone(job.result_grid)
         self.assertIsNotNone(job.finished_at)
 

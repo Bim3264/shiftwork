@@ -26,9 +26,16 @@ from sqlalchemy.orm import Session
 from webapp import config
 from webapp.core.duplicate import next_month_input
 from webapp.core.schedule_input import (
+    GROUP_LABELS,
+    GROUP_PN_NA,
+    GROUP_RN,
     VALID_CELL_TOKENS,
     Nurse,
     ScheduleInput,
+    _COVERAGE_KEYS,
+    _MIN_REQUEST_KEYS,
+    _MIN_OFF_KEYS,
+    _normalize_token,
 )
 from webapp.core import presolve
 from webapp.core.tiers import tier_view
@@ -98,39 +105,55 @@ def _load_job(db: Session, user, job_id: int) -> SolveJob:
     return job
 
 
-def _settings_from_form(form) -> dict:
+def _settings_from_form(form, current: dict | None = None) -> dict:
     """Pull the constraint-selector fields out of a submitted form.
 
     ``enable_meetings`` is deliberately NOT read here: it is tier-derived, shown
     read-only, and never user-editable. Checkboxes are present-iff-checked.
+
+    ``holidays`` and the coverage keys (legacy 15 + per-staff-group 30) are
+    different: the edit page
+    renders only the block that applies (the PN/NA half is hidden until a nurse
+    is classed), so a key the form did not submit means "not shown", never
+    "reset to default". An absent key therefore takes ``current[key]`` when
+    ``current`` is given, else is omitted so ``_coerce_settings`` defaults it.
     """
-    return {
+    settings = {
         "num_days": form.get("num_days", ""),
         "weekends": form.get("weekends", ""),
         "allow_evening_to_night": form.get("allow_evening_to_night") is not None,
         "allow_night_to_day": form.get("allow_night_to_day") is not None,
         "head_nurse_special_shift": form.get("head_nurse_special_shift") is not None,
-        "min_request_percent": form.get("min_request_percent", "100"),
+        "limit_consecutive_nights": form.get("limit_consecutive_nights") is not None,
+        "max_consecutive_nights": form.get("max_consecutive_nights", "3"),
+        "limit_consecutive_shifts": form.get("limit_consecutive_shifts") is not None,
+        "max_consecutive_shifts": form.get("max_consecutive_shifts", "6"),
+        "no_consecutive_day_eve": form.get("no_consecutive_day_eve") is not None,
+        "exact_coverage": form.get("exact_coverage") is not None,
         "relax_days_off": form.get("relax_days_off") is not None,
         "enforce_vacation": form.get("enforce_vacation") is not None,
-        "coverage_weekday_day": form.get("coverage_weekday_day", "5"),
-        "coverage_weekday_evening": form.get("coverage_weekday_evening", "3"),
-        "coverage_weekday_night": form.get("coverage_weekday_night", "3"),
-        "coverage_weekend_day": form.get("coverage_weekend_day", "4"),
-        "coverage_weekend_evening": form.get("coverage_weekend_evening", "2"),
-        "coverage_weekend_night": form.get("coverage_weekend_night", "2"),
         "extra_holidays": form.get("extra_holidays", ""),
     }
+    # min_request_percent{,_rn,_pnna}: the edit page shows the legacy field OR the
+    # per-group pair, never both, so absent = "not shown", not "reset".
+    for key in ("holidays", "saturdays", "sundays") + _MIN_REQUEST_KEYS + _MIN_OFF_KEYS + tuple(_COVERAGE_KEYS):
+        value = form.get(key)
+        if value is not None:
+            settings[key] = value
+        elif current is not None and key in current:
+            settings[key] = current[key]
+    return settings
 
 
 def _schedule_input_from_form(form, row) -> ScheduleInput:
     """Build a ScheduleInput from a submitted edit form (settings + grid + the
     month/year in ward_meta). Shared by save and auto-fill."""
-    raw_settings = _settings_from_form(form)
+    current_settings = ScheduleInput.from_dict(row.data).settings
+    raw_settings = _settings_from_form(form, current_settings)
     try:
         num_days = int(raw_settings["num_days"])
     except (TypeError, ValueError):
-        num_days = ScheduleInput.from_dict(row.data).settings["num_days"]
+        num_days = current_settings["num_days"]
         raw_settings["num_days"] = num_days
     nurses = _nurses_from_form(form, num_days)
     ward_meta = dict(ScheduleInput.from_dict(row.data).ward_meta)
@@ -144,7 +167,8 @@ def _schedule_input_from_form(form, row) -> ScheduleInput:
 
 
 def _nurses_from_form(form, num_days: int) -> list[Nurse]:
-    """Rebuild nurse rows from grid form fields: name_{r}, type_{r}, cell_{r}_{d}."""
+    """Rebuild nurse rows from grid form fields: name_{r}, type_{r}, class_{r}, wkshifts_{r},
+    cell_{r}_{d}."""
     try:
         row_count = int(form.get("row_count", "0"))
     except (TypeError, ValueError):
@@ -155,6 +179,10 @@ def _nurses_from_form(form, num_days: int) -> list[Nurse]:
         if not name:
             continue
         ntype = (form.get(f"type_{r}") or "").strip()
+        # Staff class (rn / pn / na / blank); Nurse normalises unknown values to "".
+        staff_class = (form.get(f"class_{r}") or "").strip()
+        # Senior weekend shifts (17a): blank/junk -> 0 (not opted in).
+        weekend_shifts = (form.get(f"wkshifts_{r}") or "").strip()
         # Checkbox present-iff-checked; a disabled nurse is kept but not solved.
         active = form.get(f"active_{r}") is not None
         shifts: dict[int, str] = {}
@@ -162,10 +190,11 @@ def _nurses_from_form(form, num_days: int) -> list[Nurse]:
             raw = (form.get(f"cell_{r}_{d}") or "").strip()
             if not raw:
                 continue
-            # Match the CSV path: control words are lowercased, symbols kept.
-            token = raw.lower() if raw.lower() in {"off", "mtg"} else raw
-            shifts[d] = token
-        nurses.append(Nurse(name=name, type=ntype, shifts=shifts, active=active))
+            # Same canonicalisation as the CSV/xlsx paths: control words and
+            # off-ward cells are normalised ('VAC' -> 'vac', 'FLT:ด' -> 'flt:ด').
+            shifts[d] = _normalize_token(raw)
+        nurses.append(Nurse(name=name, type=ntype, shifts=shifts, active=active,
+                            staff_class=staff_class, weekend_shifts=weekend_shifts))
     return nurses
 
 
@@ -334,9 +363,10 @@ async def update_input(input_id: int, request: Request, user=Depends(require_use
 
 @app.post("/inputs/{input_id}/autofill")
 async def autofill_dates(input_id: int, request: Request, user=Depends(require_user), db: Session = Depends(get_db)):
-    """Auto-fill num_days + weekends from the input's month/year: calendar days,
-    all Sat/Sun, public holidays (Thailand), plus the manual extra_holidays.
-    Applies any pending form edits first so nothing typed is lost."""
+    """Auto-fill num_days, weekends and holidays from the input's month/year:
+    calendar days, `weekends` = all Sat/Sun only, and `holidays` = public
+    holidays (Thailand) plus the manual extra_holidays (the special-holiday
+    coverage band, constraint.md section 22). Applies any pending form edits first so nothing typed is lost."""
     row = _load_input(db, user, input_id)
     form = await request.form(max_fields=100_000)
     schedule_input = _schedule_input_from_form(form, row)
@@ -353,7 +383,10 @@ async def autofill_dates(input_id: int, request: Request, user=Depends(require_u
     from webapp.core.calendar_util import month_dates
     md = month_dates(year, month, schedule_input.settings.get("extra_holidays", []))
     schedule_input.settings["num_days"] = md["num_days"]
-    schedule_input.settings["weekends"] = md["combined"]
+    schedule_input.settings["weekends"] = md["weekends"]
+    schedule_input.settings["saturdays"] = md["saturdays"]
+    schedule_input.settings["sundays"] = md["sundays"]
+    schedule_input.settings["holidays"] = md["holiday_days"]
     row.data = schedule_input.to_dict()
     db.commit()
     return RedirectResponse(url=f"/inputs/{row.id}/edit", status_code=303)
@@ -388,11 +421,12 @@ def solve_input(input_id: int, request: Request, user=Depends(require_user), db:
         return _render_edit(request, user, row, schedule_input,
                             error=str(exc), status_code=400)
 
-    report = presolve.check(schedule_input)
-    if not report.ok:
-        return _render_edit(request, user, row, schedule_input,
-                            error="Fix the blockers below before solving.",
-                            check=report, status_code=400)
+    if config.PRESOLVE_BLOCKS_SOLVE:
+        report = presolve.check(schedule_input)
+        if not report.ok:
+            return _render_edit(request, user, row, schedule_input,
+                                error="Fix the blockers below before solving.",
+                                check=report, status_code=400)
 
     job = SolveJob(
         input_id=row.id,
@@ -427,16 +461,44 @@ async def check_input(input_id: int, request: Request, user=Depends(require_user
     return _render_edit(request, user, row, schedule_input, error=None, check=report)
 
 
-def _fairness_for_job(job) -> dict | None:
-    """Per-nurse fairness stats for a solved job, or None. Pure derivation from
-    the stored result_grid — no solver run, works on old jobs too."""
+def _fairness_for_job(job) -> list[dict]:
+    """Per-nurse fairness stats for a solved job as ``[{"key","label","fair"}]``.
+
+    Pure derivation from the stored result_grid - no solver run, works on old
+    jobs too. A pre-existing (or ungrouped) grid has no ``groups`` key and yields
+    ONE entry with an empty key/label. A grouped grid yields one entry per group;
+    ``seniors`` are the active nurses typed senior (any group, any number).
+    Not succeeded / no grid -> [].
+    """
     if job.status.value != "succeeded" or not job.result_grid:
-        return None
+        return []
     settings = (getattr(job.input, "data", None) or {}).get("settings", {}) or {}
-    seniors = {0, 1} if settings.get("head_nurse_special_shift") else set()
-    return fairness_stats(
-        job.result_grid, settings.get("weekends"), seniors
-    )
+    # The fairness "weekend" columns count holidays too (union, as the solver does).
+    weekends = sorted(set(settings.get("weekends") or ())
+                      | set(settings.get("holidays") or ())
+                      | set(settings.get("saturdays") or ())
+                      | set(settings.get("sundays") or ()))
+    senior_on = bool(settings.get("head_nurse_special_shift"))
+    # Seniority is the Type column. Grid nurse_index = position among ACTIVE nurses.
+    nurses = [n for n in ((getattr(job.input, "data", None) or {}).get("nurses") or [])
+              if n.get("active", True)]
+    seniors = ({i for i, n in enumerate(nurses)
+                if str(n.get("type", "")).strip().lower() in ("senior", "อาวุโส", "ซีเนียร์")}
+               if senior_on else set())
+    grid = job.result_grid
+    groups = grid.get("groups") or []
+    if not groups:
+        return [{"key": "", "label": "",
+                 "fair": fairness_stats(grid, weekends, seniors)}]
+    out = []
+    for g in groups:
+        key = g.get("key", "")
+        out.append({
+            "key": key,
+            "label": g.get("label") or GROUP_LABELS.get(key, key),
+            "fair": fairness_stats(grid, weekends, seniors, group=key),
+        })
+    return out
 
 
 @app.get("/jobs/{job_id}", response_class=HTMLResponse)
@@ -454,6 +516,21 @@ def job_status(job_id: int, request: Request, user=Depends(require_user), db: Se
     return templates.TemplateResponse(
         request, "status_fragment.html",
         {"user": user, "job": job, "fair": _fairness_for_job(job)},
+    )
+
+
+@app.get("/jobs/{job_id}/download.xlsx")
+def job_download_xlsx(job_id: int, request: Request, user=Depends(require_user), db: Session = Depends(get_db)):
+    job = _load_job(db, user, job_id)
+    if not job.result_grid or not job.result_grid.get("rows"):
+        raise HTTPException(status_code=404, detail="No solved schedule for this job")
+    from webapp.core.schedule_export import schedule_xlsx_bytes
+    data = getattr(job.input, "data", None) or {}
+    return Response(
+        content=schedule_xlsx_bytes(job.result_grid, data.get("ward_meta"),
+                                    data.get("settings"), _fairness_for_job(job)),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="schedule_{job_id}.xlsx"'},
     )
 
 
@@ -492,6 +569,20 @@ def _render_edit(request, user, row, schedule_input, error, check=None, status_c
     except (TypeError, ValueError):
         pass
 
+    # One coverage table. Its PN/NA column group appears only once some active
+    # nurse is classed; otherwise the ward sees today's six legacy fields.
+    classed = any(n.active and n.staff_class for n in schedule_input.nurses)
+    if classed:
+        coverage_groups = [
+            {"label": GROUP_LABELS[GROUP_RN], "prefix": "coverage_rn_",
+             "min_key": "min_request_percent_rn", "off_key": "min_days_off_rn"},
+            {"label": GROUP_LABELS[GROUP_PN_NA], "prefix": "coverage_pnna_",
+             "min_key": "min_request_percent_pnna", "off_key": "min_days_off_pnna"},
+        ]
+    else:
+        coverage_groups = [{"label": "", "prefix": "coverage_",
+                            "min_key": "min_request_percent", "off_key": "min_days_off"}]
+
     return templates.TemplateResponse(
         request,
         "edit_input.html",
@@ -499,7 +590,21 @@ def _render_edit(request, user, row, schedule_input, error, check=None, status_c
             "user": user,
             "row": row,
             "settings": schedule_input.settings,
+            "coverage_groups": coverage_groups,
+            "coverage_defaults": {
+                "weekday": {"day": 5, "evening": 3, "night": 3},
+                "weekend": {"day": 4, "evening": 2, "night": 2},
+                "saturday": {"day": 4, "evening": 2, "night": 2},
+                "sunday": {"day": 4, "evening": 2, "night": 2},
+                "holiday": {"day": 4, "evening": 2, "night": 2},
+            },
+            "saturdays_str": " ".join(
+                str(d) for d in schedule_input.settings.get("saturdays", [])),
+            "sundays_str": " ".join(
+                str(d) for d in schedule_input.settings.get("sundays", [])),
             "weekends_str": " ".join(str(d) for d in schedule_input.settings["weekends"]),
+            "holidays_str": " ".join(
+                str(d) for d in schedule_input.settings.get("holidays", [])),
             "extra_holidays_str": " ".join(
                 str(d) for d in schedule_input.settings.get("extra_holidays", [])),
             "holidays_preview": holidays_preview,

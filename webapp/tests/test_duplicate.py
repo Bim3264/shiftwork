@@ -4,6 +4,7 @@ Run from the project root:
   python3 -m unittest webapp.tests.test_duplicate
 """
 
+import calendar
 import os
 import sys
 import unittest
@@ -27,6 +28,13 @@ def _si(ward_meta=None, settings=None, nurses=None):
 
 class NextMonthInputTests(unittest.TestCase):
 
+    def test_weekend_shifts_carries_over(self):
+        # Dropping it would silently turn an opted-in senior back into
+        # always-off-at-weekends next month.
+        si = _si(ward_meta={"month": "9", "year": "2026"}, settings={"num_days": 30},
+                 nurses=[Nurse(name="Head", type="senior", weekend_shifts=2)])
+        self.assertEqual(next_month_input(si).nurses[0].weekend_shifts, 2)
+
     def test_next_month_advances_and_recomputes_dates(self):
         si = _si(
             ward_meta={"month": "9", "year": "2026"},
@@ -36,8 +44,23 @@ class NextMonthInputTests(unittest.TestCase):
         self.assertEqual(new.ward_meta["month"], "10")
         self.assertEqual(new.ward_meta["year"], "2026")
         self.assertEqual(new.settings["num_days"], 31)
-        self.assertEqual(new.settings["weekends"], month_dates(2026, 10, [])["combined"])
+        # The holiday split: `weekends` is Sat/Sun ONLY, `holidays` is the new
+        # month's public holidays. Asserting both directions means writing
+        # `combined` back into `weekends` (which silently undoes the split on
+        # every month duplication) fails here.
+        md = month_dates(2026, 10, [])
+        self.assertEqual(new.settings["weekends"], md["weekends"])
+        self.assertEqual(new.settings["holidays"], md["holiday_days"])
         self.assertEqual(new.settings["extra_holidays"], [])
+        # Oct 2026 has weekday public holidays (13th, 23rd): they must be in
+        # holidays and must NOT leak into weekends.
+        self.assertTrue(md["holiday_days"])
+        self.assertNotEqual(md["weekends"], md["combined"])
+        for d in new.settings["weekends"]:
+            self.assertGreaterEqual(calendar.weekday(2026, 10, d), 5)
+        for d in md["holiday_days"]:
+            self.assertIn(d, new.settings["holidays"])
+            self.assertNotIn(d, new.settings["weekends"])
 
     def test_next_month_rolls_year(self):
         si = _si(ward_meta={"month": "12", "year": "2026"})
@@ -109,6 +132,49 @@ class NextMonthInputTests(unittest.TestCase):
         new = next_month_input(si)
         reparsed = ScheduleInput.from_dict(new.to_dict())
         reparsed.to_solver_csv()  # must not raise
+
+
+    def test_duplicate_carries_holidays(self):
+        # A stale holidays list and extra_holidays on the source must not
+        # survive: the new month gets ITS public holidays, extras reset.
+        si = _si(
+            ward_meta={"month": "9", "year": "2026"},
+            settings={"num_days": 30, "weekends": [5, 6, 12, 13],
+                      "holidays": [7, 8], "extra_holidays": [3]},
+        )
+        new = next_month_input(si)
+        md = month_dates(2026, 10, [])
+        self.assertEqual(new.settings["holidays"], md["holiday_days"])
+        self.assertTrue(md["holiday_days"])
+        self.assertEqual(new.settings["weekends"], md["weekends"])
+        self.assertEqual(new.settings["extra_holidays"], [])
+        # The old month's extra/holiday days must not be carried over.
+        self.assertNotIn(3, new.settings["holidays"])
+        self.assertNotIn(7, new.settings["holidays"])
+        # Source untouched.
+        self.assertEqual(si.settings["holidays"], [7, 8])
+
+    def test_duplicate_recomputes_saturdays_and_sundays(self):
+        si = _si(
+            ward_meta={"month": "9", "year": "2026"},
+            settings={"num_days": 30, "weekends": [5, 6, 12, 13],
+                      "saturdays": [5, 12], "sundays": [6, 13]},
+        )
+        new = next_month_input(si)
+        md = month_dates(2026, 10, [])
+        self.assertEqual(new.settings["saturdays"], md["saturdays"])
+        self.assertEqual(new.settings["sundays"], md["sundays"])
+        self.assertEqual(new.settings["saturdays"], [3, 10, 17, 24, 31])
+        self.assertEqual(si.settings["saturdays"], [5, 12])   # source untouched
+
+    def test_duplicate_undated_copies_holidays_unchanged(self):
+        si = _si(
+            ward_meta={"ward_name": "Ward 4B"},
+            settings={"num_days": 15, "weekends": [1, 2], "holidays": [9]},
+        )
+        new = next_month_input(si)
+        self.assertEqual(new.settings["weekends"], [1, 2])
+        self.assertEqual(new.settings["holidays"], [9])
 
 
 if __name__ == "__main__":

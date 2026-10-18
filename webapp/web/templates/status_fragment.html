@@ -3,6 +3,53 @@
   attributes (hx-get + hx-trigger every 2s, hx-swap outerHTML); on a terminal
   state it renders WITHOUT them so polling stops.
 #}
+{# One schedule table for a list of rows. An off-ward cell (flt:ด / ref:ช - any
+   cell containing ':') gets its own tint, distinct from off and vac. #}
+{% macro schedule_table(days, rows) %}
+    <div class="card" style="overflow:auto;padding:8px">
+    <table>
+      <tr>
+        <th>Nurse</th>
+        {% for d in days %}<th>{{ d }}</th>{% endfor %}
+      </tr>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r.name }}</td>
+        {% for c in r.cells %}<td class="cell"{% if c == "vac" %} style="background:#CFFAFE;color:#155E75;font-weight:600"{% elif c == "off" %} style="background:#FEE2E2;color:#991B1B"{% elif ":" in c %} style="background:#FFEDD5;color:#9A3412;font-weight:600" title="Off-ward duty: counts as a worked shift, not in this ward's coverage"{% endif %}>{{ c }}</td>{% endfor %}
+      </tr>
+      {% endfor %}
+    </table>
+    </div>
+{% endmacro %}
+
+{% macro fairness_block(fair, label) %}
+    <h3>ความเป็นธรรม / Fairness{% if label %} — {{ label }}{% endif %}</h3>
+    <p class="muted">
+      Night <strong>{{ fair.spread.night.min }}–{{ fair.spread.night.max }}</strong> ·
+      Evening <strong>{{ fair.spread.evening.min }}–{{ fair.spread.evening.max }}</strong> ·
+      Total <strong>{{ fair.spread.shifts.min }}–{{ fair.spread.shifts.max }}</strong> ·
+      OFF <strong>{{ fair.spread.off_days.min }}–{{ fair.spread.off_days.max }}</strong>
+      {% if fair.has_vacations %} · Vacation days <strong>{{ fair.totals.vac_days }}</strong>{% endif %}
+      {% if fair.has_offward %} · Off-ward days <strong>{{ fair.totals.offward_days }}</strong>{% endif %}
+      {% if fair.senior_excluded %}
+      <span>(range excludes {{ fair.senior_excluded }} day-only senior{{ 's' if fair.senior_excluded > 1 else '' }})</span>
+      {% endif %}
+    </p>
+    <div class="card" style="overflow:auto;padding:8px">
+    <table>
+      <tr><th>Nurse</th><th>ช Day</th><th>บ Eve</th><th>ด Night</th>
+          <th>Total</th><th>OFF</th>{% if fair.has_vacations %}<th>vac Leave</th>{% endif %}{% if fair.has_offward %}<th>Off-ward</th>{% endif %}<th>Weekend</th></tr>
+      {% for n in fair.per_nurse %}
+      <tr>
+        <td>{{ n.name }}{% if n.senior %} <span class="muted">· senior</span>{% endif %}</td>
+        <td>{{ n.day }}</td><td>{{ n.evening }}</td><td>{{ n.night }}</td>
+        <td><strong>{{ n.shifts }}</strong></td><td>{{ n.off_days }}</td>{% if fair.has_vacations %}<td style="color:#155E75">{{ n.vac_days }}</td>{% endif %}{% if fair.has_offward %}<td style="color:#9A3412">{{ n.offward_days }}</td>{% endif %}<td>{{ n.weekend_shifts }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    </div>
+{% endmacro %}
+
 {% set polling = job.status.value in ("queued", "running") %}
 <div id="job-status"
      {% if polling %}
@@ -18,7 +65,8 @@
 
   {% elif job.status.value == "succeeded" and job.result_grid %}
     <h2>ตารางเวร / Schedule ({{ job.solver_status }})</h2>
-    <p><a class="btn" href="/jobs/{{ job.id }}/download">Download CSV</a></p>
+    <p><a class="btn" href="/jobs/{{ job.id }}/download.xlsx">Download Excel</a>
+       <a class="btn" href="/jobs/{{ job.id }}/download">Download CSV</a></p>
     {% set rep = job.result_grid.get("request_report") %}
     {% if rep %}
       <p>Accepted <strong>{{ rep.accepted }}/{{ rep.total }}</strong> requests
@@ -35,45 +83,24 @@
       </details>
       {% else %}<p class="muted">All requests were accepted.</p>{% endif %}
     {% endif %}
-    <div class="card" style="overflow:auto;padding:8px">
-    <table>
-      <tr>
-        <th>Nurse</th>
-        {% for d in job.result_grid["days"] %}<th>{{ d }}</th>{% endfor %}
-      </tr>
-      {% for r in job.result_grid["rows"] %}
-      <tr>
-        <td>{{ r.name }}</td>
-        {% for c in r.cells %}<td class="cell"{% if c == "vac" %} style="background:#CFFAFE;color:#155E75;font-weight:600"{% elif c == "off" %} style="background:#FEE2E2;color:#991B1B"{% endif %}>{{ c }}</td>{% endfor %}
-      </tr>
+    {% set groups = job.result_grid.get("groups") %}
+    {% if groups %}
+      {# Staff-class result: one schedule table + fairness block per group. The
+         flat `rows` list holds every nurse; filter by the group's global indices. #}
+      {% for g in groups %}
+      <h3>{{ g.label }}{% if g.solver_status %} <span class="muted">({{ g.solver_status }})</span>{% endif %}</h3>
+      {% set grows = [] %}
+      {% for r in job.result_grid["rows"] %}{% if r.nurse_index in g.nurse_indices %}{% set _ = grows.append(r) %}{% endif %}{% endfor %}
+      {{ schedule_table(job.result_grid["days"], grows) }}
+      {% for f in fair or [] if f.key == g.key and f.fair %}
+        {{ fairness_block(f.fair, g.label) }}
       {% endfor %}
-    </table>
-    </div>
-    {% if fair %}
-    <h3>ความเป็นธรรม / Fairness</h3>
-    <p class="muted">
-      Night <strong>{{ fair.spread.night.min }}–{{ fair.spread.night.max }}</strong> ·
-      Evening <strong>{{ fair.spread.evening.min }}–{{ fair.spread.evening.max }}</strong> ·
-      Total <strong>{{ fair.spread.shifts.min }}–{{ fair.spread.shifts.max }}</strong> ·
-      OFF <strong>{{ fair.spread.off_days.min }}–{{ fair.spread.off_days.max }}</strong>
-      {% if fair.has_vacations %} · Vacation days <strong>{{ fair.totals.vac_days }}</strong>{% endif %}
-      {% if fair.senior_excluded %}
-      <span>(range excludes {{ fair.senior_excluded }} day-only senior{{ 's' if fair.senior_excluded > 1 else '' }})</span>
-      {% endif %}
-    </p>
-    <div class="card" style="overflow:auto;padding:8px">
-    <table>
-      <tr><th>Nurse</th><th>ช Day</th><th>บ Eve</th><th>ด Night</th>
-          <th>Total</th><th>OFF</th>{% if fair.has_vacations %}<th>vac Leave</th>{% endif %}<th>Weekend</th></tr>
-      {% for n in fair.per_nurse %}
-      <tr>
-        <td>{{ n.name }}{% if n.senior %} <span class="muted">· senior</span>{% endif %}</td>
-        <td>{{ n.day }}</td><td>{{ n.evening }}</td><td>{{ n.night }}</td>
-        <td><strong>{{ n.shifts }}</strong></td><td>{{ n.off_days }}</td>{% if fair.has_vacations %}<td style="color:#155E75">{{ n.vac_days }}</td>{% endif %}<td>{{ n.weekend_shifts }}</td>
-      </tr>
       {% endfor %}
-    </table>
-    </div>
+    {% else %}
+      {{ schedule_table(job.result_grid["days"], job.result_grid["rows"]) }}
+      {% for f in fair or [] if f.fair %}
+        {{ fairness_block(f.fair, f.label) }}
+      {% endfor %}
     {% endif %}
     <div class="gap-note">Excel/PDF export isn't built yet — CSV only (FEATURE-GAPS §2).</div>
 

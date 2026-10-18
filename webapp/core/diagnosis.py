@@ -48,7 +48,13 @@ def render_text(named: Optional[dict], relaxations: Optional[list]) -> str:
     elif reason == "coverage":
         lines.append("[Diagnosis] Coverage cannot be met:")
         for c in named.get("coverage", []):
-            lines.append(f"  · day {c['day']}: needs {c['required']} {c['shift']}")
+            band = c.get("band")
+            where = f"day {c['day']}" + (f" ({band})" if band and band != "weekday" else "")
+            if c.get("side") == "over":
+                lines.append(f"  · {where}: too many nurses forced onto {c['shift']} "
+                             f"- exactly {c['required']} allowed")
+            else:
+                lines.append(f"  · {where}: needs {c['required']} {c['shift']}")
         if named.get("truncated"):
             lines.append("  (list truncated)")
     elif reason == "structural":

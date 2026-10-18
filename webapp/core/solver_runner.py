@@ -26,7 +26,8 @@ import pandas as pd
 from ortools.sat.python import cp_model
 
 import shiftwork
-from webapp.core.schedule_input import ScheduleInput
+from webapp.core.schedule_input import GROUP_LABELS, ScheduleInput
+from webapp.core.tiers import enforce_max_nurses
 
 # CP-SAT status int -> human-readable name.
 _STATUS_NAMES = {
@@ -92,7 +93,69 @@ def run_schedule(
     diagnose_seconds: float = 0.0,
     relax_seconds: float = 0.0,
 ) -> SolveResult:
-    """Run the solver on `schedule_input` and return a normalized result."""
+    """Run the solver on `schedule_input` and return a normalized result.
+
+    A ward whose nurses carry no staff class takes the legacy path: exactly one
+    solve over the whole roster. A classed ward (RN / PN-NA) is solved as one
+    fully independent run per group and the results are merged. Every time
+    budget is divided across the groups so the total stays under
+    WORKER_JOB_TIMEOUT_SECONDS (webapp/config.py asserts
+    SOLVER_MAX_TIME_SECONDS < WORKER_JOB_TIMEOUT_SECONDS).
+    """
+    groups = schedule_input.solve_groups()
+    if not groups:
+        return _run_one(
+            schedule_input, None, max_time_seconds, diagnose_seconds, relax_seconds
+        )
+
+    # The combined tier ceiling must be checked BEFORE the split:
+    # DataImporter only checks one file at a time, so each per-group CSV would
+    # otherwise pass on its own and the ward would get one allowance per group.
+    enforce_max_nurses(schedule_input)
+
+    # validate() normally blocks a mixed classed/unclassed roster, but this
+    # function is also called directly (worker, tests). A nurse who belongs to
+    # no group would silently be missing from the schedule.
+    grouped = sum(len(schedule_input.active_nurses(g)) for g in groups)
+    total = len(schedule_input.active_nurses())
+    if grouped != total:
+        raise ValueError(
+            f"{total - grouped} active nurse(s) have no staff class. "
+            "Set RN or PN/NA for every nurse, or clear them all."
+        )
+
+    share = len(groups)
+    results = [
+        (g, _run_one(
+            schedule_input, g,
+            max_time_seconds / share,
+            diagnose_seconds / share,
+            relax_seconds / share,
+        ))
+        for g in groups
+    ]
+    return _merge(schedule_input, results)
+
+
+class _GroupView:
+    """Just enough of a ScheduleInput for diagnosis naming: solver indices are
+    group-local, so names must be looked up in that group's roster."""
+
+    def __init__(self, nurses):
+        self._nurses = nurses
+
+    def active_nurses(self, group=None):
+        return self._nurses
+
+
+def _run_one(
+    schedule_input: ScheduleInput,
+    group: Optional[str],
+    max_time_seconds: float,
+    diagnose_seconds: float,
+    relax_seconds: float,
+) -> SolveResult:
+    """One solver run over `group`'s roster (or the whole roster if None)."""
     num_days = schedule_input.settings["num_days"]
     # Solver constructor expects 0-based weekend indices; our canonical form is
     # 1-based (as written in the CSV), so convert at this boundary.
@@ -106,7 +169,7 @@ def run_schedule(
     os.makedirs(os.path.join(workdir, "output"))
     input_path = os.path.join(workdir, "input", "schedule.csv")
     with open(input_path, "w", encoding="utf-8") as f:
-        f.write(schedule_input.to_solver_csv())
+        f.write(schedule_input.to_solver_csv(group=group))
 
     log_buf = io.StringIO()
     try:
@@ -132,9 +195,13 @@ def run_schedule(
                     from webapp.core.diagnosis import name_diagnosis, render_text
 
                     raw = solver.diagnose(diagnose_seconds)
-                    named = name_diagnosis(raw, schedule_input)
+                    view = (
+                        schedule_input if group is None
+                        else _GroupView(schedule_input.active_nurses(group))
+                    )
+                    named = name_diagnosis(raw, view)
                     diagnosis = named
-                    if relax_seconds > 0:
+                    if relax_seconds > 0 and group is None:
                         try:
                             from webapp.core import relaxation
 
@@ -152,9 +219,9 @@ def run_schedule(
                     relaxations = None
                     print(f"[Diagnosis] unavailable: {exc}")
         if solved:
-            csv_text, grid = _read_output(workdir, schedule_input)
+            csv_text, grid = _read_output(workdir, schedule_input, group)
             report = _name_request_report(
-                getattr(solver, "request_report", None), schedule_input
+                getattr(solver, "request_report", None), schedule_input, group
             )
             if grid is not None and report is not None:
                 grid["request_report"] = report
@@ -174,14 +241,14 @@ def run_schedule(
     )
 
 
-def _name_request_report(report, schedule_input):
+def _name_request_report(report, schedule_input, group=None):
     """Attach nurse names to a solver request_report (which uses indices).
 
     The solver's nurse index matches the active-nurse ordering fed to it, so map
     dropped-request indices back through that list."""
     if not report:
         return None
-    solved_nurses = schedule_input.active_nurses()
+    solved_nurses = schedule_input.active_nurses(group)
 
     def _name(i):
         return solved_nurses[i].name if i < len(solved_nurses) else f"Nurse {i}"
@@ -199,7 +266,7 @@ def _name_request_report(report, schedule_input):
 
 
 def _read_output(
-    workdir: str, schedule_input: ScheduleInput
+    workdir: str, schedule_input: ScheduleInput, group: Optional[str] = None
 ) -> tuple[str, dict]:
     """Read the single output CSV the solver wrote and render it into a grid.
 
@@ -217,9 +284,10 @@ def _read_output(
 
     df = pd.read_csv(out_path, index_col=0, encoding="utf-8-sig")
     day_labels = [int(c) for c in df.columns]
-    # Only active nurses were sent to the solver, in this order, so map the
-    # output rows back to that same list.
-    solved_nurses = schedule_input.active_nurses()
+    # Only active nurses (of this group, if any) were sent to the solver, in
+    # this order, so map the output rows back to that same list. With a group
+    # the nurse_index is group-local; _merge remaps it to the global index.
+    solved_nurses = schedule_input.active_nurses(group)
     rows: list[dict[str, Any]] = []
     for pos, (_idx, series) in enumerate(df.iterrows()):
         name = (
@@ -235,6 +303,100 @@ def _read_output(
 
     grid = {"days": day_labels, "rows": rows}
     return csv_text, grid
+
+
+def _merge(
+    schedule_input: ScheduleInput, results: list[tuple[str, SolveResult]]
+) -> SolveResult:
+    """Combine per-group results into one SolveResult (grid shape: spec 3.4).
+
+    Solved only if EVERY group solved - half a ward is not a schedule."""
+    log = "\n".join(
+        f"=== {GROUP_LABELS.get(g, g)} ===\n{r.log}" for g, r in results
+    )
+    unsolved = next(((g, r) for g, r in results if not r.solved), None)
+    if unsolved is not None:
+        ug, ur = unsolved
+        diagnosis = None
+        if ur.diagnosis:
+            diagnosis = dict(ur.diagnosis)
+            diagnosis["group"] = ug
+        relaxations = None
+        if ur.relaxations:
+            relaxations = [dict(t, group=ug) for t in ur.relaxations]
+        return SolveResult(
+            solver_status=ur.solver_status,
+            solved=False,
+            grid=None,
+            csv_text=None,
+            log=log,
+            request_report=None,
+            diagnosis=diagnosis,
+            relaxations=relaxations,
+        )
+
+    status = (
+        "OPTIMAL" if all(r.solver_status == "OPTIMAL" for _g, r in results)
+        else "FEASIBLE"
+    )
+
+    days = results[0][1].grid["days"]
+    rows: list[dict[str, Any]] = []
+    group_meta: list[dict[str, Any]] = []
+    for g, r in results:
+        global_idx = schedule_input.group_indices(g)
+        for row in r.grid["rows"]:
+            local = row["nurse_index"]
+            rows.append({
+                "nurse_index": global_idx[local],
+                "name": row["name"],
+                "cells": row["cells"],
+                "group": g,
+            })
+        group_meta.append({
+            "key": g,
+            "label": GROUP_LABELS.get(g, g),
+            "nurse_indices": list(global_idx),
+            "solver_status": r.solver_status,
+            "request_report": r.request_report,
+        })
+    rows.sort(key=lambda row: row["nurse_index"])
+
+    reports = [r.request_report for _g, r in results if r.request_report is not None]
+    report = None
+    if reports:
+        total = sum(x["total"] for x in reports)
+        accepted = sum(x["accepted"] for x in reports)
+        report = {
+            "total": total,
+            "accepted": accepted,
+            "percent": round(100.0 * accepted / total, 1) if total else 100.0,
+            "dropped": [d for x in reports for d in x["dropped"]],
+        }
+
+    grid: dict[str, Any] = {"days": days, "rows": rows, "groups": group_meta}
+    if report is not None:
+        grid["request_report"] = report
+
+    # Same layout the solver writes and _read_output reads: index = nurse index
+    # (now global), columns = day numbers.
+    df = pd.DataFrame(
+        [row["cells"] for row in rows],
+        index=[row["nurse_index"] for row in rows],
+        columns=[str(d) for d in days],
+    )
+    csv_text = df.to_csv(lineterminator="\n")
+
+    return SolveResult(
+        solver_status=status,
+        solved=True,
+        grid=grid,
+        csv_text=csv_text,
+        log=log,
+        request_report=report,
+        diagnosis=None,
+        relaxations=None,
+    )
 
 
 def _rmtree_quiet(path: str) -> None:

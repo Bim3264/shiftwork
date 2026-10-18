@@ -53,6 +53,48 @@ class FairnessStatsTests(unittest.TestCase):
         self.assertEqual(s["totals"]["weekend_shifts"], 0)
 
 
+class OffwardStatsTests(unittest.TestCase):
+    """Off-ward duty (constraint.md section 21): a worked shift of its type."""
+
+    def test_offward_counts_as_a_worked_shift(self):
+        grid = {"days": ["1", "2"], "rows": [
+            {"nurse_index": 0, "name": "A", "cells": ["flt:ด", "off"]},
+        ]}
+        s = fairness_stats(grid)
+        a = s["per_nurse"][0]
+        self.assertEqual(a["night"], 1)          # the flt:ด cell is a night shift
+        self.assertEqual(a["shifts"], 1)
+        self.assertEqual(a["offward_days"], 1)
+        self.assertEqual(a["working_days"], 1)
+        # off_days is the 'off' cell ONLY. An unrecognised off-ward cell used to
+        # fall through to "day off", which would make this 2.
+        self.assertEqual(a["off_days"], 1)
+        self.assertEqual(s["totals"]["offward_days"], 1)
+        self.assertTrue(s["has_offward"])
+
+    def test_offward_days_partition_exactly(self):
+        grid = {"days": ["1", "2", "3"], "rows": [
+            {"nurse_index": 0, "name": "A", "cells": ["flt:ด", "off", "ref:ช"]},
+        ]}
+        s = fairness_stats(grid)
+        a = s["per_nurse"][0]
+        self.assertEqual(a["offward_days"], 2)
+        self.assertEqual(a["working_days"] + a["off_days"] + a["vac_days"],
+                         s["num_days"])
+
+    def test_no_offward_flag_false(self):
+        grid = {"days": ["1", "2"], "rows": [
+            {"nurse_index": 0, "name": "A", "cells": ["ช", "off"]},
+        ]}
+        s = fairness_stats(grid)
+        self.assertFalse(s["has_offward"])
+        self.assertEqual(s["per_nurse"][0]["offward_days"], 0)
+
+    def test_parse_cell_knows_offward_tokens(self):
+        self.assertEqual(_parse_cell("flt:ด"), ["night"])
+        self.assertEqual(_parse_cell("ref:ช"), ["day"])
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -77,6 +119,23 @@ class SeniorExclusionTests(unittest.TestCase):
         self.assertEqual(s["spread"]["night"]["range"], 1)
         # totals still cover everyone
         self.assertEqual(s["totals"]["day"], 2)
+
+    def test_spread_excludes_seniors_that_are_not_rows_0_and_1(self):
+        # Seniors at rows 1 and 3 of 5: spread must be taken over rows 0, 2, 4.
+        grid = {"days": ["1", "2"], "rows": [
+            {"nurse_index": 0, "name": "R0", "cells": ["ด", "ด"]},
+            {"nurse_index": 1, "name": "S1", "cells": ["ช", "ช"]},
+            {"nurse_index": 2, "name": "R2", "cells": ["ด", "off"]},
+            {"nurse_index": 3, "name": "S3", "cells": ["ช", "ช"]},
+            {"nurse_index": 4, "name": "R4", "cells": ["ด", "ด"]},
+        ]}
+        s = fairness_stats(grid, senior_indices=[1, 3])
+        self.assertEqual([p["senior"] for p in s["per_nurse"]],
+                         [False, True, False, True, False])
+        self.assertEqual(s["senior_excluded"], 2)
+        # nights: R0=2, R2=1, R4=2 -> range 1 (seniors' 0 nights not counted)
+        self.assertEqual(s["spread"]["night"]["min"], 1)
+        self.assertEqual(s["spread"]["night"]["range"], 1)
 
     def test_falls_back_when_all_senior(self):
         s = fairness_stats(self._grid(), senior_indices=[0, 1, 2])

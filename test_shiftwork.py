@@ -34,7 +34,7 @@ if _PROJECT_DIR not in sys.path:
 
 from ortools.sat.python import cp_model  # noqa: E402
 import shiftwork as sw  # noqa: E402
-from constant import LocaleShift  # noqa: E402
+from constant import LocaleShift, Shift  # noqa: E402
 
 # A small ward that is comfortably feasible: 12 nurses over 7 days, two seniors,
 # one new nurse. Small enough that solve() reaches a feasible solution quickly.
@@ -381,6 +381,1009 @@ class DiagnoseTest(_FixtureTest):
         self.assertIn(status, (cp_model.OPTIMAL, cp_model.FEASIBLE))
         self.assertEqual(glob.glob("output/*Final.csv"), [],
                          "write_output=False must not create an output CSV")
+
+
+# ---------------------------------------------------------------------------
+# Off-ward duty (constraint.md section 21) and the special-holiday band (22).
+#
+# These build their own tiny wards through _ward_csv() so each test controls
+# exactly the coverage numbers and the weekends/holidays lists. Every assertion
+# is chosen so it FAILS if the rule under test is removed - "a schedule was
+# produced" is never the assertion on its own.
+# ---------------------------------------------------------------------------
+
+_SOLVED = (cp_model.OPTIMAL, cp_model.FEASIBLE)
+
+
+def _ward_csv(num_days, rows, cov=(1, 1, 1), cov_hol=None, senior="false",
+              weekends="", holidays="", extra="", wk=None):
+    """Build a ward CSV. `extra` is raw text appended to [settings] (saturdays /
+    sundays lists and coverage_saturday_* / coverage_sunday_* keys). `rows` = [(name, type, [cells...])].
+
+    `cov` fills BOTH the weekday and the weekend band. `cov_hol` (optional) adds
+    explicit coverage_holiday_* keys; None omits them so the holiday band must
+    inherit this file's weekend numbers. `holidays` is always written (possibly
+    empty) so a blank value is exercised as "empty means empty".
+    """
+    head = (
+        "[ward]\nward_name,Smoke\ntier,department\n\n[settings]\n"
+        f"num_days,{num_days}\nweekends,{weekends}\nholidays,{holidays}\n"
+        "allow_evening_to_night,false\nallow_night_to_day,false\n"
+        f"head_nurse_special_shift,{senior}\n"
+        "min_request_percent,100\nrelax_days_off,false\nenforce_vacation,true\n"
+        f"coverage_weekday_day,{cov[0]}\ncoverage_weekday_evening,{cov[1]}\n"
+        f"coverage_weekday_night,{cov[2]}\n"
+        f"coverage_weekend_day,{cov[0]}\ncoverage_weekend_evening,{cov[1]}\n"
+        f"coverage_weekend_night,{cov[2]}\n"
+    )
+    if cov_hol is not None:
+        head += (f"coverage_holiday_day,{cov_hol[0]}\n"
+                 f"coverage_holiday_evening,{cov_hol[1]}\n"
+                 f"coverage_holiday_night,{cov_hol[2]}\n")
+    head += extra
+    # `wk` = {name: N} adds the optional 'Weekend Shifts' column (17a).
+    head += ("\n[schedule]\nName,Type," + ("Weekend Shifts," if wk else "")
+             + ",".join(str(d) for d in range(1, num_days + 1)) + "\n")
+    for name, ntype, cells in rows:
+        padded = list(cells) + [""] * (num_days - len(cells))
+        lead = f"{name},{ntype}," + (f"{wk.get(name, '')}," if wk else "")
+        head += lead + ",".join(padded) + "\n"
+    return head
+
+
+class _SmallWardTest(unittest.TestCase):
+    """Temp workspace + a `_run()` that builds and (optionally) solves a ward."""
+
+    def setUp(self):
+        self._prev_cwd = os.getcwd()
+        self._workdir = tempfile.mkdtemp(prefix="shiftwork_smoke_")
+        os.makedirs(os.path.join(self._workdir, "input"))
+        os.makedirs(os.path.join(self._workdir, "output"))
+        os.chdir(self._workdir)
+
+    def tearDown(self):
+        os.chdir(self._prev_cwd)
+        shutil.rmtree(self._workdir, ignore_errors=True)
+
+    def _run(self, num_days, rows, solve=True, **kw):
+        """Return (solver, status_or_None, captured_stdout)."""
+        path = os.path.join(self._workdir, "input", "w.csv")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(_ward_csv(num_days, rows, **kw))
+        log = io.StringIO()
+        status = None
+        with contextlib.redirect_stdout(log):
+            s = sw.Solver(path, num_days, [], allow_shift_e_n=False,
+                          allow_shift_n_d=False)
+            if solve:
+                status = s.run(max_time_seconds=10)
+            else:
+                s.loadReqShifts(path, s.MAX_REQ_HOLIDAYS, s.MAX_REQ_SHIFT)
+        return s, status, log.getvalue()
+
+    @staticmethod
+    def _plain(n, days=7, seniors=()):
+        return [("N%d" % i, "senior" if i in seniors else "", [""] * days)
+                for i in range(n)]
+
+
+class SeniorByTypeTest(_SmallWardTest):
+    """constraint.md section 16/17: seniority comes from the Type column, not
+    from row position. Any number of seniors (zero included)."""
+
+    def _check_seniors(self, s, senior_set):
+        for n in range(s.num_nurses):
+            for d in range(s.num_days):
+                if n in senior_set:
+                    off = d in s.weekends
+                    self.assertEqual(s.solver.Value(s.assignments[n][d][Shift.EVENING]), 0)
+                    self.assertEqual(s.solver.Value(s.assignments[n][d][Shift.NIGHT]), 0)
+                    if off:
+                        self.assertEqual(s.solver.Value(s.assignments[n][d][Shift.OFF]), 1)
+
+    def test_senior_in_the_middle_is_constrained_and_rows_0_1_are_not(self):
+        # Regression: rows 0/1 used to be hard-wired as head/deputy.
+        s, st, _ = self._run(7, self._plain(8, seniors=(4,)), cov=(1, 1, 1),
+                             senior="true", weekends="6 7")
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(s.senior_nurse_indices, {4})
+        self._check_seniors(s, {4})
+        # Rows 0/1 are free: with 1 senior pinned to Day/OFF, evening+night
+        # coverage (1+1 every day) must come from the other nurses; rows 0 and 1
+        # are not forced off weekends.
+        self.assertTrue(any(
+            s.solver.Value(s.assignments[n][d][Shift.OFF]) == 0
+            for n in (0, 1) for d in (5, 6)),
+            "nurses 0/1 must no longer be pinned OFF on weekends")
+
+    def test_no_senior_makes_the_rule_a_noop_and_ward_solves(self):
+        s, st, _ = self._run(7, self._plain(6), cov=(1, 1, 1), senior="true",
+                             weekends="6 7")
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(s.senior_nurse_indices, set())
+
+    def test_thai_senior_synonym_is_accepted(self):
+        rows = self._plain(6)
+        rows[3] = ("N3", "อาวุโส", [""] * 7)
+        s, st, _ = self._run(7, rows, cov=(1, 1, 1), senior="true", weekends="6 7")
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(s.senior_nurse_indices, {3})
+
+    def test_three_seniors_are_all_constrained(self):
+        s, st, _ = self._run(7, self._plain(9, seniors=(1, 5, 8)), cov=(1, 1, 1),
+                             senior="true", weekends="6 7")
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(s.senior_nurse_indices, {1, 5, 8})
+        self._check_seniors(s, {1, 5, 8})
+
+
+class OffWardDutyTest(_SmallWardTest):
+    """constraint.md section 21: float / refer cells are forced, exclusive, and
+    excluded from the ward's coverage pool."""
+
+    def test_offward_shift_is_forced_and_exclusive(self):
+        # B9. ref:<night> on day 3 for nurse 5 in a roomy ward.
+        rows = self._plain(10)
+        rows[5] = ("N5", "", ["", "", "ref:ด", "", "", "", ""])
+        s, st, _ = self._run(7, rows, cov=(2, 1, 1))
+        self.assertIn(st, _SOLVED)
+        val = {sh: s.solver.Value(s.assignments[5][2][sh]) for sh in Shift}
+        self.assertEqual(val[Shift.NIGHT], 1)
+        self.assertEqual(val[Shift.DAY], 0)
+        self.assertEqual(val[Shift.EVENING], 0)
+        self.assertEqual(val[Shift.OFF], 0, "an off-ward shift is a worked shift")
+        self.assertIn(2, s._offward_applied.get(5, {}))
+
+    def test_offward_excluded_from_coverage(self):
+        # B10. 2 nurses, 1 day, coverage 1/1/1. Baseline solves; with A off-ward
+        # on Day, A no longer counts toward Day coverage, so B is the only Day
+        # candidate while B is also needed elsewhere -> INFEASIBLE. If the
+        # nurse stayed in the coverage pool this would still solve.
+        s, st, _ = self._run(1, [("A", "", [""]), ("B", "", [""])])
+        self.assertIn(st, _SOLVED, "baseline ward must be feasible")
+        s, st, _ = self._run(1, [("A", "", ["flt:ช"]), ("B", "", [""])])
+        self.assertEqual(st, cp_model.INFEASIBLE,
+                         "an off-ward nurse must leave the coverage pool")
+        self.assertEqual(s._offward_excluded, {(0, Shift.DAY): {0}})
+
+    def test_offward_senior_conflict_is_skipped(self):
+        # B12. The head nurse (nurse 0, 'senior') is pinned to Day/OFF by the
+        # senior rule, so ref:<night> would be infeasible. The cell must be
+        # dropped loudly, not honoured (known failure mode 1).
+        rows = self._plain(10)
+        rows[0] = ("N0", "senior", ["", "", "ref:ด", "", "", "", ""])
+        s, st, log = self._run(7, rows, cov=(2, 1, 1), senior="true")
+        self.assertIn(st, _SOLVED, "skip-guard must prevent infeasibility")
+        self.assertIn("skipped (conflicts with senior nurse rule)", log)
+        self.assertNotIn(0, s._offward_applied)
+        self.assertEqual(s._offward_excluded, {})
+        self.assertEqual(s.solver.Value(s.assignments[0][2][Shift.NIGHT]), 0,
+                         "the senior's cell must not be the off-ward night")
+
+
+class HolidayBandTest(_SmallWardTest):
+    """constraint.md section 22: a third coverage band that defaults to the
+    weekend band, while Solver.weekends stays the union for every other rule."""
+
+    def test_holiday_band_defaults_to_weekend(self):
+        # C1. No coverage_holiday_* keys; weekend day = 2 -> holiday day = 2.
+        # A hard-coded default of 4 would give 4 here.
+        s, _, _ = self._run(7, self._plain(6), solve=False, cov=(2, 1, 1),
+                            holidays="3")
+        self.assertEqual(s.holidays, {2})
+        self.assertEqual(s.coverage['holiday'][Shift.DAY], 2)
+        self.assertEqual(s.coverage['holiday'][Shift.EVENING], 1)
+        self.assertEqual(s.coverage['holiday'][Shift.NIGHT], 1)
+        self.assertEqual(s.days[2]['min_shifts'][Shift.DAY], 2)
+
+    def test_holiday_band_is_applied(self):
+        # C2. Holiday on DAY 1: it has no preceding day, so the N->D ban cannot
+        # cap who may work Day (a day-3 holiday made an earlier version of this
+        # fixture INFEASIBLE in both arms, proving nothing). Weekday band is
+        # 1/1/1; the holiday needs Day=6 (all six nurses: feasible) vs Day=7
+        # (more than exist: infeasible).
+        plain = self._plain(6)
+        s, st, _ = self._run(7, plain, cov=(1, 1, 1), cov_hol=(6, 0, 0),
+                             holidays="1")
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(
+            sum(s.solver.Value(s.assignments[n][0][Shift.DAY]) for n in range(6)), 6)
+        s, st, _ = self._run(7, plain, cov=(1, 1, 1), cov_hol=(7, 0, 0),
+                             holidays="1")
+        self.assertEqual(st, cp_model.INFEASIBLE,
+                         "the holiday band must drive day-1 coverage")
+        # Control: identical keys but NO holidays value -> solves, proving the
+        # flip comes from the band lookup and not from the keys existing.
+        s, st, _ = self._run(7, plain, cov=(1, 1, 1), cov_hol=(7, 0, 0),
+                             holidays="")
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(s.holidays, set())
+
+    def test_holiday_wins_over_weekend_band(self):
+        # C3. Day 6 is in BOTH lists -> holiday numbers; day 7 is weekend only.
+        s, _, _ = self._run(7, self._plain(6), solve=False, cov=(2, 1, 1),
+                            cov_hol=(5, 4, 3), weekends="6 7", holidays="6")
+        self.assertEqual(s.days[5]['min_shifts'][Shift.DAY], 5)
+        self.assertEqual(s.days[5]['min_shifts'][Shift.EVENING], 4)
+        self.assertEqual(s.days[5]['min_shifts'][Shift.NIGHT], 3)
+        self.assertEqual(s.days[6]['min_shifts'][Shift.DAY], 2)
+        self.assertEqual(s.weekends, {5, 6}, "weekends must be the union")
+
+    def test_holiday_is_non_working_for_senior(self):
+        # C4. Day 3 is a holiday but NOT in weekends. With the senior rule on,
+        # the head nurse (nurse 0) must be OFF that day: Solver.weekends has to
+        # be the union, or head nurses start working public holidays.
+        s, st, _ = self._run(7, self._plain(6, seniors=(0,)), cov=(1, 1, 1),
+                             senior="true", weekends="", holidays="3")
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(s.holidays, {2})
+        self.assertIn(2, s.weekends)
+        self.assertEqual(s.solver.Value(s.assignments[0][2][Shift.OFF]), 1)
+        self.assertEqual(s.solver.Value(s.assignments[0][2][Shift.DAY]), 0)
+
+    def test_file_without_holidays_line_is_unchanged(self):
+        # Legacy control: no holidays line -> no holiday days, and the weekend
+        # band alone drives the weekend days exactly as before.
+        path = os.path.join(self._workdir, "input", "w.csv")
+        text = _ward_csv(7, self._plain(6), cov=(2, 1, 1), weekends="6 7")
+        text = text.replace("holidays,\n", "", 1)
+        self.assertNotIn("holidays", text)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        with contextlib.redirect_stdout(io.StringIO()):
+            s = sw.Solver(path, 7, [])
+            s.loadReqShifts(path, s.MAX_REQ_HOLIDAYS, s.MAX_REQ_SHIFT)
+        self.assertEqual(s.holidays, set())
+        self.assertEqual(s.weekends, {5, 6})
+        self.assertTrue(all(s.days[d]['min_shifts'][Shift.DAY] == 2
+                            for d in range(7)))
+
+    def test_infeasible_holiday_floor_is_named_in_diagnosis(self):
+        # The diagnosis coverage item carries the band so the floor is nameable.
+        s, st, _ = self._run(7, self._plain(6), cov=(2, 1, 1),
+                             cov_hol=(7, 0, 0), holidays="3")
+        self.assertEqual(st, cp_model.INFEASIBLE)
+        with contextlib.redirect_stdout(io.StringIO()):
+            d = s.diagnose(8.0)
+        self.assertEqual(d["reason"], "coverage")
+        self.assertTrue(
+            any(c.get("band") == "holiday" and c["day"] == 3
+                for c in d["coverage"]), d["coverage"])
+
+
+class SaturdaySundayBandTest(_SmallWardTest):
+    """constraint.md section 22: Saturday / Sunday bands. Solver.weekends stays
+    the union; the two lists only pick the coverage band."""
+
+    _SAT = "saturdays,3\nsundays,4\n"
+    _SAT_NONE_NAMED = "coverage_saturday_evening,0\ncoverage_saturday_night,0\n"
+
+    def test_bands_default_to_weekend_when_absent(self):
+        # No saturdays/sundays lines: weekend days 3 and 4 keep the weekend band.
+        s, _, _ = self._run(7, self._plain(6), solve=False, cov=(2, 1, 1),
+                            weekends="3 4")
+        self.assertEqual((s.saturdays, s.sundays), (set(), set()))
+        self.assertEqual(s.days[2]['min_shifts'][Shift.DAY], 2)
+        self.assertEqual(s.days[3]['min_shifts'][Shift.DAY], 2)
+
+    def test_saturday_and_sunday_numbers_inherit_weekend_keys(self):
+        # Lists present but no coverage_saturday_* keys -> weekend numbers (2),
+        # not a hard-coded 4.
+        s, _, _ = self._run(7, self._plain(6), solve=False, cov=(2, 1, 1),
+                            weekends="3 4", extra=self._SAT)
+        self.assertEqual(s.saturdays, {2})
+        self.assertEqual(s.sundays, {3})
+        self.assertEqual(s.coverage['saturday'][Shift.DAY], 2)
+        self.assertEqual(s.coverage['sunday'][Shift.NIGHT], 1)
+
+    def test_saturday_and_sunday_bands_are_distinct_and_applied(self):
+        extra = (self._SAT + "coverage_saturday_day,5\ncoverage_saturday_evening,0\n"
+                 "coverage_saturday_night,0\ncoverage_sunday_day,3\n"
+                 "coverage_sunday_evening,0\ncoverage_sunday_night,0\n")
+        s, _, _ = self._run(7, self._plain(6), solve=False, cov=(2, 1, 1),
+                            weekends="3 4", extra=extra)
+        self.assertEqual(s.days[2]['min_shifts'][Shift.DAY], 5)   # Saturday
+        self.assertEqual(s.days[3]['min_shifts'][Shift.DAY], 3)   # Sunday
+        self.assertEqual(s.days[0]['min_shifts'][Shift.DAY], 2)   # weekday
+
+    def test_precedence_holiday_over_sunday_over_saturday(self):
+        # Day 3 is holiday AND saturday; day 4 is sunday AND weekend.
+        extra = self._SAT + "coverage_saturday_day,5\ncoverage_sunday_day,3\n"
+        s, _, _ = self._run(7, self._plain(6), solve=False, cov=(2, 1, 1),
+                            cov_hol=(6, 0, 0), weekends="3 4", holidays="3",
+                            extra=extra)
+        self.assertEqual(s.days[2]['min_shifts'][Shift.DAY], 6)   # holiday wins
+        self.assertEqual(s.days[3]['min_shifts'][Shift.DAY], 3)   # sunday wins
+        # Sunday beats Saturday if a day is (wrongly) in both lists.
+        extra = "saturdays,4\nsundays,4\ncoverage_saturday_day,5\ncoverage_sunday_day,3\n"
+        s, _, _ = self._run(7, self._plain(6), solve=False, cov=(2, 1, 1),
+                            weekends="4", extra=extra)
+        self.assertEqual(s.days[3]['min_shifts'][Shift.DAY], 3)
+
+    def test_weekends_is_the_union_and_saturday_is_non_working_for_senior(self):
+        # Day 3 is listed ONLY in saturdays (not in weekends): it must still be
+        # in Solver.weekends, so the head nurse is OFF (senior rule, section 16).
+        s, st, _ = self._run(7, self._plain(6, seniors=(0,)), cov=(1, 1, 1), senior="true",
+                             weekends="", extra="saturdays,3\n")
+        self.assertIn(st, _SOLVED)
+        self.assertIn(2, s.weekends)
+        self.assertEqual(s.solver.Value(s.assignments[0][2][Shift.OFF]), 1)
+
+    def test_saturday_band_drives_solver(self):
+        # Day 1 has no preceding day. Saturday needs 7 Day (> 6 nurses) ->
+        # INFEASIBLE; the control (no saturdays list) solves.
+        extra = "saturdays,1\ncoverage_saturday_day,7\n" + self._SAT_NONE_NAMED
+        s, st, _ = self._run(7, self._plain(6), cov=(1, 1, 1), weekends="1",
+                             extra=extra)
+        self.assertEqual(st, cp_model.INFEASIBLE)
+        s, st, _ = self._run(7, self._plain(6), cov=(1, 1, 1), weekends="1",
+                             extra=extra.replace("saturdays,1", "saturdays,"))
+        self.assertIn(st, _SOLVED)
+
+    def test_infeasible_saturday_floor_is_named_in_diagnosis(self):
+        extra = "saturdays,3\ncoverage_saturday_day,7\n" + self._SAT_NONE_NAMED
+        s, st, _ = self._run(7, self._plain(6), cov=(1, 1, 1), weekends="3",
+                             extra=extra)
+        self.assertEqual(st, cp_model.INFEASIBLE)
+        with contextlib.redirect_stdout(io.StringIO()):
+            d = s.diagnose(8.0)
+        self.assertEqual(d["reason"], "coverage")
+        self.assertTrue(
+            any(c.get("band") == "saturday" and c["day"] == 3
+                for c in d["coverage"]), d["coverage"])
+
+
+class NegativeRequestTest(_SmallWardTest):
+    """constraint.md section 23: 'no:X' = assignments[n][d][X] == 0 (pure negation),
+    routed through _add_request so soft mode, the report and diagnose() apply."""
+
+    E = Shift.EVENING
+
+    def test_negation_forbids_the_shift_only(self):
+        # Evening needed once, 2 nurses, 1 day. A says no:บ -> B must take it.
+        # (Without the rule either nurse could be picked.) Also: A is NOT forced
+        # to work - nothing demands it, and OFF stays legal.
+        rows = [("A", "", ["no:บ"]), ("B", "", [""])]
+        s, st, _ = self._run(1, rows, cov=(0, 1, 0))
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(s.solver.Value(s.assignments[0][0][self.E]), 0)
+        self.assertEqual(s.solver.Value(s.assignments[1][0][self.E]), 1)
+
+    def test_all_nurses_negating_a_needed_shift_is_infeasible(self):
+        # Proves it is a real hard constraint (min_request_percent 100), and that
+        # diagnose() names the cells through the shared _add_request gate.
+        rows = [("A", "", ["no:บ"]), ("B", "", ["no:บ"])]
+        s, st, _ = self._run(1, rows, cov=(0, 1, 0))
+        self.assertEqual(st, cp_model.INFEASIBLE)
+        with contextlib.redirect_stdout(io.StringIO()):
+            d = s.diagnose(8.0)
+        self.assertEqual(d["reason"], "requests")
+        self.assertTrue(all(r["kind"] == "avoid" and r["shift"] == "no:บ"
+                            for r in d["requests"]), d["requests"])
+        self.assertEqual(len(d["requests"]), 2)
+
+    def test_negation_is_droppable_and_reported_in_soft_mode(self):
+        # Same infeasible ward, but min_request_percent 50: one of the two
+        # negations is dropped and the acceptance report says so.
+        path = os.path.join(self._workdir, "input", "w.csv")
+        text = _ward_csv(1, [("A", "", ["no:บ"]), ("B", "", ["no:บ"])], cov=(0, 1, 0))
+        text = text.replace("min_request_percent,100", "min_request_percent,50")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        with contextlib.redirect_stdout(io.StringIO()):
+            s = sw.Solver(path, 1, [], allow_shift_e_n=False, allow_shift_n_d=False)
+            st = s.run(max_time_seconds=10)
+        self.assertIn(st, _SOLVED)
+        rep = s.request_report
+        self.assertEqual((rep["total"], rep["accepted"]), (2, 1))
+        self.assertEqual(rep["dropped"][0]["shift"], "no:บ")
+        self.assertEqual(rep["dropped"][0]["kind"], "avoid")
+
+    def test_double_shift_assignments_are_ruled_out(self):
+        # ช/บ and ด/บ both set Evening, so no:บ excludes them with no extra code.
+        # 3 nurses, cov 1/1/1 on a single day, A negates Evening: A's Evening var
+        # is 0 whatever else she does.
+        rows = [("A", "", ["no:บ"]), ("B", "", [""]), ("C", "", [""])]
+        s, st, _ = self._run(1, rows, cov=(1, 1, 1))
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(s.solver.Value(s.assignments[0][0][self.E]), 0)
+
+    def test_negation_shares_the_request_quota(self):
+        # DataImporter samples positive and negative cells together, so a nurse
+        # with more request cells than max_req_shifts keeps only that many in
+        # total. 'department' tier -> read the limit from the loader.
+        path = os.path.join(self._workdir, "input", "w.csv")
+        cells = ["no:บ", "no:ช", "ช", "บ", "ด", "no:ด", "ช"]
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(_ward_csv(7, [("A", "", cells)], cov=(0, 0, 0)))
+        with contextlib.redirect_stdout(io.StringIO()):
+            s = sw.Solver(path, 7, [], allow_shift_e_n=False, allow_shift_n_d=False)
+        quota = s.MAX_REQ_SHIFT
+        self.assertLess(quota, 7, "fixture needs a quota below the 7 cells")
+        nurse = s.nurses[0]
+        self.assertEqual(
+            len(nurse["requested_shifts"]) + len(nurse["requested_negations"]), quota)
+
+
+class RestDayHardnessTest(_SmallWardTest):
+    """Order of hardness is shifts < off < vacation (constraint.md section 8).
+
+    Approved leave must never be easier to give up than an ordinary day off.
+    It was: an unenforced `vac` dropped without `relax_days_off`, while an
+    `off` on the same ward did not.
+    """
+
+    def _solve(self, cell, relax, enforce_vac):
+        # One day; coverage needs BOTH nurses on Day, so the cell is impossible.
+        path = os.path.join(self._workdir, "input", "w.csv")
+        text = _ward_csv(1, [("A", "", [cell]), ("B", "", [""])], cov=(2, 0, 0))
+        text = text.replace("min_request_percent,100", "min_request_percent,0")
+        text = text.replace("relax_days_off,false",
+                            "relax_days_off,%s" % str(relax).lower())
+        text = text.replace("enforce_vacation,true",
+                            "enforce_vacation,%s" % str(enforce_vac).lower())
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        with contextlib.redirect_stdout(io.StringIO()):
+            s = sw.Solver(path, 1, [], allow_shift_e_n=False, allow_shift_n_d=False)
+            return s.run(max_time_seconds=10)
+
+    def test_off_drops_whenever_days_off_are_relaxable(self):
+        for enforce_vac in (True, False):
+            with self.subTest(enforce_vacation=enforce_vac):
+                self.assertIn(self._solve("off", True, enforce_vac), _SOLVED)
+
+    def test_off_is_hard_when_days_off_are_not_relaxable(self):
+        self.assertEqual(self._solve("off", False, True), cp_model.INFEASIBLE)
+
+    def test_vacation_needs_both_switches(self):
+        self.assertIn(self._solve("vac", True, False), _SOLVED)
+
+    def test_vacation_is_not_easier_to_drop_than_an_off(self):
+        # The regression: relax_days_off off => nothing rests-related drops,
+        # vacation included, even when enforce_vacation is off.
+        self.assertEqual(self._solve("vac", False, False), cp_model.INFEASIBLE)
+        self.assertEqual(self._solve("vac", True, True), cp_model.INFEASIBLE)
+
+    def _choose(self, rows, cov_day):
+        """Both switches on, floor 0: the solver picks WHICH rest days to drop."""
+        path = os.path.join(self._workdir, "input", "w.csv")
+        text = _ward_csv(1, rows, cov=(cov_day, 0, 0))
+        text = text.replace("min_request_percent,100", "min_request_percent,0")
+        text = text.replace("relax_days_off,false", "relax_days_off,true")
+        text = text.replace("enforce_vacation,true", "enforce_vacation,false")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        with contextlib.redirect_stdout(io.StringIO()):
+            s = sw.Solver(path, 1, [], allow_shift_e_n=False, allow_shift_n_d=False)
+            st = s.run(max_time_seconds=10)
+        self.assertIn(st, _SOLVED)
+        return sorted(d["kind"] for d in s.request_report["dropped"])
+
+    def test_reject_scale_orders_shifts_below_off_below_vacation(self):
+        # The discriminating test for the per-kind drop penalty. A behavioural
+        # fixture does NOT pin this down: holiday-imbalance already excludes
+        # vacation from the discretionary-off balance, so small wards prefer
+        # dropping an `off` even with one flat weight. This asserts the
+        # mechanism itself, so flattening the scale fails here.
+        s, _st, _log = self._run(1, [("A", "", [""])], solve=False)
+        shift = s.REJECT_WEIGHT * s.REJECT_SCALE.get("shift", 1)
+        off = s.REJECT_WEIGHT * s.REJECT_SCALE.get("holiday", 1)
+        vac = s.REJECT_WEIGHT * s.REJECT_SCALE.get("vacation", 1)
+        self.assertLess(shift, off, "a shift request must be the cheapest to drop")
+        self.assertLess(off, vac, "approved leave must cost more than a day off")
+
+    def test_prefers_dropping_an_off_over_a_vacation(self):
+        # Outcome test for the same intent. Note it passes under a flattened
+        # scale too (see above), so it documents the behaviour rather than
+        # proving the weights cause it.
+        rows = [("V", "", ["vac"]), ("O", "", ["off"]), ("F", "", [""])]
+        self.assertEqual(self._choose(rows, 2), ["holiday"])
+
+
+class RequestFloorTest(_SmallWardTest):
+    """The soft-request acceptance floor must not round up to "keep everything"
+    for a small set of requests (constraint.md section 8)."""
+
+    def _ward(self, pct=None):
+        """One day; coverage needs BOTH nurses on Day, so A's `off` is impossible."""
+        path = os.path.join(self._workdir, "input", "w.csv")
+        text = _ward_csv(1, [("A", "", ["off"]), ("B", "", [""])], cov=(2, 0, 0))
+        text = text.replace("relax_days_off,false", "relax_days_off,true")
+        if pct is not None:
+            text = text.replace("min_request_percent,100",
+                                "min_request_percent,%d" % pct)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        with contextlib.redirect_stdout(io.StringIO()):
+            s = sw.Solver(path, 1, [], allow_shift_e_n=False, allow_shift_n_d=False)
+            return s, s.run(max_time_seconds=10)
+
+    def test_a_lone_request_can_still_be_dropped(self):
+        # Regression: the floor was a bare ceil(), so a SMALL set of relaxable
+        # requests rounded up to "keep everything" and the setting silently did
+        # nothing — ceil(0.5 * 1) == 1 leaves nothing to drop. It bit PN/NA
+        # hardest, because each staff group's requests are counted on their own
+        # since the split, so the smaller group lost all its slack.
+        s, st = self._ward(pct=50)
+        self.assertIn(st, _SOLVED)
+        rep = s.request_report
+        self.assertEqual((rep["total"], rep["accepted"]), (1, 0))
+        self.assertEqual(rep["dropped"][0]["kind"], "holiday")
+
+    def test_hundred_percent_stays_hard(self):
+        # The cap applies only BELOW 100%. At 100% every request is required, so
+        # the same ward must still be infeasible.
+        _s, st = self._ward()
+        self.assertEqual(st, cp_model.INFEASIBLE)
+
+
+class ConsecutiveShiftsCapTest(_SmallWardTest):
+    """constraint.md section 24c: limit_consecutive_shifts caps working days in a
+    row (any shift) via "every window of M+1 days holds an OFF"."""
+
+    @staticmethod
+    def _on(m):
+        return f"limit_consecutive_shifts,true\nmax_consecutive_shifts,{m}\n"
+
+    def _busy(self, extra, days=12):
+        """3 nurses, 1/1/1 coverage: left alone every nurse works every day."""
+        rows = [("N%d" % i, "", [""] * days) for i in range(3)]
+        s, status, _o = self._run(days, rows, cov=(1, 1, 1), extra=extra)
+        return s, status
+
+    @staticmethod
+    def _longest_run(s, n):
+        best = run = 0
+        for d in range(s.num_days):
+            if s.solver.Value(s.assignments[n][d][Shift.OFF]):
+                run = 0
+            else:
+                run += 1
+                best = max(best, run)
+        return best
+
+    def test_toggle_off_allows_long_runs(self):
+        s, status = self._busy("max_consecutive_shifts,3\n")
+        self.assertIn(status, _SOLVED)
+        self.assertEqual(max(self._longest_run(s, n) for n in range(3)), 12)
+
+    def test_solved_grid_respects_cap(self):
+        for m in (5, 3):
+            with self.subTest(m=m):
+                s, status = self._busy(self._on(m))
+                self.assertIn(status, _SOLVED)
+                for n in range(3):
+                    self.assertLessEqual(self._longest_run(s, n), m)
+
+    def test_cap_longer_than_month_is_noop(self):
+        s, status = self._busy(self._on(20), days=5)
+        self.assertIn(status, _SOLVED)
+        self.assertEqual(self._longest_run(s, 0), 5)
+
+    def test_requested_run_longer_than_cap_is_infeasible(self):
+        _s, status, _o = self._run(10, [("A", "", ["ช"] * 4)], cov=(0, 0, 0),
+                                   extra=self._on(3))
+        self.assertEqual(status, cp_model.INFEASIBLE)
+        _s, status, _o = self._run(10, [("A", "", ["ช"] * 3)], cov=(0, 0, 0),
+                                   extra=self._on(3))
+        self.assertIn(status, _SOLVED)
+
+    def test_vacation_breaks_a_run(self):
+        # 2 worked, vac, 2 worked at cap 2: feasible only because vac is an OFF
+        # day. (Requests are capped at 5 per nurse, so keep the cell count small.)
+        _s, status, _o = self._run(
+            6, [("A", "", ["ช", "ช", "vac", "ช", "ช"])], cov=(0, 0, 0),
+            extra=self._on(2))
+        self.assertIn(status, _SOLVED)
+        _s, status, _o = self._run(
+            6, [("A", "", ["ช", "ช", "ช", "ช", "ช"])], cov=(0, 0, 0),
+            extra=self._on(2))
+        self.assertEqual(status, cp_model.INFEASIBLE)
+
+    def test_both_caps_hold_together(self):
+        days = 14
+        rows = [("N%d" % i, "", [""] * days) for i in range(4)]
+        s, status, _o = self._run(
+            days, rows, cov=(1, 1, 2),
+            extra=self._on(4) + "limit_consecutive_nights,true\nmax_consecutive_nights,2\n")
+        self.assertIn(status, _SOLVED)
+        for n in range(4):
+            self.assertLessEqual(self._longest_run(s, n), 4)
+            night = [s.solver.Value(s.assignments[n][d][Shift.NIGHT]) for d in range(days)]
+            for d in range(days - 2):
+                self.assertLessEqual(sum(night[d:d + 3]), 2)
+
+
+class FatigueRulesTest(_SmallWardTest):
+    """constraint.md section 24: opt-in max-consecutive-nights and
+    no-consecutive-ช/บ. Coverage is 0 so only the rule under test can make a
+    ward infeasible."""
+
+    ON_N3 = "limit_consecutive_nights,true\nmax_consecutive_nights,3\n"
+    ON_DE = "no_consecutive_day_eve,true\n"
+
+    def _status(self, cells, extra, days=10):
+        _s, status, _out = self._run(days, [("A", "", cells)], cov=(0, 0, 0),
+                                     extra=extra)
+        return status
+
+    def test_four_nights_infeasible_at_limit_3(self):
+        self.assertEqual(self._status(["ด"] * 4, self.ON_N3), cp_model.INFEASIBLE)
+
+    def test_three_nights_ok_at_limit_3(self):
+        self.assertIn(self._status(["ด"] * 3, self.ON_N3), _SOLVED)
+
+    def test_nights_split_by_a_gap_ok(self):
+        self.assertIn(self._status(["ด", "ด", "ด", "", "ด", "ด", "ด"], self.ON_N3),
+                      _SOLVED)
+
+    def test_nights_toggle_off_is_no_constraint(self):
+        self.assertIn(self._status(["ด"] * 4, "max_consecutive_nights,3\n"), _SOLVED)
+
+    def test_nights_limit_longer_than_month_is_noop(self):
+        extra = "limit_consecutive_nights,true\nmax_consecutive_nights,20\n"
+        self.assertIn(self._status(["ด"] * 4, extra, days=5), _SOLVED)
+
+    def test_nights_limit_is_configurable(self):
+        extra = "limit_consecutive_nights,true\nmax_consecutive_nights,2\n"
+        self.assertEqual(self._status(["ด"] * 3, extra), cp_model.INFEASIBLE)
+        self.assertIn(self._status(["ด"] * 2, extra), _SOLVED)
+
+    def test_two_adjacent_day_eve_doubles_infeasible(self):
+        self.assertEqual(self._status(["ช/บ", "ช/บ"], self.ON_DE), cp_model.INFEASIBLE)
+
+    def test_day_eve_then_day_only_ok(self):
+        self.assertIn(self._status(["ช/บ", "ช"], self.ON_DE), _SOLVED)
+
+    def test_day_eve_toggle_off_is_no_constraint(self):
+        self.assertIn(self._status(["ช/บ", "ช/บ"], ""), _SOLVED)
+
+    def test_day_eve_not_adjacent_ok(self):
+        self.assertIn(self._status(["ช/บ", "", "ช/บ"], self.ON_DE), _SOLVED)
+
+    def test_solved_schedule_respects_both_rules(self):
+        """No requests: a busy ward (4 nurses, 1/1/2 nights) solved with both
+        rules on must contain no run of 4 nights and no adjacent ช/บ."""
+        days = 14
+        rows = [("N%d" % i, "", [""] * days) for i in range(4)]
+        s, status, _out = self._run(days, rows, cov=(1, 1, 2),
+                                    extra=self.ON_N3 + self.ON_DE)
+        self.assertIn(status, _SOLVED)
+        for n in range(4):
+            night = [s.solver.Value(s.assignments[n][d][Shift.NIGHT]) for d in range(days)]
+            day = [s.solver.Value(s.assignments[n][d][Shift.DAY]) for d in range(days)]
+            eve = [s.solver.Value(s.assignments[n][d][Shift.EVENING]) for d in range(days)]
+            for d in range(days - 3):
+                self.assertLessEqual(sum(night[d:d + 4]), 3, f"nurse {n} 4 nights from {d}")
+            for d in range(days - 1):
+                self.assertFalse(day[d] and eve[d] and day[d + 1] and eve[d + 1],
+                                 f"nurse {n} ช/บ on days {d},{d+1}")
+
+    def test_diagnose_names_the_requests_for_nights(self):
+        _s, diag = self._diag([["ด"] * 4], self.ON_N3)
+        self.assertEqual(diag["reason"], "requests")
+        self.assertEqual(sorted(r["day"] for r in diag["requests"]), [1, 2, 3, 4])
+
+    def test_diagnose_names_the_requests_for_day_eve(self):
+        _s, diag = self._diag([["ช/บ", "ช/บ"]], self.ON_DE)
+        self.assertEqual(diag["reason"], "requests")
+        self.assertEqual(sorted(r["day"] for r in diag["requests"]), [1, 2])
+
+    def _diag(self, cell_rows, extra):
+        s, status, _out = self._run(
+            10, [("A%d" % i, "", c) for i, c in enumerate(cell_rows)],
+            cov=(0, 0, 0), extra=extra)
+        self.assertEqual(status, cp_model.INFEASIBLE)
+        with contextlib.redirect_stdout(io.StringIO()):
+            return s, s.diagnose(10)
+
+class ExactCoverageTest(_SmallWardTest):
+    """constraint.md section 9: exact_coverage turns the per-shift numbers from a
+    floor (>=) into a staffing plan (==). Pools are unchanged (§15, §21)."""
+
+    ON = "exact_coverage,true\n"
+
+    def _counts(self, s, days, pool):
+        return {(d, sh): sum(s.solver.Value(s.assignments[n][d][sh]) for n in pool)
+                for d in range(days) for sh in (Shift.DAY, Shift.EVENING, Shift.NIGHT)}
+
+    def test_exact_gives_exactly_the_configured_count_every_day(self):
+        days, cov = 7, (2, 1, 1)
+        s, st, _ = self._run(days, self._plain(8, days), cov=cov, extra=self.ON)
+        self.assertIn(st, _SOLVED)
+        want = {Shift.DAY: 2, Shift.EVENING: 1, Shift.NIGHT: 1}
+        for (d, sh), got in self._counts(s, days, range(8)).items():
+            self.assertEqual(got, want[sh], f"day {d} {sh}")
+
+    def test_same_ward_overshoots_as_a_floor_but_not_as_exact(self):
+        # The bug being fixed: with >= the fairness objective piles extra nurses
+        # onto shifts (observed: 5 Evening where 1 is configured).
+        want = {Shift.DAY: 2, Shift.EVENING: 1, Shift.NIGHT: 1}
+        s, st, _ = self._run(7, self._plain(8, 7), cov=(2, 1, 1), extra='exact_coverage,false'+chr(10))
+        self.assertIn(st, _SOLVED)
+        self.assertTrue(any(v > want[sh] for (_d, sh), v in self._counts(s, 7, range(8)).items()))
+
+    def test_toggle_off_is_a_floor_and_may_overshoot(self):
+        # 3 nurses ask for Day on day 1, need is 2: legal as a floor.
+        rows = [("A", "", ["ช"]), ("B", "", ["ช"]), ("C", "", ["ช"])]
+        s, st, _ = self._run(1, rows, cov=(2, 0, 0), extra="exact_coverage,false\n")
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(self._counts(s, 1, range(3))[(0, Shift.DAY)], 3)
+
+    def test_absent_key_means_floor_for_legacy_csv(self):
+        rows = [("A", "", ["ช"]), ("B", "", ["ช"]), ("C", "", ["ช"])]
+        _s, st, _ = self._run(1, rows, cov=(2, 0, 0))
+        self.assertIn(st, _SOLVED)
+
+    def test_feasible_as_floor_infeasible_as_exact(self):
+        rows = [("A", "", ["ช"]), ("B", "", ["ช"]), ("C", "", ["ช"])]
+        _s, st, _ = self._run(1, rows, cov=(2, 0, 0), extra=self.ON)
+        self.assertEqual(st, cp_model.INFEASIBLE)
+
+    def test_meeting_attendee_is_not_counted_in_exact_total(self):
+        # A is in a meeting (Day, excluded from the pool). Need is exactly 1
+        # Day: exactly one of B/C works it (total Day cells = 2 with A).
+        rows = [("A", "", ["mtg"]), ("B", "", [""]), ("C", "", [""])]
+        s, st, _ = self._run(1, rows, cov=(1, 0, 0), extra=self.ON)
+        self.assertIn(st, _SOLVED)
+        c = self._counts(s, 1, range(3))[(0, Shift.DAY)]
+        self.assertEqual(c, 2)
+        self.assertEqual(self._counts(s, 1, [1, 2])[(0, Shift.DAY)], 1)
+
+    def test_offward_nurse_is_not_counted_in_exact_total(self):
+        rows = [("A", "", ["flt:ช"]), ("B", "", [""]), ("C", "", [""])]
+        s, st, _ = self._run(1, rows, cov=(1, 0, 0), extra=self.ON)
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(self._counts(s, 1, [1, 2])[(0, Shift.DAY)], 1)
+        self.assertEqual(s.solver.Value(s.assignments[0][0][Shift.DAY]), 1)
+
+    def test_diagnose_pass2_gates_floor_and_ceiling_separately(self):
+        # In exact mode each (day, shift) gets a 'short' AND an 'over' assumption,
+        # so a core can say "too many" apart from "too few". Floor mode: 'short' only.
+        def sides(extra):
+            s, _st, _ = self._run(2, self._plain(3, 2), cov=(1, 1, 1),
+                                  extra=extra, solve=False)
+            with contextlib.redirect_stdout(io.StringIO()):
+                gated = s._diag_build(gate_coverage=True)
+            return sorted(r["side"] for _l, r in gated if "side" in r)
+        self.assertEqual(sides(self.ON), ["over"] * 6 + ["short"] * 6)
+        self.assertEqual(sides(""), ["short"] * 6)
+
+    def test_diagnose_names_a_short_day_in_exact_mode(self):
+        rows = [("A", "", ["mtg", ""]), ("B", "", ["mtg", ""])]
+        s, st, _ = self._run(2, rows, cov=(1, 0, 0), extra=self.ON)
+        self.assertEqual(st, cp_model.INFEASIBLE)
+        with contextlib.redirect_stdout(io.StringIO()):
+            diag = s.diagnose(10)
+        self.assertEqual(diag["reason"], "coverage")
+        self.assertTrue(all(c["side"] == "short" for c in diag["coverage"]))
+        self.assertIn(1, [c["day"] for c in diag["coverage"]])
+
+
+class MinDaysOffTest(_SmallWardTest):
+    """constraint.md section 25: a soft monthly minimum of discretionary days
+    off. Never infeasible; unreachable minimums are bought with double shifts."""
+
+    ON = "exact_coverage,true\n"
+
+    def _stats(self, s, n_nurses, days):
+        """(per-nurse discretionary OFF counts, total double-shift days)."""
+        offs, dbl = [], 0
+        for n in range(n_nurses):
+            vac = s.vacation_days.get(n, set())
+            offs.append(sum(s.solver.Value(s.assignments[n][d][Shift.OFF])
+                            for d in range(days) if d not in vac))
+            for d in range(days):
+                worked = sum(s.solver.Value(s.assignments[n][d][sh])
+                             for sh in (Shift.DAY, Shift.EVENING, Shift.NIGHT))
+                dbl += 1 if worked >= 2 else 0
+        return offs, dbl
+
+    def _solve(self, minimum, rows=None, days=7, n=4):
+        extra = self.ON + ("min_days_off,%d\n" % minimum if minimum is not None else "")
+        s, st, _ = self._run(days, rows or self._plain(n, days), cov=(1, 1, 1),
+                             extra=extra)
+        return s, st
+
+    def test_default_changes_nothing(self):
+        # Absent key and an explicit 0 give the same schedule shape as each other
+        # (the model has no shortfall variables at all when the minimum is 0).
+        s0, st0 = self._solve(None)
+        s1, st1 = self._solve(0)
+        self.assertIn(st0, _SOLVED)
+        self.assertIn(st1, _SOLVED)
+        self.assertEqual(s0.MIN_DAYS_OFF, 0)
+        self.assertEqual(self._stats(s0, 4, 7), self._stats(s1, 4, 7))
+        names = [v.name for v in s0.model.Proto().variables]
+        self.assertFalse(any(nm.startswith("off_short") for nm in names))
+
+    def test_unreachable_minimum_still_solves_by_adding_doubles(self):
+        # Headline (point 2). No-doubles ceiling is 7 free days = 1.75 each, so a
+        # minimum of 3 for all four (12 days) is impossible without doubles.
+        s, st = self._solve(3)
+        self.assertIn(st, _SOLVED)            # never INFEASIBLE
+        offs, dbl = self._stats(s, 4, 7)
+        self.assertGreaterEqual(min(offs), 3)  # reached, via doubles
+        self.assertGreaterEqual(dbl, 5)        # 12 off days - 7 free = 5 doubles
+
+    def test_minimum_beyond_any_staffing_still_solves(self):
+        # 7 days off in a 7-day month cannot coexist with 1/1/1 coverage.
+        s, st = self._solve(7)
+        self.assertIn(st, _SOLVED)
+        offs, _ = self._stats(s, 4, 7)
+        self.assertLess(min(offs), 7)
+
+    def test_vacation_does_not_count_toward_the_minimum(self):
+        # Nurse 0: vac days 1-2 and a Day request on days 3-7, so she can have no
+        # discretionary day off at all. Minimum 1 => shortfall 1 => objective
+        # >= MIN_OFF_WEIGHT. If her 2 vac days counted she would meet the minimum
+        # and the objective would be a few dozen at most.
+        rows = self._plain(4, 7)
+        rows[0] = ("N0", "", ["vac", "vac", "ช", "ช", "ช", "ช", "ช"])
+        s, st = self._solve(1, rows=rows)
+        self.assertIn(st, _SOLVED)
+        offs, _ = self._stats(s, 4, 7)
+        self.assertEqual(offs[0], 0)
+        self.assertGreaterEqual(s.solver.ObjectiveValue(), s.MIN_OFF_WEIGHT)
+
+    def test_minimum_never_drops_a_promised_request(self):
+        # Soft-request mode (percent 0). Nurse 0 has Day requested on 5 of 7
+        # days, so she can reach at most 2 days off; minimum 3 leaves her 1 short.
+        # Dropping a request would cure it, but MIN_OFF_WEIGHT < REJECT_WEIGHT,
+        # so the request is kept and the shortfall accepted.
+        rows = self._plain(4, 7)
+        rows[0] = ("N0", "", ["ช"] * 5)
+        path = os.path.join(self._workdir, "input", "w.csv")
+        text = _ward_csv(7, rows, cov=(1, 1, 1), extra=self.ON + "min_days_off,3" + chr(10))
+        text = text.replace("min_request_percent,100", "min_request_percent,0")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        with contextlib.redirect_stdout(io.StringIO()):
+            s = sw.Solver(path, 7, [], allow_shift_e_n=False, allow_shift_n_d=False)
+            st = s.run(max_time_seconds=10)
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(s.request_report["dropped"], [])
+        for d in range(5):
+            self.assertEqual(s.solver.Value(s.assignments[0][d][Shift.DAY]), 1)
+
+
+class SeniorWeekendShiftTest(_SmallWardTest):
+    """constraint.md section 17a: an opted-in senior works Day on exactly N
+    weekend units (one of Sat/Sun each) and is OFF on every other weekend day."""
+
+    # Bim's real ward 15 (29 days): Sunday 1 has no Saturday before it.
+    _SAT15 = "saturdays,7 14 21 28\nsundays,1 8 15 22 29\n"
+    # 0-based whole Sat/Sun pairs. Sunday 1 (index 0) is NOT here: it has no
+    # Saturday before it in November, so it is not a weekend.
+    _UNITS15 = [[6, 7], [13, 14], [20, 21], [27, 28]]
+
+    def _ward15(self, n_wk, n_nurses=9, second_senior=True, exact=True, solve=True,
+                extra=""):
+        rows = self._plain(n_nurses, days=29)
+        rows[0] = ("N0", "senior", [""] * 29)
+        if second_senior:
+            rows[1] = ("N1", "senior", [""] * 29)
+        wknd = "1 7 8 14 15 21 22 28 29"
+        ex = self._SAT15 + ("exact_coverage,true\n" if exact else "") + extra
+        return self._run(29, rows, solve=solve, cov=(2, 1, 1), senior="true",
+                         weekends=wknd, extra=ex, wk={"N0": n_wk} if n_wk else None)
+
+    def _day(self, s, n, d):
+        return s.solver.Value(s.assignments[n][d][Shift.DAY])
+
+    def test_units_are_whole_sat_sun_pairs_and_orphans_are_dropped(self):
+        from constant import weekend_units
+        # A weekend is a COMPLETE Sat/Sun pair. Ward 15's November opens on
+        # Sunday the 1st, which has no Saturday before it in the month, so it is
+        # not a weekend and the senior is never rostered onto it.
+        self.assertEqual(
+            weekend_units([7, 14, 21, 28], [1, 8, 15, 22, 29], 1, 29),
+            [[7, 8], [14, 15], [21, 22], [28, 29]])
+        # A lone Saturday at the month's end is dropped the same way.
+        self.assertEqual(weekend_units([6], [], 1, 6), [])
+        # A month with no whole pair has no weekends at all.
+        self.assertEqual(weekend_units([], [1], 1, 7), [])
+
+    def test_headline_exactly_n_weekends_one_day_each_rest_off(self):
+        s, st, _ = self._ward15(2)
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(s.senior_weekend_shifts, {0: 2})
+        worked = [u for u in self._UNITS15 if any(self._day(s, 0, d) for d in u)]
+        self.assertEqual(len(worked), 2)
+        for u in worked:                       # exactly one day of the weekend
+            self.assertEqual(sum(self._day(s, 0, d) for d in u), 1)
+        for u in self._UNITS15:                # every other weekend day is OFF
+            if u not in worked:
+                for d in u:
+                    self.assertEqual(s.solver.Value(s.assignments[0][d][Shift.OFF]), 1)
+        for d in range(29):                    # weekdays: Day or OFF, as before
+            self.assertEqual(s.solver.Value(s.assignments[0][d][Shift.EVENING]), 0)
+            self.assertEqual(s.solver.Value(s.assignments[0][d][Shift.NIGHT]), 0)
+
+    def test_non_opted_senior_on_same_ward_stays_off_all_weekend(self):
+        s, st, _ = self._ward15(2)
+        self.assertIn(st, _SOLVED)
+        for d in s.weekends:
+            self.assertEqual(s.solver.Value(s.assignments[1][d][Shift.OFF]), 1)
+
+    def test_orphan_sunday_is_never_worked_even_at_the_maximum(self):
+        # Ward 15 has four whole weekends, so N=4 is the cap and the orphan
+        # Sunday 1 must still be OFF: a half weekend is not a weekend.
+        s, st, _ = self._ward15(4)
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(self._day(s, 0, 0), 0, "lone Sunday 1 must not be worked")
+        for u in self._UNITS15:
+            self.assertEqual(sum(self._day(s, 0, d) for d in u), 1)
+
+    def test_n_above_the_whole_pair_count_is_unsatisfiable(self):
+        # Five was satisfiable while the orphan counted as a weekend. With whole
+        # pairs only this ward has four, so five cannot be met. This path builds
+        # a CSV and runs the Solver directly, so it never reaches
+        # ScheduleInput.validate() -- the solver reports it instead.
+        _s, st, _log = self._ward15(5)
+        self.assertEqual(st, cp_model.INFEASIBLE)
+
+    def test_saturday_or_sunday_is_the_solvers_choice(self):
+        # 14 days, Sat 6/13, Sun 7/14. Only the senior can cover Day on 7 and 13
+        # (A and B are off), so weekend 1 must be Sunday and weekend 2 Saturday.
+        rows = [("S", "senior", [""] * 14),
+                ("A", "", ["", "", "", "", "", "", "off", "", "", "", "", "", "off", ""]),
+                ("B", "", ["", "", "", "", "", "", "off", "", "", "", "", "", "off", ""])]
+        s, st, _ = self._run(14, rows, cov=(1, 0, 0), senior="true",
+                             weekends="6 7 13 14",
+                             extra="saturdays,6 13\nsundays,7 14\n", wk={"S": 2})
+        self.assertIn(st, _SOLVED)
+        self.assertEqual([self._day(s, 0, d) for d in (5, 6)], [0, 1])    # Sunday
+        self.assertEqual([self._day(s, 0, d) for d in (12, 13)], [1, 0])  # Saturday
+
+    def test_zero_or_absent_is_todays_always_off(self):
+        for wk in (None, {"N0": 0}):
+            s, st, _ = self._run(7, self._plain(6, seniors=(0,)), cov=(1, 1, 1),
+                                 senior="true", weekends="6 7",
+                                 extra="saturdays,6\nsundays,7\n", wk=wk)
+            self.assertIn(st, _SOLVED)
+            self.assertEqual(s.senior_weekend_shifts, {})
+            for d in (5, 6):
+                self.assertEqual(s.solver.Value(s.assignments[0][d][Shift.OFF]), 1)
+
+    def test_count_on_a_non_senior_is_ignored(self):
+        s, st, _ = self._run(7, self._plain(6), cov=(1, 1, 1), senior="true",
+                             weekends="6 7", extra="saturdays,6\nsundays,7\n",
+                             wk={"N2": 1})
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(s.senior_weekend_shifts, {})
+
+    def test_monday_holiday_is_not_a_weekend_for_the_option(self):
+        # Day 3 is a holiday (non-working for a senior) but in neither list.
+        s, st, _ = self._ward15(2, extra="holidays,3\n")
+        self.assertIn(st, _SOLVED)
+        self.assertIn(2, s.weekends)
+        self.assertEqual(s.solver.Value(s.assignments[0][2][Shift.OFF]), 1)
+        # The structural proof: day 3 is in no unit, so it can never be claimed.
+        self.assertNotIn(2, {d for u in s._weekend_units() for d in u})
+
+    def test_count_is_exact_not_just_whatever_the_solver_prefers(self):
+        # N=2 can pass by luck (it is what the objective likes anyway); 1 and 3
+        # cannot both do so.
+        for n_wk in (1, 3):
+            s, st, _ = self._ward15(n_wk)
+            self.assertIn(st, _SOLVED)
+            worked = [u for u in self._UNITS15
+                      if any(self._day(s, 0, d) for d in u)]
+            self.assertEqual(len(worked), n_wk, n_wk)
+
+    def test_more_weekends_than_the_month_has_is_infeasible(self):
+        s, st, _ = self._ward15(6)                         # only 5 units exist
+        self.assertEqual(st, cp_model.INFEASIBLE)
+
+    def test_exact_coverage_is_still_exact_when_the_senior_displaces_a_nurse(self):
+        s, st, _ = self._ward15(2)
+        self.assertIn(st, _SOLVED)
+        for d in range(29):
+            n_day = sum(self._day(s, n, d) for n in range(s.num_nurses))
+            self.assertEqual(n_day, 2, f"day {d + 1}")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

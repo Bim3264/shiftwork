@@ -17,6 +17,7 @@ Run from the project root:
 """
 
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -306,7 +307,16 @@ class InputRoutes(WebTestBase):
         with self.Session() as db:
             s = db.get(ScheduleInputRow, input_id).data["settings"]
         self.assertEqual(s["num_days"], 30)      # April 2026 has 30 days
-        self.assertIn(6, s["weekends"])          # Chakri Memorial Day merged in
+        # Holiday band (constraint.md section 22): weekends holds ONLY Sat/Sun and
+        # public holidays go to their own list. Assert both directions so a
+        # regression that merges them again (old behaviour) or drops the holiday
+        # fails here.
+        sat_sun = [4, 5, 11, 12, 18, 19, 25, 26]
+        self.assertEqual(s["weekends"], sat_sun)
+        self.assertNotIn(6, s["weekends"])       # Chakri Memorial Day is NOT a weekend
+        self.assertIn(6, s["holidays"])          # ...it is a holiday
+        for d in sat_sun:
+            self.assertNotIn(d, s["holidays"])
 
     def test_autofill_requires_valid_month_year(self):
         input_id = self._make_input()
@@ -516,15 +526,15 @@ class SolveAndJobRoutes(WebTestBase):
         self.assertEqual(r.headers["location"], f"/jobs/{jobs[0].id}")
 
     def test_solve_invalid_input_reports_friendly_error(self):
-        # Single nurse + head-nurse rule -> validate() raises; expect 400, no job.
+        # No nurse rows -> validate() raises; expect 400, no job.
         bad_csv = (
             "[settings]\nnum_days,7\nhead_nurse_special_shift,true\n"
-            "[schedule]\nName,Type,1,2,3,4,5,6,7\nSolo,,,,,,,,\n"
+            "[schedule]\nName,Type,1,2,3,4,5,6,7\n"
         )
         input_id = self._make_input(csv_text=bad_csv, source="grid")
         r = self.client.post(f"/inputs/{input_id}/solve")
         self.assertEqual(r.status_code, 400)
-        self.assertIn("at least 2 active nurses", r.text)
+        self.assertIn("active nurse is required", r.text)
         with self.Session() as db:
             self.assertEqual(db.query(SolveJob).count(), 0)
 
@@ -570,6 +580,28 @@ class SolveAndJobRoutes(WebTestBase):
         self.assertIn("ช Day", r.text)                 # per-nurse table header
         self.assertIn("· senior", r.text)              # seniors tagged in table
         self.assertIn("excludes 2 day-only seniors", r.text)  # spread caption
+
+    def test_fairness_marks_the_typed_senior_not_rows_0_and_1(self):
+        # Seniority is the Type column: only the nurse at index 2 is senior.
+        csv_text = (
+            "[settings]\nnum_days,2\nhead_nurse_special_shift,true\n"
+            "[schedule]\nName,Type,1,2\nA,,,\nB,,,\nC,senior,,\nD,,,\n"
+        )
+        input_id = self._make_input(csv_text=csv_text, source="grid")
+        grid = {"days": [1, 2], "rows": [
+            {"nurse_index": 0, "name": "A", "cells": ["ด", "ด"]},
+            {"nurse_index": 1, "name": "B", "cells": ["ด", "off"]},
+            {"nurse_index": 2, "name": "C", "cells": ["ช", "ช"]},
+            {"nurse_index": 3, "name": "D", "cells": ["ด", "ด"]},
+        ]}
+        job_id = self._make_job(
+            status=JobStatus.succeeded, solver_status="OPTIMAL",
+            result_grid=grid, result_csv="x", input_id=input_id,
+        )
+        r = self.client.get(f"/jobs/{job_id}/status")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("excludes 1 day-only senior", r.text)
+        self.assertEqual(r.text.count("· senior"), 1)
 
     def test_status_fragment_shows_request_acceptance_report(self):
         grid = {
@@ -651,6 +683,26 @@ class SolveAndJobRoutes(WebTestBase):
         self.assertIn("ช", decoded)
         self.assertFalse(decoded.startswith("﻿"), "should be exactly one BOM")
 
+    def test_download_xlsx_roundtrip(self):
+        import io, openpyxl
+        grid = {"days": [1, 2], "rows": [
+            {"nurse_index": 0, "name": "NurseA", "cells": ["ช", "off"]}]}
+        job_id = self._make_job(status=JobStatus.succeeded, solver_status="OPTIMAL",
+                                result_grid=grid, result_csv="x")
+        r = self.client.get(f"/jobs/{job_id}/download.xlsx")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("spreadsheetml", r.headers["content-type"])
+        ws = openpyxl.load_workbook(io.BytesIO(r.content)).active
+        vals = [c.value for row in ws.iter_rows() for c in row]
+        self.assertIn("NurseA", vals)
+        self.assertIn("ช", vals)
+        page = self.client.get(f"/jobs/{job_id}/status")
+        self.assertIn(f"/jobs/{job_id}/download.xlsx", page.text)
+
+    def test_download_xlsx_404_without_grid(self):
+        job_id = self._make_job(status=JobStatus.failed)
+        self.assertEqual(self.client.get(f"/jobs/{job_id}/download.xlsx").status_code, 404)
+
     def test_download_404_when_no_csv(self):
         job_id = self._make_job(status=JobStatus.succeeded, result_csv="")
         r = self.client.get(f"/jobs/{job_id}/download")
@@ -669,8 +721,24 @@ class SolveAndJobRoutes(WebTestBase):
 
 class PresolveRouteTests(WebTestBase):
 
-    def test_solve_blocked_by_presolve_error(self):
-        # _SAMPLE_CSV: 3 nurses vs default coverage 5/3/3 -> certainly infeasible.
+    def test_solve_is_not_blocked_by_presolve_by_default(self):
+        # _SAMPLE_CSV: 3 nurses vs default coverage 5/3/3 -> presolve flags it.
+        # PRESOLVE_BLOCKS_SOLVE defaults off, so the job is queued anyway and
+        # the ward gets an INFEASIBLE result explained by diagnose(), rather
+        # than being refused up front.
+        self.assertFalse(app_module.config.PRESOLVE_BLOCKS_SOLVE)
+        input_id = self._make_input()
+        r = self.client.post(f"/inputs/{input_id}/solve")
+        self.assertEqual(r.status_code, 303)
+        with self.Session() as db:
+            self.assertEqual(db.query(SolveJob).count(), 1)
+        self.assertEqual(len(self.enqueued), 1)
+
+    def test_solve_blocked_by_presolve_error_when_enabled(self):
+        orig = app_module.config.PRESOLVE_BLOCKS_SOLVE
+        app_module.config.PRESOLVE_BLOCKS_SOLVE = True
+        self.addCleanup(
+            setattr, app_module.config, "PRESOLVE_BLOCKS_SOLVE", orig)
         input_id = self._make_input()
         r = self.client.post(f"/inputs/{input_id}/solve")
         self.assertEqual(r.status_code, 400)
@@ -730,6 +798,283 @@ Nurse4,,,,,,
         self.assertRegex(r.headers["location"], r"^/jobs/\d+$")
         with self.Session() as db:
             self.assertEqual(db.query(SolveJob).count(), 1)
+
+
+class ResultGridRenderTests(WebTestBase):
+    """The results page renders both the legacy flat grid and the grouped grid."""
+
+    _VAC_TINT = "background:#CFFAFE"
+    _OFF_TINT = "background:#FEE2E2"
+    _OFFWARD_TINT = "background:#FFEDD5"
+
+    def _cell(self, html, text):
+        m = re.search(r'<td class="cell"([^>]*)>' + re.escape(text) + r"</td>", html)
+        self.assertIsNotNone(m, f"cell {text!r} not rendered")
+        return m.group(1)
+
+    def test_old_flat_grid_still_renders_with_fairness(self):
+        # Saved before the staff-class feature: no "groups" key at all.
+        grid = {"days": [1, 2, 3], "rows": [
+            {"nurse_index": 0, "name": "NurseA", "cells": ["ช", "off", "vac"]},
+            {"nurse_index": 1, "name": "NurseB", "cells": ["บ", "ด", "off"]},
+        ]}
+        self.assertNotIn("groups", grid)
+        jid = self._make_job(status=JobStatus.succeeded, solver_status="OPTIMAL",
+                             result_grid=grid)
+        r = self.client.get(f"/jobs/{jid}/status")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("Fairness", r.text)
+        self.assertIn("NurseA", r.text)
+        self.assertIn("NurseB", r.text)
+        self.assertNotIn("<h3>RN", r.text)          # no per-group heading
+        self.assertNotIn("PN/NA", r.text)
+        self.assertNotIn("Off-ward", r.text)         # no off-ward column or note
+        self.assertNotIn(self._OFFWARD_TINT, r.text)
+        self.assertIn(self._VAC_TINT, self._cell(r.text, "vac"))
+        self.assertIn(self._OFF_TINT, self._cell(r.text, "off"))
+        # the full job page renders too
+        self.assertEqual(self.client.get(f"/jobs/{jid}").status_code, 200)
+
+    def test_grouped_grid_renders_a_table_per_group(self):
+        grid = {"days": [1, 2], "rows": [
+            {"nurse_index": 0, "name": "RN1", "cells": ["ช", "flt:ด"], "group": "rn"},
+            {"nurse_index": 1, "name": "PN1", "cells": ["ref:ช", "off"], "group": "pn_na"},
+        ], "groups": [
+            {"key": "rn", "label": "RN", "nurse_indices": [0],
+             "solver_status": "OPTIMAL", "request_report": None},
+            {"key": "pn_na", "label": "PN/NA", "nurse_indices": [1],
+             "solver_status": "FEASIBLE", "request_report": None},
+        ]}
+        jid = self._make_job(status=JobStatus.succeeded, solver_status="OPTIMAL",
+                             result_grid=grid)
+        r = self.client.get(f"/jobs/{jid}/status")
+        self.assertEqual(r.status_code, 200)
+        t = r.text
+        self.assertIn("<h3>RN", t)
+        self.assertIn("<h3>PN/NA", t)
+        # A table per group: each nurse sits under her own group's heading.
+        rn_head, pn_head = t.index("<h3>RN"), t.index("<h3>PN/NA")
+        self.assertLess(rn_head, pn_head)
+        self.assertGreater(t.index("RN1"), rn_head)
+        self.assertLess(t.rindex("RN1"), pn_head)
+        self.assertGreater(t.index("PN1"), pn_head)
+        self.assertEqual(t.count("Fairness"), 2)     # one fairness block per group
+        # Off-ward summary is shown because this grid has off-ward cells.
+        self.assertIn("Off-ward", t)
+
+    def test_offward_cell_is_tinted_distinctly_from_off_and_vac(self):
+        grid = {"days": [1, 2, 3, 4], "rows": [
+            {"nurse_index": 0, "name": "A",
+             "cells": ["flt:ด", "ref:ช", "off", "vac"]},
+        ]}
+        jid = self._make_job(status=JobStatus.succeeded, solver_status="OPTIMAL",
+                             result_grid=grid)
+        t = self.client.get(f"/jobs/{jid}/status").text
+        flt, ref = self._cell(t, "flt:ด"), self._cell(t, "ref:ช")
+        off, vac = self._cell(t, "off"), self._cell(t, "vac")
+        self.assertIn(self._OFFWARD_TINT, flt)
+        self.assertIn(self._OFFWARD_TINT, ref)
+        self.assertIn(self._OFF_TINT, off)
+        self.assertIn(self._VAC_TINT, vac)
+        # distinct: the off-ward tint is on neither of off / vac, and vice versa
+        for other in (off, vac):
+            self.assertNotIn(self._OFFWARD_TINT, other)
+        self.assertNotIn(self._OFF_TINT, flt)
+        self.assertNotIn(self._VAC_TINT, flt)
+
+
+class NegativeRequestEditTests(WebTestBase):
+    def test_edit_page_documents_and_tints_no_tokens(self):
+        r = self.client.get(f"/inputs/{self._make_input()}/edit")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("no:บ", r.text)               # legend
+        self.assertIn("cell--neg", r.text)               # CSS class + JS tint
+
+
+class CoverageBandsEditTests(WebTestBase):
+    """Edit page: three coverage bands, the holidays input, no-clobber saves."""
+
+    @staticmethod
+    def _form(**extra):
+        form = {"row_count": "3", "num_days": "7", "weekends": "6 7",
+                "name_0": "NurseA", "name_1": "NurseB", "name_2": "NurseC",
+                "active_0": "on", "active_1": "on", "active_2": "on"}
+        form.update(extra)
+        return form
+
+    def _settings(self, iid):
+        with self.Session() as db:
+            return db.get(ScheduleInputRow, iid).data["settings"]
+
+    def test_edit_page_renders_three_bands(self):
+        iid = self._make_input()
+        r = self.client.get(f"/inputs/{iid}/edit")
+        self.assertEqual(r.status_code, 200)
+        # Unclassed ward: 5 bands x 3 shifts, legacy keys only.
+        self.assertEqual(len(re.findall(r'name="coverage_', r.text)), 15)
+        self.assertNotIn("coverage_pnna", r.text)
+        self.assertIn('name="coverage_holiday_day"', r.text)
+        self.assertIn('name="coverage_holiday_evening"', r.text)
+        self.assertIn('name="coverage_holiday_night"', r.text)
+        self.assertIn('name="holidays"', r.text)
+
+        # Classify every nurse -> 5 bands x 3 shifts x 2 groups.
+        form = self._form(class_0="rn", class_1="RN", class_2="na",
+                          coverage_weekday_day="9")
+        self.assertEqual(self.client.post(f"/inputs/{iid}", data=form).status_code, 303)
+        r = self.client.get(f"/inputs/{iid}/edit")
+        self.assertEqual(len(re.findall(r'name="coverage_', r.text)), 30)
+        self.assertNotIn('name="coverage_weekday_day"', r.text)
+        self.assertIn('name="coverage_rn_holiday_day"', r.text)
+        self.assertIn('name="coverage_pnna_holiday_night"', r.text)
+        self.assertIn('name="holidays"', r.text)
+
+    def _coverage_table(self, html):
+        m = re.search(r'<table class="opts cov" id="coverage-table">(.*?)</table>',
+                      html, re.S)
+        self.assertIsNotNone(m, "coverage table missing")
+        return m.group(1)
+
+    def test_coverage_table_stays_three_numeric_columns(self):
+        # Layout regression: the table once had one column per band/group (up to
+        # 7, 527px) and overflowed its 399px grid column, hiding the PN/NA
+        # inputs. Shifts are the ONLY numeric columns; bands/groups go down the
+        # rows. A future band must add a row, never a column.
+        iid = self._make_input()
+        t = self._coverage_table(self.client.get(f"/inputs/{iid}/edit").text)
+        for tr in re.findall(r"<tr.*?</tr>", t, re.S):
+            self.assertLessEqual(
+                len(re.findall(r"<t[dh]\b", tr)), 4,
+                "coverage table row has more than label + 3 shift cells")
+        # Ungrouped: header + 5 band rows, 15 inputs, no group sub-headers.
+        self.assertEqual(len(re.findall(r'<input type="number"', t)), 15)
+        self.assertEqual(t.count("cov-group"), 0)
+        form = self._form(class_0="rn", class_1="RN", class_2="na")
+        self.assertEqual(self.client.post(f"/inputs/{iid}", data=form).status_code, 303)
+        t = self._coverage_table(self.client.get(f"/inputs/{iid}/edit").text)
+        for tr in re.findall(r"<tr.*?</tr>", t, re.S):
+            self.assertLessEqual(len(re.findall(r"<t[dh]\b", tr)), 4)
+        self.assertEqual(len(re.findall(r'<input type="number"', t)), 30)
+        self.assertEqual(t.count("cov-group"), 2)     # RN and PN/NA sub-headers
+        self.assertEqual(len(re.findall(r"<tr", t)), 1 + 2 * (1 + 5))
+
+    def test_edit_page_has_saturday_sunday_rows_and_lists(self):
+        iid = self._make_input()
+        t = self.client.get(f"/inputs/{iid}/edit").text
+        for n in ("coverage_saturday_day", "coverage_saturday_night",
+                  "coverage_sunday_day", "coverage_sunday_evening",
+                  "saturdays", "sundays"):
+            self.assertIn(f'name="{n}"', t)
+
+    def test_saturday_sunday_save_and_no_clobber(self):
+        iid = self._make_input()
+        form = self._form(saturdays="6", sundays="7", coverage_saturday_day="9")
+        self.assertEqual(self.client.post(f"/inputs/{iid}", data=form).status_code, 303)
+        st = self._settings(iid)
+        self.assertEqual((st["saturdays"], st["sundays"]), ([6], [7]))
+        self.assertEqual(st["coverage_saturday_day"], 9)
+        # A save that omits the keys must not reset them.
+        self.assertEqual(self.client.post(f"/inputs/{iid}", data=self._form()).status_code, 303)
+        st = self._settings(iid)
+        self.assertEqual((st["saturdays"], st["sundays"]), ([6], [7]))
+        self.assertEqual(st["coverage_saturday_day"], 9)
+
+    def test_autofill_splits_saturdays_and_sundays(self):
+        iid = self._make_input()
+        r = self.client.post(f"/inputs/{iid}/autofill",
+                             data={"month": "4", "year": "2026", "num_days": "31",
+                                   "weekends": "", "row_count": "0"})
+        self.assertEqual(r.status_code, 303)
+        st = self._settings(iid)
+        self.assertEqual(st["saturdays"], [4, 11, 18, 25])
+        self.assertEqual(st["sundays"], [5, 12, 19, 26])
+        self.assertEqual(st["weekends"], [4, 5, 11, 12, 18, 19, 25, 26])
+
+    def test_save_omitting_group_coverage_does_not_clobber(self):
+        iid = self._make_input()
+        classes = dict(class_0="rn", class_1="rn", class_2="na")
+        form = self._form(**classes, coverage_pnna_weekday_day="6",
+                          coverage_pnna_holiday_night="5",
+                          coverage_rn_weekday_night="7")
+        self.assertEqual(self.client.post(f"/inputs/{iid}", data=form).status_code, 303)
+        st = self._settings(iid)
+        self.assertEqual(st["coverage_pnna_weekday_day"], 6)
+        self.assertEqual(st["coverage_pnna_holiday_night"], 5)
+
+        # Second save omits every PN/NA coverage field (and the legacy ones).
+        form2 = self._form(**classes, coverage_rn_weekday_night="8")
+        self.assertEqual(self.client.post(f"/inputs/{iid}", data=form2).status_code, 303)
+        st = self._settings(iid)
+        self.assertEqual(st["coverage_pnna_weekday_day"], 6)     # not reset to 5
+        self.assertEqual(st["coverage_pnna_holiday_night"], 5)   # not reset to 2
+        self.assertEqual(st["coverage_rn_weekday_night"], 8)     # submitted -> updated
+
+    def test_min_request_percent_is_per_group_in_form(self):
+        iid = self._make_input()
+        # Unclassed: one legacy field.
+        r = self.client.get(f"/inputs/{iid}/edit")
+        self.assertIn('name="min_request_percent"', r.text)
+        self.assertNotIn('name="min_request_percent_rn"', r.text)
+        # Classed: the pair replaces it.
+        classes = dict(class_0="rn", class_1="rn", class_2="na")
+        form = self._form(**classes, min_request_percent_rn="100",
+                          min_request_percent_pnna="40")
+        self.assertEqual(self.client.post(f"/inputs/{iid}", data=form).status_code, 303)
+        st = self._settings(iid)
+        self.assertEqual((st["min_request_percent_rn"], st["min_request_percent_pnna"]),
+                         (100, 40))
+        r = self.client.get(f"/inputs/{iid}/edit")
+        self.assertIn('name="min_request_percent_rn"', r.text)
+        self.assertIn('name="min_request_percent_pnna"', r.text)
+        self.assertNotIn('name="min_request_percent"', r.text)
+
+    def test_save_omitting_min_request_keys_does_not_clobber(self):
+        iid = self._make_input()
+        classes = dict(class_0="rn", class_1="rn", class_2="na")
+        form = self._form(**classes, min_request_percent_rn="70",
+                          min_request_percent_pnna="30")
+        self.assertEqual(self.client.post(f"/inputs/{iid}", data=form).status_code, 303)
+        # Second save omits all three keys (field not rendered): nothing resets.
+        self.assertEqual(self.client.post(f"/inputs/{iid}",
+                                          data=self._form(**classes)).status_code, 303)
+        st = self._settings(iid)
+        self.assertEqual((st["min_request_percent_rn"], st["min_request_percent_pnna"]),
+                         (70, 30))
+
+    def test_min_days_off_is_per_group_in_form_and_survives_omission(self):
+        iid = self._make_input()
+        r = self.client.get(f"/inputs/{iid}/edit")
+        self.assertIn('name="min_days_off"', r.text)
+        self.assertNotIn('name="min_days_off_rn"', r.text)
+        classes = dict(class_0="rn", class_1="rn", class_2="na")
+        form = self._form(**classes, min_days_off_rn="4", min_days_off_pnna="1")
+        self.assertEqual(self.client.post(f"/inputs/{iid}", data=form).status_code, 303)
+        # A later save that omits the fields must not reset them.
+        self.assertEqual(self.client.post(f"/inputs/{iid}",
+                                          data=self._form(**classes)).status_code, 303)
+        st = self._settings(iid)
+        self.assertEqual((st["min_days_off_rn"], st["min_days_off_pnna"]), (4, 1))
+        r = self.client.get(f"/inputs/{iid}/edit")
+        self.assertIn('name="min_days_off_rn"', r.text)
+        self.assertIn('name="min_days_off_pnna"', r.text)
+        self.assertNotIn('name="min_days_off"', r.text)
+
+    def test_save_omitting_holidays_leaves_stored_list_intact(self):
+        iid = self._make_input()
+        self.assertEqual(self.client.post(
+            f"/inputs/{iid}", data=self._form(holidays="3 5")).status_code, 303)
+        self.assertEqual(self._settings(iid)["holidays"], [3, 5])
+        # The field is absent entirely (not blank).
+        self.assertEqual(self.client.post(f"/inputs/{iid}", data=self._form()).status_code, 303)
+        self.assertEqual(self._settings(iid)["holidays"], [3, 5])
+        # A submitted blank is a deliberate clear: empty means empty.
+        self.assertEqual(self.client.post(
+            f"/inputs/{iid}", data=self._form(holidays="")).status_code, 303)
+        self.assertEqual(self._settings(iid)["holidays"], [])
+
+    def test_settings_from_form_without_current_omits_coverage_keys(self):
+        s = app_module._settings_from_form({"num_days": "7"})
+        self.assertEqual([k for k in s if k.startswith("coverage") or k == "holidays"], [])
 
 
 class AllowlistUnit(unittest.TestCase):

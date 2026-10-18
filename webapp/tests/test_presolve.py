@@ -97,7 +97,8 @@ def _pair_si(allow_evening_to_night=False):
 
 
 def _senior_meeting_si():
-    nurses = [Nurse(name="Head"), Nurse(name="Deputy"), Nurse(name="C")]
+    nurses = [Nurse(name="Head", type="senior"), Nurse(name="Deputy", type="senior"),
+              Nurse(name="C")]
     nurses[0].shifts[6] = "mtg"
     settings = {
         "num_days": 7, "weekends": [6, 7],
@@ -269,7 +270,7 @@ class PresolveKernelTests(unittest.TestCase):
         self.assertIn("tier_meetings", _codes(report.warnings))
 
     def test_senior_weekend_request_warns(self):
-        nurses = [Nurse(name="Head", shifts={6: "ช"}), Nurse(name="Deputy"),
+        nurses = [Nurse(name="Head", type="senior", shifts={6: "ช"}), Nurse(name="Deputy"),
                   Nurse(name="C")]
         settings = {
             "num_days": 7, "weekends": [6, 7],
@@ -298,6 +299,299 @@ class PresolveKernelTests(unittest.TestCase):
         self.assertEqual(report.checks_passed, 4)
         self.assertTrue(report.ok)
         self.assertEqual(report.warnings, [])
+
+
+
+# -- Off-ward duties (constraint.md section 21) and the holiday band (section 22) --
+
+def _offward_base(**over):
+    s = {"num_days": 6, "weekends": [], "head_nurse_special_shift": False,
+         "coverage_weekday_day": 1, "coverage_weekday_evening": 1,
+         "coverage_weekday_night": 1}
+    s.update(over)
+    return s
+
+
+def _holiday_si(senior_idx=0, **over):
+    """6 nurses, 7 days. All three bands default to 2/1/1 so a test changes
+    exactly one band's number and nothing else."""
+    s = {"num_days": 7, "weekends": [], "holidays": [],
+         "coverage_weekday_day": 2, "coverage_weekday_evening": 1,
+         "coverage_weekday_night": 1,
+         "coverage_weekend_day": 2, "coverage_weekend_evening": 1,
+         "coverage_weekend_night": 1,
+         "coverage_holiday_day": 2, "coverage_holiday_evening": 1,
+         "coverage_holiday_night": 1,
+         "head_nurse_special_shift": False}
+    s.update(over)
+    return _si(settings=s, nurses=[
+        Nurse(name=f"N{i}", type=("senior" if i == senior_idx else ""))
+        for i in range(6)])
+
+
+# Cell tokens, spelled as escapes so this file stays ASCII: ช = day,
+# บ = evening, ด = night.
+class PresolveOffwardTests(unittest.TestCase):
+
+    def test_presolve_no_false_blockers_with_offward(self):
+        # Failure mode 9: a feasible ward with off-ward cells must not be blocked.
+        nurses = [Nurse(name=f"N{i}") for i in range(6)]
+        nurses[2].shifts[2] = "flt:บ"
+        nurses[3].shifts[3] = "ref:ช"
+        si = _si(settings=_offward_base(), nurses=nurses)
+        result = run_schedule(si, 20)
+        self.assertTrue(result.solved, result.solver_status)
+        report = presolve.check(si)
+        self.assertEqual(report.errors, [])
+
+    def test_presolve_offward_exclusion_is_a_real_coverage_error(self):
+        # The converse: off-ward removes the nurse from the coverage pool, so
+        # when that makes a day short presolve must say so (and the solver agrees).
+        nurses = [Nurse(name=f"N{i}") for i in range(3)]
+        nurses[0].shifts[2] = "flt:ด"
+        nurses[1].shifts[2] = "off"
+        nurses[2].shifts[2] = "off"
+        si = _si(settings=_offward_base(
+            num_days=3, coverage_weekday_evening=0), nurses=nurses)
+        report = presolve.check(si)
+        cov = [e for e in report.errors if e.code == "coverage_day"]
+        self.assertEqual(len(cov), 1)
+        self.assertEqual(cov[0].days, [2])
+        self.assertEqual(run_schedule(si, 20).solver_status, "INFEASIBLE")
+
+    def test_presolve_offward_transition_error(self):
+        zero = {"coverage_weekday_day": 0, "coverage_weekday_evening": 0,
+                "coverage_weekday_night": 0, "coverage_weekend_day": 0,
+                "coverage_weekend_evening": 0, "coverage_weekend_night": 0,
+                "exact_coverage": False}
+
+        def ward(allow_night_to_day):
+            settings = _offward_base(num_days=5,
+                                     allow_night_to_day=allow_night_to_day)
+            settings.update(zero)
+            return _si(settings=settings, nurses=[
+                Nurse(name="N0", shifts={4: "flt:ด", 5: "ช"})])
+
+        blocked = presolve.check(ward(False))
+        self.assertEqual([e.code for e in blocked.errors], ["request_transition"])
+        self.assertEqual(blocked.errors[0].days, [4, 5])
+        self.assertEqual(presolve.check(ward(True)).errors, [])
+        # Sound: the solver really cannot do night -> day when it is disallowed.
+        self.assertEqual(run_schedule(ward(False), 20).solver_status, "INFEASIBLE")
+
+    def test_presolve_senior_offward_is_a_warning(self):
+        # The solver DROPS an off-ward cell that conflicts with the senior rule
+        # (skip-guard), so the ward still solves. Presolve errors must be sound:
+        # promoting this to an error would block a solvable ward.
+        nurses = [Nurse(name=f"N{i}", type="senior" if i < 2 else "")
+                  for i in range(6)]
+        nurses[0].shifts[6] = "ref:ช"      # head on a weekend
+        nurses[1].shifts[2] = "flt:ด"      # deputy on a night
+        nurses[2].shifts[2] = "flt:บ"
+        si = _si(settings=_offward_base(
+            weekends=[6], head_nurse_special_shift=True,
+            coverage_weekend_day=1, coverage_weekend_evening=1,
+            coverage_weekend_night=1), nurses=nurses)
+        report = presolve.check(si)
+        self.assertEqual(report.errors, [])
+        offward = [w for w in report.warnings if w.code == "senior_offward"]
+        self.assertEqual(len(offward), 2)
+        self.assertEqual(len(report.warnings), 2)
+        self.assertTrue(report.ok)
+        result = run_schedule(si, 20)
+        self.assertTrue(result.solved, result.solver_status)
+
+    def test_presolve_grouped_messages_and_bands(self):
+        nurses = ([Nurse(name=f"RN{i}", staff_class="rn", type=("senior" if i == 0 else ""))
+                   for i in range(4)]
+                  + [Nurse(name=f"PN{i}", staff_class="pn") for i in range(3)])
+        # PN/NA has 3 nurses and needs 4 on Day; RN has 4 and needs 1.
+        nurses[0].shifts[1] = "ref:ด"      # RN head on night -> warning
+        nurses[4].shifts[1] = "ref:ด"      # PN index 0: no senior rule
+        settings = _offward_base(
+            num_days=2, head_nurse_special_shift=True,
+            coverage_rn_weekday_day=1, coverage_rn_weekday_evening=1,
+            coverage_rn_weekday_night=1,
+            coverage_pnna_weekday_day=4, coverage_pnna_weekday_evening=0,
+            coverage_pnna_weekday_night=0)
+        si = _si(ward_meta={"tier": "department"}, settings=settings, nurses=nurses)
+        report = presolve.check(si)
+        self.assertTrue(any(e.message.startswith("PN/NA: ") for e in report.errors),
+                        report.errors)
+        self.assertFalse(any(e.message.startswith("RN: ") for e in report.errors),
+                         report.errors)
+        self.assertTrue(any(w.code == "senior_offward"
+                            and w.message.startswith("RN: ")
+                            for w in report.warnings), report.warnings)
+        # 1 tier check + 3 per group x 2 groups.
+        self.assertEqual(report.checks_total, 7)
+
+        # The tier cap is on the COMBINED roster and is reported once, not per group.
+        big = ([Nurse(name=f"RN{i}", staff_class="rn") for i in range(5)]
+               + [Nurse(name=f"PN{i}", staff_class="pn") for i in range(5)])
+        big_report = presolve.check(_si(settings=_offward_base(num_days=1), nurses=big))
+        self.assertEqual([e.code for e in big_report.errors].count("tier_nurses"), 1)
+
+
+class PresolvePerGroupSoftTests(unittest.TestCase):
+    """Presolve judges a request 'droppable' by ITS group's min_request_percent."""
+
+    def test_soft_is_decided_per_group(self):
+        def nurses():
+            out = []
+            for pre, cls in (("R", "rn"), ("P", "pn")):
+                grp = [Nurse(name=f"{pre}{i}", staff_class=cls) for i in range(4)]
+                for n in grp[:3]:
+                    n.shifts[2] = "off"      # 3 of 4 off on day 2; 2/1/1 needs 4
+                out += grp
+            return out
+        cov = {f"coverage_{g}_weekday_{s}": n for g in ("rn", "pnna")
+               for s, n in (("day", 2), ("evening", 1), ("night", 1))}
+        settings = {**cov, "num_days": 7, "weekends": [],
+                    "head_nurse_special_shift": False, "relax_days_off": True,
+                    "min_request_percent_rn": 100, "min_request_percent_pnna": 50}
+        report = presolve.check(_si(settings=settings, nurses=nurses()))
+        cov_errors = [e for e in report.errors if e.code == "coverage_day"]
+        # RN (strict) is blocked; PN/NA (droppable) is not.
+        self.assertEqual(len(cov_errors), 1, report.errors)
+        self.assertTrue(cov_errors[0].message.startswith("RN: "))
+
+
+class PresolveHolidayBandTests(unittest.TestCase):
+
+    def test_high_holiday_band_is_a_coverage_error_and_really_infeasible(self):
+        si = _holiday_si(holidays=[3], coverage_holiday_day=10)
+        report = presolve.check(si)
+        cov = [e for e in report.errors if e.code == "coverage_day"]
+        self.assertEqual(len(cov), 1, report.errors)
+        self.assertEqual(cov[0].days, [3])
+        # Soundness: presolve may only block what the solver cannot solve.
+        result = run_schedule(si, 20)
+        self.assertFalse(result.solved)
+        self.assertEqual(result.solver_status, "INFEASIBLE")
+
+    def test_holiday_band_inheriting_weekend_numbers_is_not_blocked(self):
+        # Control: holiday numbers equal the weekend numbers (the default).
+        si = _holiday_si(holidays=[3])
+        report = presolve.check(si)
+        self.assertNotIn("coverage_day", _codes(report.errors))
+        self.assertEqual(report.errors, [])
+        result = run_schedule(si, 20)
+        self.assertTrue(result.solved, result.solver_status)
+
+    def test_holiday_wins_over_weekend_band(self):
+        # Day 3 is in BOTH lists. High weekend number, low holiday number: the
+        # holiday band wins, so there is no error and the ward solves.
+        si = _holiday_si(holidays=[3], weekends=[3],
+                         coverage_weekend_day=10, coverage_holiday_day=2)
+        self.assertEqual(presolve.check(si).errors, [])
+        self.assertTrue(run_schedule(si, 20).solved)
+        # And the reverse: high holiday number on a day also in weekends blocks.
+        si2 = _holiday_si(holidays=[3], weekends=[3], coverage_holiday_day=10)
+        self.assertIn("coverage_day", _codes(presolve.check(si2).errors))
+        self.assertEqual(run_schedule(si2, 20).solver_status, "INFEASIBLE")
+
+    def test_saturday_band_is_a_coverage_error_and_really_infeasible(self):
+        si = _holiday_si(saturdays=[3], coverage_saturday_day=10)
+        self.assertIn("coverage_day", _codes(presolve.check(si).errors))
+        self.assertEqual(run_schedule(si, 20).solver_status, "INFEASIBLE")
+        # Control: same number, day not listed in saturdays -> no error.
+        ok = _holiday_si(coverage_saturday_day=10)
+        self.assertEqual(presolve.check(ok).errors, [])
+
+    def test_sunday_wins_over_saturday_and_weekend(self):
+        # Day 3 is in saturdays, sundays and weekends. Sunday's low number wins
+        # over the high Saturday/weekend numbers: no error, and it solves.
+        si = _holiday_si(saturdays=[3], sundays=[3], weekends=[3],
+                         coverage_weekend_day=10, coverage_saturday_day=10,
+                         coverage_sunday_day=2)
+        self.assertEqual(presolve.check(si).errors, [])
+        self.assertTrue(run_schedule(si, 20).solved)
+        # Reverse: high Sunday number on that day blocks.
+        si2 = _holiday_si(saturdays=[3], sundays=[3], coverage_sunday_day=10)
+        self.assertIn("coverage_day", _codes(presolve.check(si2).errors))
+
+    def test_holiday_wins_over_sunday(self):
+        si = _holiday_si(holidays=[3], sundays=[3], coverage_sunday_day=10,
+                         coverage_holiday_day=2)
+        self.assertEqual(presolve.check(si).errors, [])
+
+    def test_senior_in_the_middle_is_the_one_warned(self):
+        # Seniority is the Type column: nurse 3 is senior, nurses 0/1 are not.
+        si = _holiday_si(senior_idx=3, holidays=[3], head_nurse_special_shift=True)
+        si.nurses[0].shifts[3] = "ช"
+        self.assertNotIn("senior_request", _codes(presolve.check(si).warnings))
+        si.nurses[3].shifts[3] = "ช"
+        self.assertIn("senior_request", _codes(presolve.check(si).warnings))
+
+    def test_no_senior_typed_means_no_senior_warning(self):
+        si = _holiday_si(senior_idx=-1, holidays=[3], head_nurse_special_shift=True)
+        for n in si.nurses:
+            n.shifts[3] = "ช"
+        self.assertNotIn("senior_request", _codes(presolve.check(si).warnings))
+
+    def test_saturday_is_non_working_for_the_senior_rule(self):
+        # A Saturday NOT in `weekends` still counts as a no-senior day.
+        si = _holiday_si(saturdays=[3], head_nurse_special_shift=True)
+        si.nurses[0].shifts[3] = "\u0e0a"        # head nurse asks for Day on it
+        report = presolve.check(si)
+        self.assertIn("senior_request", _codes(report.warnings))
+        self.assertEqual(report.errors, [])
+
+    def test_high_weekend_band_only_blocks_non_holiday_weekend_days(self):
+        # Day 3 is a holiday (2 on Day: fine); day 6 is a plain weekend day and
+        # carries the impossible weekend number, so ONLY day 6 is flagged.
+        si = _holiday_si(holidays=[3], weekends=[6], coverage_weekend_day=10)
+        cov = [e for e in presolve.check(si).errors if e.code == "coverage_day"]
+        self.assertEqual(len(cov), 1)
+        self.assertEqual(cov[0].days, [6])
+        self.assertEqual(run_schedule(si, 20).solver_status, "INFEASIBLE")
+
+    def test_holiday_is_non_working_for_the_senior_rule(self):
+        # A holiday not in `weekends` is still a no-senior day: a head-nurse
+        # request on it is warned about (and not an error: the solver skips it).
+        si = _holiday_si(holidays=[3], head_nurse_special_shift=True)
+        si.nurses[0].shifts[3] = "ช"
+        report = presolve.check(si)
+        self.assertIn("senior_request", _codes(report.warnings))
+        self.assertEqual(report.errors, [])
+        self.assertTrue(run_schedule(si, 20).solved)
+
+    def test_missing_or_null_holidays_key_is_tolerated(self):
+        # Months saved before the holiday band have no `holidays` key.
+        si = _holiday_si(weekends=[3])
+        si.settings.pop("holidays", None)
+        self.assertEqual(presolve.check(si).errors, [])
+        si.settings["holidays"] = None
+        self.assertEqual(presolve.check(si).errors, [])
+
+
+class PresolveNegationTests(unittest.TestCase):
+    """'no:X' cells (constraint.md section 23) feed the coverage check."""
+
+    def _si(self, negators, **over):
+        nurses = [Nurse(name=f"N{i}") for i in range(3)]
+        for i in range(negators):
+            nurses[i].shifts[2] = "no:บ"          # no:evening on day 2
+        s = _offward_base(num_days=3, coverage_weekday_night=0, **over)
+        return _si(settings=s, nurses=nurses)
+
+    def test_everyone_negating_a_needed_shift_is_a_coverage_error(self):
+        si = self._si(3)
+        cov = [e for e in presolve.check(si).errors if e.code == "coverage_day"]
+        self.assertEqual([e.days for e in cov], [[2]])
+        self.assertIn("no:", cov[0].message)
+        self.assertEqual(run_schedule(si, 20).solver_status, "INFEASIBLE")
+
+    def test_partial_negation_is_not_blocked(self):
+        # Failure mode 9: the converse. Two of three negating still leaves one.
+        si = self._si(2)
+        self.assertEqual(presolve.check(si).errors, [])
+        self.assertTrue(run_schedule(si, 20).solved)
+
+    def test_negation_is_not_hard_in_soft_mode(self):
+        si = self._si(3, min_request_percent=50)
+        self.assertEqual(presolve.check(si).errors, [])
 
 
 if __name__ == "__main__":

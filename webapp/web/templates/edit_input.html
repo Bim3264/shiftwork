@@ -22,6 +22,12 @@
   .settings-grid > .card { margin:0; padding:14px; }
   .settings-grid .card h3 { margin-top:0; }
   .settings-grid label { display:block; margin:.3rem 0; }
+  /* Coverage table must fit its grid column: fixed layout, no overflow. */
+  table.cov { width:100%; table-layout:fixed; }
+  table.cov td, table.cov th { padding:.25rem .3rem; }
+  table.cov th:first-child, table.cov td:first-child { width:38%; }
+  table.cov input { width:100%; box-sizing:border-box; min-width:0; padding:6px 4px; }
+  table.cov tr.cov-group th { background:#F3F4F6; text-align:left; }
 
   /* ── Request grid (wireframe 1j: colored request layer + coverage footer) ── */
   .legend { display:flex; flex-wrap:wrap; gap:14px; font-size:11px; color:#6B7280; margin:6px 0 10px; }
@@ -44,6 +50,8 @@
   input.cell.cell--off   { background:#FEE2E2; border-color:#EF4444; color:#991B1B; }
   input.cell.cell--mtg   { background:#EDE9FE; border-color:#8B5CF6; color:#5B21B6; }
   input.cell.cell--vac   { background:#CFFAFE; border-color:#06B6D4; color:#155E75; }
+  input.cell.cell--ofw   { background:#FFEDD5; border-color:#EA580C; color:#9A3412; }
+  input.cell.cell--neg   { background:#FFE4E6; border-color:#BE123C; color:#9F1239; }
   .namecell input[type=text] { border:1px solid #E5E7EB; border-radius:5px; }
   tfoot td.offcount { text-align:center; font:600 10px Helvetica; color:#9CA3AF; padding-top:5px; }
   tfoot td.offcount.hot { color:#991B1B; }
@@ -106,12 +114,23 @@
              value="{{ ward_meta.get('year','') }}" style="width:6rem"></label>
     <label>Extra holidays (day numbers, space-separated):
       <input type="text" name="extra_holidays" value="{{ extra_holidays_str }}" size="22"></label>
+    <label>Holidays (day numbers, space-separated):
+      <input type="text" name="holidays" value="{{ holidays_str }}" size="22"></label>
+    <label>Saturdays (day numbers, space-separated):
+      <input type="text" name="saturdays" value="{{ saturdays_str }}" size="22"></label>
+    <label>Sundays (day numbers, space-separated):
+      <input type="text" name="sundays" value="{{ sundays_str }}" size="22"></label>
+    <span class="muted">Saturdays / Sundays &mdash; staffed by their own rows below
+      (blank = Weekend row). Auto-fill sets both from the month.</span>
+    <span class="muted">Special holidays &mdash; staffed by the Holiday row below.
+      Auto-fill sets this from Thai public holidays + your extra dates.</span>
     <br>
     <button class="btn secondary" type="submit"
             formaction="/inputs/{{ row.id }}/autofill">
-      Auto-fill days &amp; weekends from month</button>
-    <span class="muted">Fills schedule length + weekends + Thai public holidays
-      (+ your extra dates). Still editable below.</span>
+      Auto-fill days, weekends &amp; holidays from month</button>
+    <span class="muted">Fills schedule length + Sat/Sun weekends + Thai public holidays
+      (+ your extra dates) as holidays. Still editable below; re-running auto-fill
+      overwrites manual edits to weekends and holidays.</span>
     {% if holidays_preview %}
     <p class="muted">Public holidays this month:
       {% for h in holidays_preview %}{{ h.day }} ({{ h.name }}){% if not loop.last %}, {% endif %}{% endfor %}</p>
@@ -120,54 +139,85 @@
 
   <div class="card">
     <h3>อัตรากำลังต่อเวร / Coverage — nurses required per shift</h3>
-    <table class="opts">
-      <tr><th></th><th><b style="color:#14B8A6">ช</b> Day</th>
-          <th><b style="color:#F59E0B">บ</b> Evening</th>
-          <th><b style="color:#102A43">ด</b> Night</th></tr>
-      <tr>
-        <td class="muted">จ–ศ Weekday</td>
-        <td><input type="number" name="coverage_weekday_day" min="0"
-                   value="{{ settings.coverage_weekday_day | default(5) }}" style="width:3.5rem"></td>
-        <td><input type="number" name="coverage_weekday_evening" min="0"
-                   value="{{ settings.coverage_weekday_evening | default(3) }}" style="width:3.5rem"></td>
-        <td><input type="number" name="coverage_weekday_night" min="0"
-                   value="{{ settings.coverage_weekday_night | default(3) }}" style="width:3.5rem"></td>
+    {# ONE table, THREE numeric columns (ช บ ด): rows = band, and a sub-header
+       row per staff group when the ward is grouped. Width is capped to its grid
+       column on purpose -- a wide band-per-column table overflowed the card and
+       hid the PN/NA inputs. The PN/NA group only exists once a nurse is classed
+       (coverage_groups has 1 entry, the legacy fields, until then). #}
+    {% set bands = [("weekday", "จ–ศ Weekday"), ("weekend", "ส–อา Weekend"),
+                 ("saturday", "ส Saturday"), ("sunday", "อา Sunday"),
+                 ("holiday", "วันหยุดพิเศษ Holiday")] %}
+    {% set shifts = [("day", "ช", "#14B8A6", "Day"), ("evening", "บ", "#F59E0B", "Evening"),
+                     ("night", "ด", "#102A43", "Night")] %}
+    <table class="opts cov" id="coverage-table">
+      <tr><th></th>
+        {% for key, sym, color, label in shifts %}
+        <th><b style="color:{{ color }}">{{ sym }}</b></th>
+        {% endfor %}
       </tr>
+      {% for g in coverage_groups %}
+      {% if coverage_groups|length > 1 %}
+      <tr class="cov-group"><th colspan="4">{{ g.label }}</th></tr>
+      {% endif %}
+      {% for band, band_label in bands %}
       <tr>
-        <td class="muted">ส–อา Weekend</td>
-        <td><input type="number" name="coverage_weekend_day" min="0"
-                   value="{{ settings.coverage_weekend_day | default(4) }}" style="width:3.5rem"></td>
-        <td><input type="number" name="coverage_weekend_evening" min="0"
-                   value="{{ settings.coverage_weekend_evening | default(2) }}" style="width:3.5rem"></td>
-        <td><input type="number" name="coverage_weekend_night" min="0"
-                   value="{{ settings.coverage_weekend_night | default(2) }}" style="width:3.5rem"></td>
+        <td class="muted">{{ band_label }}</td>
+        {% for key, sym, color, label in shifts %}
+        {% set fname = g.prefix ~ band ~ "_" ~ key %}
+        <td><input type="number" name="{{ fname }}" min="0"
+                   value="{{ settings.get(fname, coverage_defaults[band][key]) }}"></td>
+        {% endfor %}
       </tr>
+      {% endfor %}
+      {% endfor %}
     </table>
-    <span class="muted">Higher values need more staff; lower them for a small ward.</span>
+    <span class="muted">Band precedence: Holiday, then Sunday, then Saturday, then Weekend
+      (rest days with no weekday), then Weekday. ช = Day, บ = Evening, ด = Night.</span><br>
+    <span class="muted">Higher values need more staff; lower them for a small ward.
+      {% if coverage_groups|length > 1 %}RN and PN/NA are scheduled separately, each with its own numbers.
+      {% else %}To set RN and PN/NA separately, choose a class for every nurse and save.{% endif %}</span>
   </div>
 
   <div class="card">
     <h3>ยืดหยุ่นคำขอ / Request flexibility</h3>
-    <label>Minimum % of requests to accept:
-      <input type="number" name="min_request_percent"
-             value="{{ settings.min_request_percent | default(100) }}" min="0" max="100" style="width:4rem"></label>
+    {# One threshold per staff group once the ward is classed (RN and PN/NA are
+       solved independently); the single legacy field otherwise. #}
+    {% for g in coverage_groups %}
+    {% set pct = settings.get(g.min_key, 100) %}
+    <label>Minimum % of requests to accept{% if g.label %} &mdash; {{ g.label }}{% endif %}:
+      <input type="number" name="{{ g.min_key }}"
+             value="{{ pct }}" min="0" max="100" style="width:4rem"></label>
     <div style="height:6px;background:var(--line);border-radius:3px;margin:8px 0;max-width:340px">
-      <div style="height:6px;background:var(--teal);border-radius:3px;width:{{ settings.min_request_percent | default(100) }}%"></div>
+      <div style="height:6px;background:var(--teal);border-radius:3px;width:{{ pct }}%"></div>
     </div>
+    {% endfor %}
     <span class="muted">100 = every request required; lower lets the solver drop the
       fewest requests needed to find a schedule.</span><br>
     <label>
       <input type="checkbox" name="relax_days_off"
              {% if settings.relax_days_off %}checked{% endif %}>
-      Also allow dropping requested days off (otherwise only shifts can be dropped)
+      Also allow dropping requested days off (<b>off</b> cells; otherwise only shifts can be dropped)
     </label>
     <br>
     <label>
       <input type="checkbox" name="enforce_vacation"
              {% if settings.enforce_vacation %}checked{% endif %}>
-      Enforce all vacation days (approved <b>vac</b> leave is always granted; uncheck to let
-      vacations drop like off-requests)
+      Enforce all vacation days (approved <b>vac</b> leave is always granted). Unchecking lets
+      vacations drop too, but only when the box above is ticked — approved leave is never
+      easier to give up than an ordinary day off.
     </label>
+  </div>
+
+  <div class="card">
+    <h3>วันหยุดขั้นต่ำ / Minimum days off</h3>
+    {% for g in coverage_groups %}
+    <label>Minimum days off per nurse this month{% if g.label %} &mdash; {{ g.label }}{% endif %}:
+      <input type="number" name="{{ g.off_key }}"
+             value="{{ settings.get(g.off_key, 0) }}" min="0" max="31" style="width:4rem"></label><br>
+    {% endfor %}
+    <span class="muted">0 = no requirement. A target, never a blocker: if staffing cannot
+      reach it the solver adds double shifts to free rest days, and only then leaves a nurse
+      short. Approved vacation does not count as a day off.</span>
   </div>
   </div>{# /settings-grid #}
 
@@ -190,6 +240,35 @@
         <input type="checkbox" name="allow_night_to_day"
                {% if settings.allow_night_to_day %}checked{% endif %}>
         Allow night → day transition
+      </label><br>
+      <label>
+        <input type="checkbox" name="limit_consecutive_nights"
+               {% if settings.limit_consecutive_nights %}checked{% endif %}>
+        Limit consecutive night shifts (ด) to
+        <input type="number" name="max_consecutive_nights"
+               value="{{ settings.max_consecutive_nights | default(3) }}" min="1" max="31" style="width:3.5rem">
+        in a row
+      </label><br>
+      <label>
+        <input type="checkbox" name="limit_consecutive_shifts"
+               {% if settings.limit_consecutive_shifts %}checked{% endif %}>
+        Limit consecutive working days (any shift) to
+        <input type="number" name="max_consecutive_shifts"
+               value="{{ settings.max_consecutive_shifts | default(6) }}" min="1" max="31" style="width:3.5rem">
+        in a row. Every nurse then needs a rest day in every window of that many days + 1;
+        a low number forces extra double shifts (or no schedule) if the ward is short-staffed.
+      </label><br>
+      <label>
+        <input type="checkbox" name="no_consecutive_day_eve"
+               {% if settings.no_consecutive_day_eve %}checked{% endif %}>
+        No consecutive ช/บ (Day+Evening double on two days in a row)
+      </label><br>
+      <label>
+        <input type="checkbox" name="exact_coverage"
+               {% if settings.exact_coverage %}checked{% endif %}>
+        Exact coverage &mdash; staff <b>exactly</b> the &ldquo;nurses required&rdquo; on every shift,
+        not at least. Stricter: if the roster and the numbers do not reconcile on some day there is
+        no schedule; untick to allow extra nurses on a shift.
       </label><br>
       <label>
         <input type="checkbox" name="head_nurse_special_shift"
@@ -232,6 +311,11 @@
       <span><b style="color:#EF4444">off</b> ขอหยุด</span>
       <span><b style="color:#8B5CF6">mtg</b> ประชุม</span>
       <span><b style="color:#06B6D4">vac</b> ลาพักร้อน</span>
+      <span><b style="color:#EA580C">flt:ช</b> ไปช่วยหน่วยอื่น / float to another unit</span>
+      <span><b style="color:#EA580C">ref:ช</b> ส่งต่อผู้ป่วย / refer duty
+        <span class="muted">(add :ช :บ or :ด; not counted in this ward's coverage, counts as the nurse's shift)</span></span>
+      <span><b style="color:#BE123C">no:บ</b> ไม่เอาเวรนี้ / anything except this shift
+        <span class="muted">(no:ช no:บ no:ด; off is still fine)</span></span>
       <span class="muted">weekends/holidays are tinted; type a token in a cell</span>
     </div>
     <input type="hidden" name="row_count" value="{{ nurses|length }}">
@@ -239,9 +323,17 @@
     <table class="grid">
       <thead>
         <tr>
-          <th class="namecell">พยาบาล / Nurse</th>
+          {# Four controls share this one cell, so name them here — without these
+             sub-labels the Class select and the weekend-shift box are just
+             unexplained boxes and nobody finds them. #}
+          <th class="namecell">พยาบาล / Nurse
+            <div class="muted" style="font-weight:400;font-size:10px;line-height:1.3">
+              ชื่อ / Name · ระดับ / Type · กลุ่ม / Class ·
+              <b title="Senior only: how many weekends she works a Day shift (Sat OR Sun, solver picks). Blank or 0 = off every weekend.">สุดสัปดาห์ / Wk</b>
+            </div>
+          </th>
           {% for d in days %}
-          <th class="{% if d in settings.weekends %}wknd{% endif %}">{{ d }}</th>
+          <th class="{% if d in settings.weekends or d in settings.get('holidays', []) or d in settings.get('saturdays', []) or d in settings.get('sundays', []) %}wknd{% endif %}">{{ d }}</th>
           {% endfor %}
         </tr>
       </thead>
@@ -255,8 +347,33 @@
                  title="Uncheck to disable this nurse (kept, but not scheduled)"
                  {% if nurse.active %}checked{% endif %}>
           <input type="text" name="name_{{ r }}" value="{{ nurse.name }}" style="width:78px">
-          <input type="text" name="type_{{ r }}" value="{{ nurse.type }}"
-                 style="width:44px" placeholder="type">
+          {# A select, not a free-text box: only these three values mean
+             anything to the solver, and a typo silently produced an ordinary
+             nurse with no warning. #}
+          <select name="type_{{ r }}" style="width:70px;font-size:11px"
+                  title="senior drives the senior-nurse rules; new blocks the Evening+Night double">
+            <option value="" {% if not nurse.type %}selected{% endif %}>—</option>
+            {% for tv, tlabel in [("senior", "senior"), ("new", "new")] %}
+            <option value="{{ tv }}" {% if nurse.type == tv %}selected{% endif %}>{{ tlabel }}</option>
+            {% endfor %}
+            {# The importer also accepts Thai synonyms (อาวุโส, ซีเนียร์, น้องใหม่)
+               and 'junior'. Without this the select would render them as "—" and
+               saving the page would silently wipe a nurse's seniority. #}
+            {% if nurse.type and nurse.type not in ["senior", "new"] %}
+            <option value="{{ nurse.type }}" selected>{{ nurse.type }}</option>
+            {% endif %}
+          </select>
+          <select name="class_{{ r }}" title="Staff class: RN, or PN/NA (practical nurse / nurse aide)"
+                  style="width:56px;font-size:11px">
+            <option value="" {% if not nurse.staff_class %}selected{% endif %}>—</option>
+            {% for sc, sc_label in [("rn", "RN"), ("pn", "PN"), ("na", "NA")] %}
+            <option value="{{ sc }}" {% if nurse.staff_class == sc %}selected{% endif %}>{{ sc_label }}</option>
+            {% endfor %}
+          </select>
+          <input type="number" min="0" name="wkshifts_{{ r }}"
+                 value="{{ nurse.weekend_shifts or '' }}" style="width:38px;font-size:11px"
+                 placeholder="wk"
+                 title="Senior only: number of weekends she works a Day shift (Sat OR Sun, solver's choice). Blank/0 = always off at weekends.">
         </td>
         {% for d in days %}
         <td><input class="cell" type="text" name="cell_{{ r }}_{{ d }}"
@@ -287,6 +404,8 @@
       if (l === 'off') return 'cell--off';
       if (l === 'mtg') return 'cell--mtg';
       if (l === 'vac') return 'cell--vac';
+      if (l.indexOf('no:') === 0) return 'cell--neg';  // no:บ - before the generic ':' test
+      if (v.indexOf(':') >= 0) return 'cell--ofw';  // flt:ด / ref:ช - before the ด/บ/ช tests
       if (v.indexOf('ด') >= 0) return 'cell--night';
       if (v.indexOf('บ') >= 0) return 'cell--eve';
       if (v.indexOf('ช') >= 0) return 'cell--day';
@@ -294,7 +413,7 @@
     }
     var cells = Array.prototype.slice.call(document.querySelectorAll('input.cell'));
     function paint(inp) {
-      inp.classList.remove('cell--day','cell--eve','cell--night','cell--off','cell--mtg','cell--vac');
+      inp.classList.remove('cell--day','cell--eve','cell--night','cell--off','cell--mtg','cell--vac','cell--ofw','cell--neg');
       var c = klass(inp.value); if (c) inp.classList.add(c);
     }
     function recount() {

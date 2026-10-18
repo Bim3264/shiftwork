@@ -1,5 +1,5 @@
 from ortools.sat.python import cp_model
-from constant import Shift, LocaleShift
+from constant import Shift, LocaleShift, OFFWARD_SEP, SHIFT_LOCALE, weekend_units
 from dataimporter import DataImporter, SettingLoader, FileLoader
 import pandas as pd
 import time
@@ -19,6 +19,20 @@ class Solver():
         self.num_nurses = None  # set after loading input data
         self.weekends = weekends  # 0-based day indices
 
+        # Special-holiday days (0-based), constraint.md §22. These pick the
+        # 'holiday' coverage band and NOTHING else: self.weekends is kept as the
+        # UNION of weekends and holidays, so every rule that treats a day as
+        # non-working (§16/§17 senior head/deputy, the off-ward skip-guard, the
+        # warm start) sees a holiday exactly as it did when the month auto-fill
+        # merged holidays into `weekends`. Only _rebuild_days() tells the two
+        # apart. A rule that ever needs calendar weekends ONLY must use
+        # `self.weekends - self.holidays`.
+        self.holidays = set()
+        # Saturday / Sunday days (0-based), constraint.md §22. Like holidays they
+        # pick a coverage band and NOTHING else; self.weekends is the union.
+        self.saturdays = set()
+        self.sundays = set()
+
         # Shift transition overrides (caller can override SettingLoader defaults)
         self._init_allow_e_n = allow_shift_e_n
         self._init_allow_n_d = allow_shift_n_d
@@ -35,6 +49,16 @@ class Solver():
         self.double_shift_vars = []
         self.new_nurse_indices: set = set()   # nurses flagged as "new" in the CSV
         self.meeting_days: dict = {}          # {nurse_index: [0-based day, ...]}
+
+        # Off-ward duties (float / refer), constraint.md §21.
+        # offward_days     = {nurse: {0-based day: (Shift, kind)}} exactly as loaded.
+        # _offward_applied = the same, minus cells dropped by the senior skip-guard;
+        #   it is the ONLY truth used for coverage exclusion and for rendering, so a
+        #   dropped cell can never shrink a coverage pool.
+        # _offward_excluded = {(day, Shift): {nurse, ...}} reverse map for coverage.
+        self.offward_days: dict = {}
+        self._offward_applied: dict = {}
+        self._offward_excluded: dict = {}
 
         # Soft-request handling (see handleHolidaysAndReq). Populated only when
         # MIN_REQUEST_PERCENT < 100; each entry reifies one relaxable request.
@@ -65,15 +89,27 @@ class Solver():
 
 
     def _rebuild_days(self):
-        """Rebuild self.days[] based on current self.num_days and self.weekends.
+        """Rebuild self.days[] from current num_days, weekends, holidays, coverage.
 
-        Call this any time num_days or weekends changes (e.g. after loading
-        per-file settings from the [settings] section).
+        Call this any time num_days, weekends, holidays or coverage changes
+        (e.g. after loading per-file settings from the [settings] section).
         """
         self.days = []
         for day in range(self.num_days):
-            is_weekend = day in self.weekends
-            band = self.coverage['weekend'] if is_weekend else self.coverage['weekday']
+            # Band precedence: holiday > sunday > saturday > weekend > weekday
+            # (constraint.md §22). self.weekends is the UNION, so a public
+            # holiday falling on a Sunday is in both sets and the holiday band
+            # must win. 'weekend' is the fallback for rest days with no weekday.
+            if day in self.holidays:
+                band = self.coverage['holiday']
+            elif day in self.sundays:
+                band = self.coverage['sunday']
+            elif day in self.saturdays:
+                band = self.coverage['saturday']
+            elif day in self.weekends:
+                band = self.coverage['weekend']
+            else:
+                band = self.coverage['weekday']
             self.days.append({
                 'shifts': [Shift.NIGHT, Shift.DAY, Shift.EVENING, Shift.OFF],
                 'min_shifts': {Shift.NIGHT:   band[Shift.NIGHT],
@@ -92,8 +128,24 @@ class Solver():
         self.ALLOW_SHIFT_N_D = False
         self.ALLOW_SHIFT_E_N = False
 
-        self.HEAD_NURSE_INDEX = 0
-        self.DEPUTY_NURSE_INDEX = 1
+        # Fatigue rules (constraint.md section 24). Both default OFF so an
+        # existing ward's schedule is unchanged.
+        self.LIMIT_CONSECUTIVE_NIGHTS = False
+        self.MAX_CONSECUTIVE_NIGHTS = 3
+        self.LIMIT_CONSECUTIVE_SHIFTS = False
+        self.MAX_CONSECUTIVE_SHIFTS = 6
+        self.NO_CONSECUTIVE_DAY_EVE = False
+
+        # Coverage semantics (constraint.md section 9). False = the per-shift
+        # numbers are a FLOOR (>=); True = exactly that many. Solver default is
+        # False so a legacy CSV without the key solves as it always did; the web
+        # layer writes the key explicitly (its default is True).
+        self.EXACT_COVERAGE = False
+
+        # Seniors come from the Type column (DataImporter.seniorNurseIndices);
+        # any number, including zero. No positional head/deputy.
+        self.senior_nurse_indices: set = set()
+        self.senior_weekend_shifts: dict = {}   # {nurse idx: N weekends} opted-in seniors (§17a)
         self.HEAD_NURSE_SPEACIAL_SHIFT = True
         self.enable_meetings = True
 
@@ -112,12 +164,35 @@ class Solver():
         # {nurse_index: set(0-based vacation days)} — populated by loadReqShifts.
         self.vacation_days = {}
 
+        # What dropping one request costs in the objective (soft mode). The base
+        # is far above any fairness term, so acceptance always outranks fairness;
+        # the per-kind scale then orders the drops among themselves —
+        # shifts < off < vacation (§8). Finite on purpose: 3 ordinary off-days
+        # still outrank 1 vacation day, so leave is protected without letting a
+        # single vacation cell veto an arbitrary number of other requests.
+        self.REJECT_WEIGHT = 100000
+        self.REJECT_SCALE = {'vacation': 9, 'holiday': 3}   # others default to 1
+
+        # Monthly minimum of discretionary days off per nurse (§25), SOFT.
+        # What one nurse-day of shortfall costs in the objective. Ordered
+        # deliberately: far ABOVE a double shift (weight 1) and the fairness
+        # terms (weight 10, each bounded by ~num_days*3), so the solver reaches
+        # for a double rather than leave a nurse short; far BELOW REJECT_WEIGHT,
+        # so it never drops a promised request just to manufacture a rest day.
+        self.MIN_OFF_WEIGHT = 5000
+        self.MIN_DAYS_OFF = 0
+
         # Per-shift coverage minimums (nurses required per shift), by day band.
         # Defaults preserve the original hard-coded values. loadReqShifts()
         # overrides these from the file's [settings] before _rebuild_days().
         self.coverage = {
             'weekday': {Shift.DAY: 5, Shift.EVENING: 3, Shift.NIGHT: 3},
             'weekend': {Shift.DAY: 4, Shift.EVENING: 2, Shift.NIGHT: 2},
+            # Defaults equal the weekend band: a special holiday is staffed as a
+            # weekend until the ward says otherwise (constraint.md §22).
+            'holiday': {Shift.DAY: 4, Shift.EVENING: 2, Shift.NIGHT: 2},
+            'saturday': {Shift.DAY: 4, Shift.EVENING: 2, Shift.NIGHT: 2},
+            'sunday': {Shift.DAY: 4, Shift.EVENING: 2, Shift.NIGHT: 2},
         }
 
         # Apply caller overrides (from GUI or CLI; may be further overridden by file)
@@ -154,13 +229,25 @@ class Solver():
         # Apply per-file settings (new-format files only; legacy files get defaults)
         s = data.settings
         self.num_days              = s['num_days']
-        self.weekends              = set(s['weekends'])
+        self.holidays              = set(s.get('holidays', ()))
+        self.saturdays             = set(s.get('saturdays', ()))
+        self.sundays               = set(s.get('sundays', ()))
+        # UNION, deliberately — see the note on self.holidays in __init__.
+        self.weekends              = (set(s['weekends']) | self.holidays
+                                      | self.saturdays | self.sundays)
         self.ALLOW_SHIFT_E_N       = s['allow_evening_to_night']
         self.ALLOW_SHIFT_N_D       = s['allow_night_to_day']
+        self.LIMIT_CONSECUTIVE_NIGHTS = bool(s.get('limit_consecutive_nights', False))
+        self.MAX_CONSECUTIVE_NIGHTS   = max(1, int(s.get('max_consecutive_nights', 3)))
+        self.LIMIT_CONSECUTIVE_SHIFTS = bool(s.get('limit_consecutive_shifts', False))
+        self.MAX_CONSECUTIVE_SHIFTS   = max(1, int(s.get('max_consecutive_shifts', 6)))
+        self.NO_CONSECUTIVE_DAY_EVE   = bool(s.get('no_consecutive_day_eve', False))
+        self.EXACT_COVERAGE           = bool(s.get('exact_coverage', False))
         self.HEAD_NURSE_SPEACIAL_SHIFT = s['head_nurse_special_shift']
         self.enable_meetings       = s['enable_meetings']
         self.MIN_REQUEST_PERCENT   = max(0, min(100, int(s.get('min_request_percent', 100))))
         self.RELAX_DAYS_OFF        = bool(s.get('relax_days_off', False))
+        self.MIN_DAYS_OFF          = max(0, int(s.get('min_days_off', 0)))
         self.ENFORCE_VACATION      = bool(s.get('enforce_vacation', True))
         self.coverage = {
             'weekday': {Shift.DAY:     s.get('coverage_weekday_day', 5),
@@ -169,8 +256,30 @@ class Solver():
             'weekend': {Shift.DAY:     s.get('coverage_weekend_day', 4),
                         Shift.EVENING: s.get('coverage_weekend_evening', 2),
                         Shift.NIGHT:   s.get('coverage_weekend_night', 2)},
+            # The holiday band inherits THIS file's weekend numbers when the
+            # file has no holiday keys, so a solver CSV written before the band
+            # existed produces identical staffing (constraint.md §22).
+            'holiday': {Shift.DAY:     s.get('coverage_holiday_day',
+                                             s.get('coverage_weekend_day', 4)),
+                        Shift.EVENING: s.get('coverage_holiday_evening',
+                                             s.get('coverage_weekend_evening', 2)),
+                        Shift.NIGHT:   s.get('coverage_holiday_night',
+                                             s.get('coverage_weekend_night', 2))},
+            # Saturday / Sunday bands: same inheritance from this file's weekend.
+            'saturday': {Shift.DAY:     s.get('coverage_saturday_day',
+                                              s.get('coverage_weekend_day', 4)),
+                         Shift.EVENING: s.get('coverage_saturday_evening',
+                                              s.get('coverage_weekend_evening', 2)),
+                         Shift.NIGHT:   s.get('coverage_saturday_night',
+                                              s.get('coverage_weekend_night', 2))},
+            'sunday':   {Shift.DAY:     s.get('coverage_sunday_day',
+                                              s.get('coverage_weekend_day', 4)),
+                         Shift.EVENING: s.get('coverage_sunday_evening',
+                                              s.get('coverage_weekend_evening', 2)),
+                         Shift.NIGHT:   s.get('coverage_sunday_night',
+                                              s.get('coverage_weekend_night', 2))},
         }
-        self._rebuild_days()       # refresh with updated num_days + weekends + coverage
+        self._rebuild_days()       # refresh: num_days + weekends + holidays + coverage
 
         # Store ward identity for output naming and logging
         self.ward_info: dict = data.ward_info
@@ -189,6 +298,8 @@ class Solver():
                 self.nurses.append({
                     'requested_holidays': data.reqDayOff[n],   # 0-based days
                     'requested_shifts': data.reqShifts[n],     # {day: [Shift, ...]}
+                    'requested_negations': (data.reqNegShifts[n]       # {day: Shift} 'no:X'
+                                            if n < len(data.reqNegShifts) else {}),
                     'requested_vacations': vacs                # 0-based days (approved leave)
                 })
 
@@ -200,7 +311,19 @@ class Solver():
         }
 
         self.new_nurse_indices = set(data.newNurseIndices)
+        self.senior_nurse_indices = set(data.seniorNurseIndices)
+        self.senior_weekend_shifts = dict(data.seniorWeekendShifts)   # §17a
         self.meeting_days = {n: days for n, days in enumerate(data.reqMeetings) if days}
+
+        # Off-ward duties: one cell = one nurse, one day, one shift, one kind.
+        # The exclusion/render maps are built in handleHolidaysAndReq(), AFTER the
+        # senior skip-guard has had its say.
+        self.offward_days = {}
+        for _n, _cells in enumerate(data.reqOffward):
+            for _d, _shift, _kind in _cells:
+                self.offward_days.setdefault(_n, {})[_d] = (_shift, _kind)
+        if self.offward_days:
+            print(f'[Data] Off-ward duties for nurses: {sorted(self.offward_days)}')
 
         # B2: precompute reverse map day → set[nurse] once; used in _constraintMinimumNurse()
         self._meeting_nurses_per_day: dict = {}
@@ -286,6 +409,45 @@ class Solver():
                 if not allow_n_d:
                     self.model.Add(night_v + next_day_v <= 1)   # N -> D
 
+        self._add_fatigue_rules()
+
+    def _add_fatigue_rules(self):
+        """constraint.md section 24. Both rules are off by default.
+
+        (a) At most MAX_CONSECUTIVE_NIGHTS nights in a row: every window of
+            max+1 consecutive days holds at most max Night assignments. No-op
+            when max >= num_days.
+        (c) LIMIT_CONSECUTIVE_SHIFTS: see below (any working day, OFF form).
+        (b) No Day+Evening double (ช/บ) on two adjacent days. A nurse works at
+            most 2 shifts a day, so "ช/บ on d" is exactly Day_d + Eve_d == 2;
+            forbidding it on d and d+1 is the linear form sum of the four <= 3.
+            This does NOT use double_shift_vars (that means "any 2 shifts",
+            ด/บ included) and adds no variables.
+        """
+        if self.LIMIT_CONSECUTIVE_NIGHTS:
+            k = self.MAX_CONSECUTIVE_NIGHTS
+            for n in range(self.num_nurses):
+                for start in range(self.num_days - k):      # window start..start+k
+                    self.model.Add(sum(self.assignments[n][d][Shift.NIGHT]
+                                       for d in range(start, start + k + 1)) <= k)
+        if self.LIMIT_CONSECUTIVE_SHIFTS:
+            # (c) At most M working days in a row == every window of M+1 days has
+            # at least one OFF. `vac` is assigned as OFF internally, so approved
+            # leave counts as a rest day and breaks a run. No-op when M >= num_days.
+            m = self.MAX_CONSECUTIVE_SHIFTS
+            for n in range(self.num_nurses):
+                for start in range(self.num_days - m):      # window start..start+m
+                    self.model.Add(sum(self.assignments[n][d][Shift.OFF]
+                                       for d in range(start, start + m + 1)) >= 1)
+        if self.NO_CONSECUTIVE_DAY_EVE:
+            for n in range(self.num_nurses):
+                for d in range(self.num_days - 1):
+                    self.model.Add(
+                        self.assignments[n][d][Shift.DAY]
+                        + self.assignments[n][d][Shift.EVENING]
+                        + self.assignments[n][d + 1][Shift.DAY]
+                        + self.assignments[n][d + 1][Shift.EVENING] <= 3)
+
     def _add_double_shift_tracking(self):
         """Create one indicator per nurse-day that is true when the nurse works
         two shifts that day. These feed the double-shift term in the fairness
@@ -305,18 +467,19 @@ class Solver():
 
 
     def handleHolidaysAndReq(self):
-        # Senior nurses (head + deputy) have role constraints that take precedence
+        # Senior nurses (Type column) have role constraints that take precedence
         # over shift requests in the CSV. Conflicting requests are silently dropped.
         senior_indices: set = set()
         if self.HEAD_NURSE_SPEACIAL_SHIFT:
-            senior_indices = {self.HEAD_NURSE_INDEX, self.DEPUTY_NURSE_INDEX}
+            senior_indices = set(self.senior_nurse_indices)
 
         soft = self.MIN_REQUEST_PERCENT < 100
         self.request_soft = []
 
-        def _add_request(n, d, shifts, kind, relaxable):
+        def _add_request(n, d, shifts, kind, relaxable, negate=False):
             """Force assignments[n][d][s]==1 for every s in `shifts` (one request
-            cell; a double shift like ช/บ is two shifts). In soft mode a relaxable
+            cell; a double shift like ช/บ is two shifts), or ==0 when `negate`
+            ('no:บ', §23: anything except that shift). In soft mode a relaxable
             request is reified with ONE 'satisfied' var so the whole cell is kept
             or dropped together (and tracked for the report); otherwise it stays a
             hard constraint."""
@@ -325,19 +488,20 @@ class Solver():
                 # Diagnosis: gate EVERY request behind an assumption literal,
                 # relaxable or not, so the unsat core can name it. The
                 # MIN_REQUEST_PERCENT floor is skipped in this mode (below).
-                self._diag_gate(n, d, shifts, kind)
+                self._diag_gate(n, d, shifts, kind, negate)
                 return
+            want = 0 if negate else 1
             if soft and relaxable:
                 sat = self.model.NewBoolVar(f'req_{kind}_{n}_{d}')
                 for s in shifts:
-                    self.model.Add(self.assignments[n][d][s] == 1).OnlyEnforceIf(sat)
+                    self.model.Add(self.assignments[n][d][s] == want).OnlyEnforceIf(sat)
                 self.request_soft.append(
                     {'n': n, 'day': d, 'shift': shifts[0], 'shifts': shifts,
-                     'kind': kind, 'sat': sat}
+                     'kind': kind, 'sat': sat, 'negate': negate}
                 )
             else:
                 for s in shifts:
-                    self.model.Add(self.assignments[n][d][s] == 1)
+                    self.model.Add(self.assignments[n][d][s] == want)
 
         for n in range(self.num_nurses):
             if n < len(self.nurses):
@@ -345,9 +509,13 @@ class Solver():
                 for d in nurse['requested_holidays']:
                     _add_request(n, d, Shift.OFF, 'holiday', self.RELAX_DAYS_OFF)
                 for d in nurse.get('requested_vacations', []):
-                    # Enforced vacations are never relaxable (hard OFF); otherwise
-                    # they drop like off-requests in soft mode.
-                    _add_request(n, d, Shift.OFF, 'vacation', not self.ENFORCE_VACATION)
+                    # Approved leave is the HARDEST rest day to drop, by design:
+                    # it needs ENFORCE_VACATION off *and* RELAX_DAYS_OFF on. The
+                    # second half matters — without it a vacation dropped more
+                    # easily than an ordinary `off`, which is backwards. The
+                    # intended order is shifts < off < vacation.
+                    _add_request(n, d, Shift.OFF, 'vacation',
+                                 (not self.ENFORCE_VACATION) and self.RELAX_DAYS_OFF)
                 for d, req_shifts in nurse['requested_shifts'].items():
                     req_set = set(req_shifts)
                     label = '+'.join(s.value for s in req_shifts)
@@ -365,6 +533,11 @@ class Solver():
                               f'skipped (new nurse cannot work Evening + Night).')
                         continue
                     _add_request(n, d, req_shifts, 'shift', True)
+                for d, neg_shift in nurse.get('requested_negations', {}).items():
+                    # 'no:X' (§23). Needs no skip-guard: a cell holds ONE token, so it
+                    # can never share a day with mtg/off-ward/off/vac; the senior
+                    # Day-or-OFF rule makes no:ช just OFF, which is feasible.
+                    _add_request(n, d, [neg_shift], 'avoid', True, negate=True)
 
         # Meeting days: nurse is assigned DAY but excluded from minimum coverage
         # count. Meetings are commitments and are never dropped.
@@ -375,20 +548,58 @@ class Solver():
                 else:
                     self.model.Add(self.assignments[n][d][Shift.DAY] == 1)
 
+        # Off-ward duty (float / refer) — constraint.md §21. Hard and never
+        # searched: the head nurse writes it in and the solver always honours it.
+        # The nurse works exactly that shift and nothing else that day; she is
+        # excluded from this ward's coverage pool for it (_constraintMinimumNurse)
+        # yet still counts it as a worked shift, because distribute() sums the very
+        # same assignment variable. Coverage and fairness read one variable; only
+        # the coverage POOL drops her.
+        self._offward_applied = {}
+        self._offward_excluded = {}
+        for n, days in self.offward_days.items():
+            for d, (shift, kind) in days.items():
+                if n in senior_indices:
+                    if d in self.weekends or shift in (Shift.EVENING, Shift.NIGHT):
+                        # Skip-guard (known failure mode 1): §16/§17 pin head and
+                        # deputy to Day-or-OFF on weekdays and OFF at weekends, so
+                        # this cell would make the model infeasible. Drop it loudly.
+                        print(f'[Info] Nurse {n} {kind}{OFFWARD_SEP}{shift.value} on '
+                              f'day {d + 1} skipped (conflicts with senior nurse rule).')
+                        continue
+                self._offward_applied.setdefault(n, {})[d] = (shift, kind)
+                self._offward_excluded.setdefault((d, shift), set()).add(n)
+                if self._diag_mode:
+                    self._diag_gate(n, d, [shift], kind)
+                    continue
+                # Exactly this shift, nothing else, and not OFF.
+                for s in Shift:
+                    self.model.Add(self.assignments[n][d][s] == (1 if s is shift else 0))
+
         # Floor: at least MIN_REQUEST_PERCENT of the relaxable requests must be
         # satisfied, else the model is (correctly) infeasible. In diagnosis mode
         # every request is forced by its own assumption, so the floor is implied
         # and adding it would only muddy the core.
         if soft and self.request_soft and not self._diag_mode:
             import math
-            floor = math.ceil(self.MIN_REQUEST_PERCENT / 100.0 * len(self.request_soft))
+            total = len(self.request_soft)
+            floor = math.ceil(self.MIN_REQUEST_PERCENT / 100.0 * total)
+            # ceil() rounds a small group's floor up to "keep everything": at 80%
+            # a 2-request group gets ceil(1.6) = 2, so nothing can ever be
+            # dropped and the setting silently does nothing. That bites hardest
+            # since RN and PN/NA became separate solves, because each group's
+            # requests are now counted on their own (§8). Below 100% the user
+            # has asked for relaxation, so guarantee it can drop at least one.
+            if self.MIN_REQUEST_PERCENT < 100:
+                floor = min(floor, total - 1)
             self.model.Add(sum(e['sat'] for e in self.request_soft) >= floor)
-            print(f'[Requests] Soft mode: {len(self.request_soft)} relaxable requests, '
+            print(f'[Requests] Soft mode: {total} relaxable requests, '
                   f'floor {floor} ({self.MIN_REQUEST_PERCENT}%).')
 
 
     def _constraintMinimumNurse(self):
-        """Ensure at least the minimum required nurses per shift per day.
+        """Ensure the required nurses per shift per day: at least that many
+        (default), or EXACTLY that many when EXACT_COVERAGE is on (§9).
 
         For Day shift: nurses attending a meeting that day are excluded from
         the coverage count (they are present but not providing clinical coverage).
@@ -396,46 +607,84 @@ class Solver():
         for d in range(self.num_days):
             for shift in [Shift.DAY, Shift.EVENING, Shift.NIGHT]:
                 required = self.days[d]['min_shifts'][shift]
+                # Nurses who are present but not covering THIS shift for THIS ward:
+                # meeting attendees (Day only, §15) and off-ward duties (any shift,
+                # §21). B2: both come from precomputed reverse maps rather than
+                # rebuilding a set each iteration.
+                excluded = set(self._offward_excluded.get((d, shift), ()))
                 if shift == Shift.DAY:
-                    # B2: use precomputed reverse map instead of rebuilding set each iteration
-                    meeting_nurses_today = self._meeting_nurses_per_day.get(d, set())
-                    nurses_assigned = [
-                        self.assignments[n][d][shift]
-                        for n in range(self.num_nurses)
-                        if n not in meeting_nurses_today
-                    ]
-                else:
-                    nurses_assigned = [self.assignments[n][d][shift] for n in range(self.num_nurses)]
+                    excluded |= self._meeting_nurses_per_day.get(d, set())
+                nurses_assigned = [
+                    self.assignments[n][d][shift]
+                    for n in range(self.num_nurses)
+                    if n not in excluded
+                ]
                 if self._diag_mode and self._diag_gate_coverage:
-                    # Diagnosis pass 2: gate each (day, shift) minimum so the
-                    # core can name the day whose coverage cannot be met.
+                    # Diagnosis pass 2: gate each (day, shift) bound so the core
+                    # can name the day whose coverage cannot be met. Carry the
+                    # band so an infeasible HOLIDAY floor is nameable in the
+                    # diagnosis text, not just "day 13" (§20, §22).
+                    band = ('holiday' if d in self.holidays
+                            else 'sunday' if d in self.sundays
+                            else 'saturday' if d in self.saturdays
+                            else 'weekend' if d in self.weekends else 'weekday')
+                    rec = {'day': d + 1, 'shift': shift.value,
+                           'required': required, 'band': band}
                     lit = self.model.NewBoolVar(f'diag_cov_{d}_{shift.value}')
                     self.model.Add(sum(nurses_assigned) >= required).OnlyEnforceIf(lit)
-                    self._diag_gated.append(
-                        (lit, {'day': d + 1, 'shift': shift.value, 'required': required})
-                    )
+                    self._diag_gated.append((lit, dict(rec, side='short')))
+                    if self.EXACT_COVERAGE:
+                        # Exact mode: the ceiling is a SEPARATE assumption so the
+                        # core says "too many forced" apart from "too few".
+                        hi = self.model.NewBoolVar(f'diag_cov_hi_{d}_{shift.value}')
+                        self.model.Add(sum(nurses_assigned) <= required).OnlyEnforceIf(hi)
+                        self._diag_gated.append((hi, dict(rec, side='over')))
                 else:
                     self.model.Add(sum(nurses_assigned) >= required)
+                    if self.EXACT_COVERAGE:
+                        self.model.Add(sum(nurses_assigned) <= required)
 
+
+    def _weekend_units(self):
+        """Weekend units (0-based day lists) for 17a; see constant.weekend_units."""
+        return weekend_units(self.saturdays, self.sundays, 0, self.num_days - 1)
+
+    def _optin_seniors(self):
+        """{nurse idx: N} for seniors that opted in to weekend shifts (17a)."""
+        if not self.HEAD_NURSE_SPEACIAL_SHIFT:
+            return {}
+        return {n: k for n, k in self.senior_weekend_shifts.items()
+                if k > 0 and n in self.senior_nurse_indices}
 
     def optionHeadNurse(self):
-        """Apply senior nurse rules to head nurse and deputy head nurse.
+        """Apply senior nurse rules to every nurse typed 'senior' in the Type column.
 
         On weekdays:  DAY or OFF only (no Evening or Night).
-        On weekends:  OFF only.
-        Controlled by HEAD_NURSE_INDEX (0) and DEPUTY_NURSE_INDEX (1).
+        On weekends:  OFF only -- except a senior who opted in to weekend shifts
+                      (17a): she works Day on exactly N weekend units, one day
+                      each, and is OFF on every other weekend day.
+        Controlled by senior_nurse_indices (Type column); no seniors = no-op.
         Disable entirely by setting HEAD_NURSE_SPEACIAL_SHIFT = False.
         """
         if not self.HEAD_NURSE_SPEACIAL_SHIFT:
             return
 
-        senior_indices = [self.HEAD_NURSE_INDEX, self.DEPUTY_NURSE_INDEX]
+        optin = self._optin_seniors()
+        units = self._weekend_units() if optin else []
+        claimed = {d for u in units for d in u}
 
-        for n in senior_indices:
+        for n in sorted(self.senior_nurse_indices):
             for d in range(self.num_days):
                 is_weekend = d in self.weekends
                 if not is_weekend:
                     # Weekday: Day or OFF only
+                    self.model.Add(
+                        self.assignments[n][d][Shift.DAY] + self.assignments[n][d][Shift.OFF] == 1
+                    )
+                    self.model.Add(self.assignments[n][d][Shift.EVENING] == 0)
+                    self.model.Add(self.assignments[n][d][Shift.NIGHT] == 0)
+                elif n in optin and d in claimed:
+                    # 17a: Day or OFF here; the unit constraint below decides which.
                     self.model.Add(
                         self.assignments[n][d][Shift.DAY] + self.assignments[n][d][Shift.OFF] == 1
                     )
@@ -446,6 +695,17 @@ class Solver():
                     # B1: AddImplication constraints in constraints() already propagate
                     # OFF==1 → DAY/EVE/NIGHT==0, so only one constraint is needed here.
                     self.model.Add(self.assignments[n][d][Shift.OFF] == 1)
+
+            if n in optin:
+                # Exactly N units carry a Day shift, on exactly one day of each.
+                # Hard: if N cannot be met the head nurse lowers it.
+                works = []
+                for k, unit in enumerate(units):
+                    w = self.model.NewBoolVar(f'wkend_{n}_{k}')
+                    self.model.Add(
+                        sum(self.assignments[n][d][Shift.DAY] for d in unit) == w)
+                    works.append(w)
+                self.model.Add(sum(works) == optin[n])
 
 
     def distribute(self):
@@ -502,19 +762,43 @@ class Solver():
         total_dbl = self.model.NewIntVar(0, self.num_nurses * self.num_days, 'total_dbl')
         self.model.Add(total_dbl == sum(self.double_shift_vars))
 
+        # --- Minimum days off (soft, §25) ---
+        # shortfall[n] = max(0, MIN_DAYS_OFF - discretionary OFF days). Soft on
+        # purpose: with exact coverage the slot total is fixed, so doubles are the
+        # only lever that frees rest days — a hard >= can make a month infeasible.
+        min_off_penalty = 0
+        if self.MIN_DAYS_OFF > 0:
+            shortfalls = []
+            for n in range(self.num_nurses):
+                sf = self.model.NewIntVar(0, self.MIN_DAYS_OFF, f'off_short_{n}')
+                self.model.Add(sf >= self.MIN_DAYS_OFF - disc_off[n])
+                shortfalls.append(sf)
+            min_off_penalty = self.MIN_OFF_WEIGHT * cp_model.LinearExpr.Sum(shortfalls)
+
         # Combined objective:
         #   Shift imbalance and holiday imbalance are top priority (weight 10)
         #   Double shifts minimised last
-        objective = 10 * overall_imbalance + 10 * holiday_imb + total_dbl
+        objective = 10 * overall_imbalance + 10 * holiday_imb + total_dbl + min_off_penalty
 
         # In soft-request mode, keep as many requests as possible: penalise each
         # dropped request far more than any fairness term, so acceptance is the
         # overriding priority (fairness only breaks ties among equal-acceptance
         # solutions).
+        # Not every dropped request costs the same. The order of hardness is
+        # shifts < off < vacation (§8): giving up an ordinary requested day off
+        # should always be preferred to giving up approved leave. With one flat
+        # weight the solver was indifferent, so it would spend a nurse's
+        # vacation whenever that happened to be the cheaper single fix.
+        # The ratios are deliberately finite, not lexicographic: leave is
+        # protected, but not at the cost of an unbounded number of ordinary
+        # off-days (3 off-days outrank 1 vacation day).
         if self.request_soft:
-            reject_weight = 100000
-            satisfied = cp_model.LinearExpr.Sum([e['sat'] for e in self.request_soft])
-            objective = objective + reject_weight * (len(self.request_soft) - satisfied)
+            penalty = sum(
+                self.REJECT_WEIGHT * self.REJECT_SCALE.get(e['kind'], 1)
+                * e['sat'].Not()
+                for e in self.request_soft
+            )
+            objective = objective + penalty
 
         self.model.Minimize(objective)
 
@@ -537,7 +821,7 @@ class Solver():
         """
         _cycle = [Shift.DAY, Shift.EVENING, Shift.NIGHT, Shift.OFF]
         senior_indices = (
-            {self.HEAD_NURSE_INDEX, self.DEPUTY_NURSE_INDEX}
+            set(self.senior_nurse_indices)
             if self.HEAD_NURSE_SPEACIAL_SHIFT else set()
         )
 
@@ -547,7 +831,12 @@ class Solver():
             req_shifts = nurse.get('requested_shifts', {})
 
             for d in range(self.num_days):
-                if n in senior_indices:
+                offward = self.offward_days.get(n, {}).get(d)
+                if offward is not None:
+                    # Most constrained case first: an off-ward duty (§21) fixes the
+                    # day completely.
+                    hints = {offward[0]}
+                elif n in senior_indices:
                     hints = {Shift.OFF if d in self.weekends else Shift.DAY}
                 elif d in off_days:
                     hints = {Shift.OFF}
@@ -555,6 +844,8 @@ class Solver():
                     hints = set(req_shifts[d])      # both shifts for a double request
                 else:
                     hints = {_cycle[(n + d) % 4]}
+                    if nurse.get('requested_negations', {}).get(d) in hints:
+                        hints = {Shift.OFF}     # never hint a shift a 'no:X' rules out
 
                 for s in Shift:
                     self.model.AddHint(self.assignments[n][d][s], 1 if s in hints else 0)
@@ -627,7 +918,7 @@ class Solver():
         for e in self.request_soft:
             shifts = e.get('shifts') or [e['shift']]
             rec = {'nurse_index': e['n'], 'day': e['day'] + 1,
-                   'shift': '+'.join(s.value for s in shifts), 'kind': e['kind']}
+                   'shift': self._request_label(shifts, e.get('negate')), 'kind': e['kind']}
             if self.solver.Value(e['sat']) == 1:
                 accepted.append(rec)
             else:
@@ -731,14 +1022,21 @@ class Solver():
             self._diag_mode = False
         return self._diag_gated
 
-    def _diag_gate(self, n, d, shifts, kind):
+    @staticmethod
+    def _request_label(shifts, negate=False):
+        """'ช+บ' for a positive cell, 'no:บ' for a negated one."""
+        if negate:
+            return f'no{OFFWARD_SEP}{SHIFT_LOCALE[shifts[0]]}'
+        return '+'.join(s.value for s in shifts)
+
+    def _diag_gate(self, n, d, shifts, kind, negate=False):
         """Reify one request cell behind a fresh assumption literal."""
         lit = self.model.NewBoolVar(f'diag_{kind}_{n}_{d}')
         for s in shifts:
-            self.model.Add(self.assignments[n][d][s] == 1).OnlyEnforceIf(lit)
+            self.model.Add(self.assignments[n][d][s] == (0 if negate else 1)).OnlyEnforceIf(lit)
         self._diag_gated.append((lit, {
             'kind': kind, 'nurse_index': n, 'day': d + 1,
-            'shift': '+'.join(x.value for x in shifts)}))
+            'shift': self._request_label(shifts, negate)}))
 
     def _diag_solve(self, gated: list, max_time_seconds: float) -> tuple:
         """Solve the gated model under its assumptions and map the core back to
@@ -789,7 +1087,13 @@ class Solver():
                 is_night   = self.solver.Value(self.assignments[n][d][Shift.NIGHT]) == 1
                 is_off     = self.solver.Value(self.assignments[n][d][Shift.OFF]) == 1
 
-                if is_day and is_evening:
+                offward = self._offward_applied.get(n, {}).get(d)
+                if offward is not None:
+                    # Same token the head nurse typed (§21), so the result
+                    # round-trips back into the grid editor.
+                    ow_shift, ow_kind = offward
+                    symbol = f'{ow_kind}{OFFWARD_SEP}{SHIFT_LOCALE[ow_shift]}'
+                elif is_day and is_evening:
                     symbol = LocaleShift.DAY_EVENING.value
                 elif is_night and is_evening:
                     symbol = LocaleShift.NIGHT_EVENING.value
