@@ -35,8 +35,16 @@ _NUM_DAYS = 7
 _WEEKENDS = [5, 6]  # 0-based, matches "weekends,6 7" (days 6 and 7)
 
 
-def _ward_csv(rows, *, enforce_vacation=True, min_request_percent=100):
-    """Build a sectioned ward CSV. `rows` is a list of (name, type, {daynum: token})."""
+def _ward_csv(rows, *, enforce_vacation=True, min_request_percent=100,
+              relax_days_off=True):
+    """Build a sectioned ward CSV. `rows` is a list of (name, type, {daynum: token}).
+
+    `relax_days_off` is written explicitly and defaults True. Approved leave is
+    the HARDEST rest day to give up (constraint.md section 8): an unenforced
+    `vac` is droppable only when ordinary days off are droppable too, so a
+    fixture that omitted this key took the solver default of False and made
+    every un-enforced vacation hard.
+    """
     header = ["Name", "Type"] + [str(d) for d in range(1, _NUM_DAYS + 1)]
     lines = [",".join(header)]
     for name, ntype, cells in rows:
@@ -57,6 +65,7 @@ allow_evening_to_night,false
 allow_night_to_day,false
 head_nurse_special_shift,true
 enforce_vacation,{"true" if enforce_vacation else "false"}
+relax_days_off,{"true" if relax_days_off else "false"}
 min_request_percent,{min_request_percent}
 
 [schedule]

@@ -156,6 +156,22 @@ Staff classes (§A), off-ward duties (§21) and the holiday band (§22) are cove
 **Windows note:** the run reports ~49 `PermissionError`s in `tearDown` (temp sqlite files held open). Pre-existing harness artifact, **not** failures — test bodies pass. A real failure shows up as some other exception type.
 Run: `python3 -m unittest discover -s webapp/tests -p "test_*.py"` (from repo root). Solver-backed tests take ~8s each.
 
+### Running everything
+Three commands, all from the repo root — the root-level solver files are **not**
+picked up by the `webapp/tests` discovery, so running only that one misses them:
+
+```
+python -m unittest discover -s webapp/tests -p "test_*.py"
+python -m unittest test_shiftwork
+python -m unittest test_vacation
+```
+
+`test_vacation.py` is easy to forget and did silently rot once: it sat outside
+both suites while a solver rule changed under it (an un-enforced `vac` became
+droppable only when `relax_days_off` is on, §8), so its fixture was asserting
+retired behaviour and nobody saw the failure. If you add another root-level
+`test_*.py`, add it here too.
+
 ---
 
 ## Settings reference (`[settings]` / ScheduleInput.settings)
