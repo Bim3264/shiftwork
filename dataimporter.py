@@ -203,6 +203,7 @@ class DataImporter():
         self.reqNegShifts    = []   # per nurse {0-based day: Shift} -- 'no:X' cells
         self.newNurseIndices = []
         self.seniorNurseIndices = []   # rows typed senior in the Type column (§16/§17)
+        self.seniorWeekendShifts = {}  # {row idx: N>0} opted-in seniors only (§17a)
 
         # --- Parse sections ---
         sections, self.has_metadata = self._parse_sections(filename)
@@ -330,6 +331,15 @@ class DataImporter():
                     self.newNurseIndices.append(idx)
                 elif t in _senior_flags:
                     self.seniorNurseIndices.append(idx)
+                    # Optional 'Weekend Shifts' column (§17a). Only a senior can
+                    # opt in; on anyone else the cell is ignored. Junk -> 0.
+                    if "Weekend Shifts" in self.df.columns:
+                        try:
+                            wn = int(float(self.clean(row.get("Weekend Shifts", "")) or 0))
+                        except ValueError:
+                            wn = 0
+                        if wn > 0:
+                            self.seniorWeekendShifts[idx] = wn
 
         # Shifts each request cell asks for. A double-shift cell (ช/บ, ด/บ) is ONE
         # request for TWO shifts: it is sampled against the quota as one cell and

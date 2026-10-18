@@ -1,5 +1,5 @@
 from ortools.sat.python import cp_model
-from constant import Shift, LocaleShift, OFFWARD_SEP, SHIFT_LOCALE
+from constant import Shift, LocaleShift, OFFWARD_SEP, SHIFT_LOCALE, weekend_units
 from dataimporter import DataImporter, SettingLoader, FileLoader
 import pandas as pd
 import time
@@ -143,6 +143,7 @@ class Solver():
         # Seniors come from the Type column (DataImporter.seniorNurseIndices);
         # any number, including zero. No positional head/deputy.
         self.senior_nurse_indices: set = set()
+        self.senior_weekend_shifts: dict = {}   # {nurse idx: N weekends} opted-in seniors (§17a)
         self.HEAD_NURSE_SPEACIAL_SHIFT = True
         self.enable_meetings = True
 
@@ -307,6 +308,7 @@ class Solver():
 
         self.new_nurse_indices = set(data.newNurseIndices)
         self.senior_nurse_indices = set(data.seniorNurseIndices)
+        self.senior_weekend_shifts = dict(data.seniorWeekendShifts)   # §17a
         self.meeting_days = {n: days for n, days in enumerate(data.reqMeetings) if days}
 
         # Off-ward duties: one cell = one nurse, one day, one shift, one kind.
@@ -629,16 +631,33 @@ class Solver():
                         self.model.Add(sum(nurses_assigned) <= required)
 
 
+    def _weekend_units(self):
+        """Weekend units (0-based day lists) for 17a; see constant.weekend_units."""
+        return weekend_units(self.saturdays, self.sundays, 0, self.num_days - 1)
+
+    def _optin_seniors(self):
+        """{nurse idx: N} for seniors that opted in to weekend shifts (17a)."""
+        if not self.HEAD_NURSE_SPEACIAL_SHIFT:
+            return {}
+        return {n: k for n, k in self.senior_weekend_shifts.items()
+                if k > 0 and n in self.senior_nurse_indices}
+
     def optionHeadNurse(self):
         """Apply senior nurse rules to every nurse typed 'senior' in the Type column.
 
         On weekdays:  DAY or OFF only (no Evening or Night).
-        On weekends:  OFF only.
+        On weekends:  OFF only -- except a senior who opted in to weekend shifts
+                      (17a): she works Day on exactly N weekend units, one day
+                      each, and is OFF on every other weekend day.
         Controlled by senior_nurse_indices (Type column); no seniors = no-op.
         Disable entirely by setting HEAD_NURSE_SPEACIAL_SHIFT = False.
         """
         if not self.HEAD_NURSE_SPEACIAL_SHIFT:
             return
+
+        optin = self._optin_seniors()
+        units = self._weekend_units() if optin else []
+        claimed = {d for u in units for d in u}
 
         for n in sorted(self.senior_nurse_indices):
             for d in range(self.num_days):
@@ -650,11 +669,29 @@ class Solver():
                     )
                     self.model.Add(self.assignments[n][d][Shift.EVENING] == 0)
                     self.model.Add(self.assignments[n][d][Shift.NIGHT] == 0)
+                elif n in optin and d in claimed:
+                    # 17a: Day or OFF here; the unit constraint below decides which.
+                    self.model.Add(
+                        self.assignments[n][d][Shift.DAY] + self.assignments[n][d][Shift.OFF] == 1
+                    )
+                    self.model.Add(self.assignments[n][d][Shift.EVENING] == 0)
+                    self.model.Add(self.assignments[n][d][Shift.NIGHT] == 0)
                 else:
                     # Weekend: always OFF.
                     # B1: AddImplication constraints in constraints() already propagate
                     # OFF==1 → DAY/EVE/NIGHT==0, so only one constraint is needed here.
                     self.model.Add(self.assignments[n][d][Shift.OFF] == 1)
+
+            if n in optin:
+                # Exactly N units carry a Day shift, on exactly one day of each.
+                # Hard: if N cannot be met the head nurse lowers it.
+                works = []
+                for k, unit in enumerate(units):
+                    w = self.model.NewBoolVar(f'wkend_{n}_{k}')
+                    self.model.Add(
+                        sum(self.assignments[n][d][Shift.DAY] for d in unit) == w)
+                    works.append(w)
+                self.model.Add(sum(works) == optin[n])
 
 
     def distribute(self):

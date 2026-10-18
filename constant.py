@@ -20,6 +20,23 @@ class LocaleShift(Enum):
 OFFWARD_SEP = ":"
 
 
+def weekend_units(saturdays, sundays, first, last):
+    """Weekend units for the senior weekend-shift option (constraint.md 17a).
+
+    Day numbers may be 0-based (first=0) or 1-based (first=1); `last` is the last
+    day inclusive. Each Saturday pairs with the Sunday right after it; a Saturday
+    with no listed Sunday after it, or a Sunday with no listed Saturday before it
+    (a month starting on Sunday), is a ONE-day unit. Takes the literal Sat/Sun
+    lists -- never the weekends/holidays union.
+    """
+    sats = {d for d in saturdays if first <= d <= last}
+    suns = {d for d in sundays if first <= d <= last}
+    units = [[s] + ([s + 1] if s + 1 in suns else []) for s in sorted(sats)]
+    paired = {d for u in units for d in u}
+    units += [[s] for s in sorted(suns) if s not in paired]
+    return sorted(units)
+
+
 class OffWard(Enum):
     """Off-ward duty kinds. Both are a hard, head-nurse-authored assignment to one
     shift that does NOT count toward this ward's coverage but DOES count as a

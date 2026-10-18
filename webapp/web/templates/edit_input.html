@@ -339,6 +339,10 @@
             <option value="{{ sc }}" {% if nurse.staff_class == sc %}selected{% endif %}>{{ sc_label }}</option>
             {% endfor %}
           </select>
+          <input type="number" min="0" name="wkshifts_{{ r }}"
+                 value="{{ nurse.weekend_shifts or '' }}" style="width:38px;font-size:11px"
+                 placeholder="wk"
+                 title="Senior only: number of weekends she works a Day shift (Sat OR Sun, solver's choice). Blank/0 = always off at weekends.">
         </td>
         {% for d in days %}
         <td><input class="cell" type="text" name="cell_{{ r }}_{{ d }}"

@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 
 from ortools.sat.python import cp_model
 
-from constant import Shift, parse_negation, parse_offward
+from constant import Shift, parse_negation, parse_offward, weekend_units
 from dataimporter import TIER_LIMITS
 from webapp.core.schedule_input import GROUP_LABELS, GROUP_PN_NA, GROUP_RN
 from webapp.core.tiers import resolve_tier
@@ -146,6 +146,30 @@ def _check_group(rep: PresolveReport, si, group, limits, tier) -> None:
 
     new_idx = {n for n, x in enumerate(nurses) if x.type.strip().lower() in _NEW_FLAGS}
 
+    # ── 1b. Senior weekend shifts (constraint.md 17a) ────────────────────────
+    # Opted-in seniors may work Day on Sat/Sun; everyone else with a count is
+    # ignored (a warning, never silently applied).
+    units = weekend_units(saturdays, sundays, 1, num_days)
+    claimed = {d for u in units for d in u}
+    optin = set()
+    for n, x in enumerate(nurses):
+        if not x.weekend_shifts:
+            continue
+        if n not in seniors:
+            rep.warnings.append(Issue(
+                "weekend_shifts_ignored",
+                f"{x.name} has weekend shifts set to {x.weekend_shifts}, but only a "
+                f"senior (Type column) can take weekend shifts, so it is ignored.",
+                nurse=x.name))
+        elif x.weekend_shifts > len(units):
+            rep.errors.append(Issue(
+                "weekend_shifts_too_many",
+                f"{x.name} wants {x.weekend_shifts} weekend shifts but the month "
+                f"has only {len(units)} Saturday/Sunday weekends listed.",
+                nurse=x.name))
+        else:
+            optin.add(n)
+
     # ── 2. Request quotas (warnings only) ────────────────────────────────────
     n_warn_before = len(rep.warnings)
     fixed: list[dict[int, _NurseDay]] = []
@@ -241,7 +265,8 @@ def _check_group(rep: PresolveReport, si, group, limits, tier) -> None:
     allow_n_d = s["allow_night_to_day"]
     for n, nurse in enumerate(nurses):
         for d, nd in sorted(fixed[n].items()):
-            if n in seniors and d in weekends and nd.meeting:
+            if (n in seniors and d in weekends and nd.meeting
+                    and not (n in optin and d in claimed)):
                 rep.errors.append(Issue(
                     "senior_meeting_weekend",
                     f"{nurse.name} (head/deputy) has a meeting on day {d}, a "
@@ -296,7 +321,8 @@ def _check_group(rep: PresolveReport, si, group, limits, tier) -> None:
     n_err_before = len(rep.errors)
     ctx = dict(s=s, nurses=nurses, fixed=fixed, weekends=weekends,
                holidays=holidays, saturdays=saturdays, sundays=sundays,
-               seniors=seniors, new_idx=new_idx, group=group)
+               seniors=seniors, new_idx=new_idx, group=group,
+               optin=optin, claimed=claimed)
     bad_days = set()
     for d in range(1, num_days + 1):
         if not _feasible(ctx, [d]):
@@ -375,7 +401,8 @@ def _feasible(ctx, days: list[int]) -> bool:
                     for sh in _SHIFTS:
                         m.Add(x[n, d, sh] == (1 if sh == nd.offward[0] else 0))
             if n in ctx["seniors"]:                       # §16/§17
-                if d in ctx["weekends"]:
+                if d in ctx["weekends"] and not (
+                        n in ctx["optin"] and d in ctx["claimed"]):   # §17a
                     m.Add(dv + ev + nv == 0)
                 else:
                     m.Add(ev == 0)
@@ -424,7 +451,8 @@ def _explain_day(ctx, d: int) -> str:
         nd = fixed[n].get(d)
         if nd and nd.off:
             vac_or_off += 1
-        elif n in ctx["seniors"] and wk:
+        elif n in ctx["seniors"] and wk and not (
+                n in ctx["optin"] and d in ctx["claimed"]):
             senior_off += 1
         elif nd and nd.meeting:
             meet += 1

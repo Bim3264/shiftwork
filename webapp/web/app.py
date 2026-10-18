@@ -165,7 +165,7 @@ def _schedule_input_from_form(form, row) -> ScheduleInput:
 
 
 def _nurses_from_form(form, num_days: int) -> list[Nurse]:
-    """Rebuild nurse rows from grid form fields: name_{r}, type_{r}, class_{r},
+    """Rebuild nurse rows from grid form fields: name_{r}, type_{r}, class_{r}, wkshifts_{r},
     cell_{r}_{d}."""
     try:
         row_count = int(form.get("row_count", "0"))
@@ -179,6 +179,8 @@ def _nurses_from_form(form, num_days: int) -> list[Nurse]:
         ntype = (form.get(f"type_{r}") or "").strip()
         # Staff class (rn / pn / na / blank); Nurse normalises unknown values to "".
         staff_class = (form.get(f"class_{r}") or "").strip()
+        # Senior weekend shifts (17a): blank/junk -> 0 (not opted in).
+        weekend_shifts = (form.get(f"wkshifts_{r}") or "").strip()
         # Checkbox present-iff-checked; a disabled nurse is kept but not solved.
         active = form.get(f"active_{r}") is not None
         shifts: dict[int, str] = {}
@@ -190,7 +192,7 @@ def _nurses_from_form(form, num_days: int) -> list[Nurse]:
             # off-ward cells are normalised ('VAC' -> 'vac', 'FLT:ด' -> 'flt:ด').
             shifts[d] = _normalize_token(raw)
         nurses.append(Nurse(name=name, type=ntype, shifts=shifts, active=active,
-                            staff_class=staff_class))
+                            staff_class=staff_class, weekend_shifts=weekend_shifts))
     return nurses
 
 

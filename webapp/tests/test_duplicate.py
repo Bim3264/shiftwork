@@ -28,6 +28,13 @@ def _si(ward_meta=None, settings=None, nurses=None):
 
 class NextMonthInputTests(unittest.TestCase):
 
+    def test_weekend_shifts_carries_over(self):
+        # Dropping it would silently turn an opted-in senior back into
+        # always-off-at-weekends next month.
+        si = _si(ward_meta={"month": "9", "year": "2026"}, settings={"num_days": 30},
+                 nurses=[Nurse(name="Head", type="senior", weekend_shifts=2)])
+        self.assertEqual(next_month_input(si).nurses[0].weekend_shifts, 2)
+
     def test_next_month_advances_and_recomputes_dates(self):
         si = _si(
             ward_meta={"month": "9", "year": "2026"},

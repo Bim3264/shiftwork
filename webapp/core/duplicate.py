@@ -50,7 +50,7 @@ def next_month_input(si: ScheduleInput) -> ScheduleInput:
         # staff_class carries over: dropping it would silently turn a grouped
         # ward (RN + PN/NA) back into one ungrouped schedule next month.
         Nurse(name=n.name, type=n.type, shifts={}, active=n.active,
-              staff_class=n.staff_class)
+              staff_class=n.staff_class, weekend_shifts=n.weekend_shifts)
         for n in si.nurses
     ]
 

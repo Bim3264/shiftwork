@@ -396,7 +396,7 @@ _SOLVED = (cp_model.OPTIMAL, cp_model.FEASIBLE)
 
 
 def _ward_csv(num_days, rows, cov=(1, 1, 1), cov_hol=None, senior="false",
-              weekends="", holidays="", extra=""):
+              weekends="", holidays="", extra="", wk=None):
     """Build a ward CSV. `extra` is raw text appended to [settings] (saturdays /
     sundays lists and coverage_saturday_* / coverage_sunday_* keys). `rows` = [(name, type, [cells...])].
 
@@ -421,11 +421,13 @@ def _ward_csv(num_days, rows, cov=(1, 1, 1), cov_hol=None, senior="false",
                  f"coverage_holiday_evening,{cov_hol[1]}\n"
                  f"coverage_holiday_night,{cov_hol[2]}\n")
     head += extra
-    head += ("\n[schedule]\nName,Type,"
+    # `wk` = {name: N} adds the optional 'Weekend Shifts' column (17a).
+    head += ("\n[schedule]\nName,Type," + ("Weekend Shifts," if wk else "")
              + ",".join(str(d) for d in range(1, num_days + 1)) + "\n")
     for name, ntype, cells in rows:
         padded = list(cells) + [""] * (num_days - len(cells))
-        head += f"{name},{ntype}," + ",".join(padded) + "\n"
+        lead = f"{name},{ntype}," + (f"{wk.get(name, '')}," if wk else "")
+        head += lead + ",".join(padded) + "\n"
     return head
 
 
@@ -1167,6 +1169,127 @@ class MinDaysOffTest(_SmallWardTest):
         self.assertEqual(s.request_report["dropped"], [])
         for d in range(5):
             self.assertEqual(s.solver.Value(s.assignments[0][d][Shift.DAY]), 1)
+
+
+class SeniorWeekendShiftTest(_SmallWardTest):
+    """constraint.md section 17a: an opted-in senior works Day on exactly N
+    weekend units (one of Sat/Sun each) and is OFF on every other weekend day."""
+
+    # Bim's real ward 15 (29 days): Sunday 1 has no Saturday before it.
+    _SAT15 = "saturdays,7 14 21 28\nsundays,1 8 15 22 29\n"
+    _UNITS15 = [[0], [6, 7], [13, 14], [20, 21], [27, 28]]   # 0-based
+
+    def _ward15(self, n_wk, n_nurses=9, second_senior=True, exact=True, solve=True,
+                extra=""):
+        rows = self._plain(n_nurses, days=29)
+        rows[0] = ("N0", "senior", [""] * 29)
+        if second_senior:
+            rows[1] = ("N1", "senior", [""] * 29)
+        wknd = "1 7 8 14 15 21 22 28 29"
+        ex = self._SAT15 + ("exact_coverage,true\n" if exact else "") + extra
+        return self._run(29, rows, solve=solve, cov=(2, 1, 1), senior="true",
+                         weekends=wknd, extra=ex, wk={"N0": n_wk} if n_wk else None)
+
+    def _day(self, s, n, d):
+        return s.solver.Value(s.assignments[n][d][Shift.DAY])
+
+    def test_units_pair_each_saturday_with_the_next_sunday_and_keep_orphans(self):
+        from constant import weekend_units
+        # 1-based, ward 15's literal lists: Sunday 1 is an orphan unit.
+        self.assertEqual(
+            weekend_units([7, 14, 21, 28], [1, 8, 15, 22, 29], 1, 29),
+            [[1], [7, 8], [14, 15], [21, 22], [28, 29]])
+        # A Saturday on the last day is a one-day unit; a holiday is never a unit.
+        self.assertEqual(weekend_units([6], [], 1, 6), [[6]])
+
+    def test_headline_exactly_n_weekends_one_day_each_rest_off(self):
+        s, st, _ = self._ward15(2)
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(s.senior_weekend_shifts, {0: 2})
+        worked = [u for u in self._UNITS15 if any(self._day(s, 0, d) for d in u)]
+        self.assertEqual(len(worked), 2)
+        for u in worked:                       # exactly one day of the weekend
+            self.assertEqual(sum(self._day(s, 0, d) for d in u), 1)
+        for u in self._UNITS15:                # every other weekend day is OFF
+            if u not in worked:
+                for d in u:
+                    self.assertEqual(s.solver.Value(s.assignments[0][d][Shift.OFF]), 1)
+        for d in range(29):                    # weekdays: Day or OFF, as before
+            self.assertEqual(s.solver.Value(s.assignments[0][d][Shift.EVENING]), 0)
+            self.assertEqual(s.solver.Value(s.assignments[0][d][Shift.NIGHT]), 0)
+
+    def test_non_opted_senior_on_same_ward_stays_off_all_weekend(self):
+        s, st, _ = self._ward15(2)
+        self.assertIn(st, _SOLVED)
+        for d in s.weekends:
+            self.assertEqual(s.solver.Value(s.assignments[1][d][Shift.OFF]), 1)
+
+    def test_orphan_sunday_is_a_one_day_unit_and_is_worked_when_all_five_requested(self):
+        s, st, _ = self._ward15(5)
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(self._day(s, 0, 0), 1)            # lone Sunday 1
+        for u in self._UNITS15:
+            self.assertEqual(sum(self._day(s, 0, d) for d in u), 1)
+
+    def test_saturday_or_sunday_is_the_solvers_choice(self):
+        # 14 days, Sat 6/13, Sun 7/14. Only the senior can cover Day on 7 and 13
+        # (A and B are off), so weekend 1 must be Sunday and weekend 2 Saturday.
+        rows = [("S", "senior", [""] * 14),
+                ("A", "", ["", "", "", "", "", "", "off", "", "", "", "", "", "off", ""]),
+                ("B", "", ["", "", "", "", "", "", "off", "", "", "", "", "", "off", ""])]
+        s, st, _ = self._run(14, rows, cov=(1, 0, 0), senior="true",
+                             weekends="6 7 13 14",
+                             extra="saturdays,6 13\nsundays,7 14\n", wk={"S": 2})
+        self.assertIn(st, _SOLVED)
+        self.assertEqual([self._day(s, 0, d) for d in (5, 6)], [0, 1])    # Sunday
+        self.assertEqual([self._day(s, 0, d) for d in (12, 13)], [1, 0])  # Saturday
+
+    def test_zero_or_absent_is_todays_always_off(self):
+        for wk in (None, {"N0": 0}):
+            s, st, _ = self._run(7, self._plain(6, seniors=(0,)), cov=(1, 1, 1),
+                                 senior="true", weekends="6 7",
+                                 extra="saturdays,6\nsundays,7\n", wk=wk)
+            self.assertIn(st, _SOLVED)
+            self.assertEqual(s.senior_weekend_shifts, {})
+            for d in (5, 6):
+                self.assertEqual(s.solver.Value(s.assignments[0][d][Shift.OFF]), 1)
+
+    def test_count_on_a_non_senior_is_ignored(self):
+        s, st, _ = self._run(7, self._plain(6), cov=(1, 1, 1), senior="true",
+                             weekends="6 7", extra="saturdays,6\nsundays,7\n",
+                             wk={"N2": 1})
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(s.senior_weekend_shifts, {})
+
+    def test_monday_holiday_is_not_a_weekend_for_the_option(self):
+        # Day 3 is a holiday (non-working for a senior) but in neither list.
+        s, st, _ = self._ward15(2, extra="holidays,3\n")
+        self.assertIn(st, _SOLVED)
+        self.assertIn(2, s.weekends)
+        self.assertEqual(s.solver.Value(s.assignments[0][2][Shift.OFF]), 1)
+        # The structural proof: day 3 is in no unit, so it can never be claimed.
+        self.assertNotIn(2, {d for u in s._weekend_units() for d in u})
+
+    def test_count_is_exact_not_just_whatever_the_solver_prefers(self):
+        # N=2 can pass by luck (it is what the objective likes anyway); 1 and 3
+        # cannot both do so.
+        for n_wk in (1, 3):
+            s, st, _ = self._ward15(n_wk)
+            self.assertIn(st, _SOLVED)
+            worked = [u for u in self._UNITS15
+                      if any(self._day(s, 0, d) for d in u)]
+            self.assertEqual(len(worked), n_wk, n_wk)
+
+    def test_more_weekends_than_the_month_has_is_infeasible(self):
+        s, st, _ = self._ward15(6)                         # only 5 units exist
+        self.assertEqual(st, cp_model.INFEASIBLE)
+
+    def test_exact_coverage_is_still_exact_when_the_senior_displaces_a_nurse(self):
+        s, st, _ = self._ward15(2)
+        self.assertIn(st, _SOLVED)
+        for d in range(29):
+            n_day = sum(self._day(s, n, d) for n in range(s.num_nurses))
+            self.assertEqual(n_day, 2, f"day {d + 1}")
 
 
 if __name__ == "__main__":

@@ -34,8 +34,11 @@ from constant import (
     LocaleShift,
     parse_negation,
     parse_offward,
+    weekend_units,
 )
 from dataimporter import DataImporter
+
+_SENIOR_TYPES = {"senior", "อาวุโส", "ซีเนียร์"}   # mirrors DataImporter.transform
 
 # Staff classes (RN vs PN/NA). The roster splits into groups that are solved as
 # independent runs; the split happens at the to_solver_csv() boundary so the
@@ -265,6 +268,10 @@ class Nurse:
 
     staff_class is an axis orthogonal to `type` (seniority): "rn", "pn", "na" or
     "" (unclassed). Stored lower-case; an unknown value becomes "".
+
+    weekend_shifts (constraint.md 17a): a senior's opt-in to work Day on exactly
+    N weekends (one of Sat/Sun each). 0 = not opted in (always off at weekends).
+    Meaningless on a non-senior, where it is ignored (presolve warns).
     """
 
     name: str
@@ -272,10 +279,15 @@ class Nurse:
     shifts: dict[int, str] = field(default_factory=dict)
     active: bool = True
     staff_class: str = ""
+    weekend_shifts: int = 0
 
     def __post_init__(self) -> None:
         sc = str(self.staff_class or "").strip().lower()
         self.staff_class = sc if sc in STAFF_CLASSES else ""
+        try:
+            self.weekend_shifts = max(0, int(float(self.weekend_shifts or 0)))
+        except (TypeError, ValueError):
+            self.weekend_shifts = 0
 
 
 @dataclass
@@ -507,6 +519,18 @@ class ScheduleInput:
             if class_col is not None:
                 break
 
+        # Optional senior weekend-shifts column (17a): a header starting with
+        # "weekend shifts" anywhere right of the day columns (the template puts
+        # it just after day 31).
+        wk_col = None
+        for hr in (header_r, header_r - 1):
+            for c in range(1, len(rows[hr - 1]) + 1 if hr >= 1 else 1):
+                if _cell_str(gv(hr, c)).lower().startswith("weekend shifts"):
+                    wk_col = c
+                    break
+            if wk_col is not None:
+                break
+
         nurses: list[Nurse] = []
         for r in range(header_r + 1, len(rows) + 1):
             name = _cell_str(gv(r, 1))
@@ -524,8 +548,10 @@ class ScheduleInput:
             staff_class = ""
             if class_col is not None:
                 staff_class = _cell_str(gv(r, class_col)).split("/")[0].strip().lower()
+            wk = _cell_str(gv(r, wk_col)) if wk_col is not None else ""
             nurses.append(
-                Nurse(name=name, type=ntype, shifts=shifts, staff_class=staff_class)
+                Nurse(name=name, type=ntype, shifts=shifts, staff_class=staff_class,
+                      weekend_shifts=wk)
             )
 
         if "num_days" not in settings and day_cols:
@@ -640,6 +666,10 @@ class ScheduleInput:
         class_idx = next(
             (idx for idx, h in enumerate(header) if h.lower() == "class"), None
         )
+        wk_idx = next(
+            (idx for idx, h in enumerate(header) if h.lower() == "weekend shifts"),
+            None,
+        )
         # Day columns are the header cells that are digits; map header text ->
         # column index so extra/re-ordered columns are handled safely.
         day_cols = {
@@ -662,8 +692,10 @@ class ScheduleInput:
                 row[class_idx].strip()
                 if class_idx is not None and class_idx < len(row) else ""
             )
+            wk = row[wk_idx].strip() if wk_idx is not None and wk_idx < len(row) else ""
             nurses.append(
-                Nurse(name=name, type=ntype, shifts=shifts, staff_class=staff_class)
+                Nurse(name=name, type=ntype, shifts=shifts, staff_class=staff_class,
+                      weekend_shifts=wk)
             )
         return nurses
 
@@ -762,13 +794,17 @@ class ScheduleInput:
         # but _parse_schedule_rows reads it back by name — which is what keeps the
         # round-trip whole for a classed ward (known failure mode 6).
         emit_class = any(n.staff_class for n in self.active_nurses())
-        head = ["Name", "Type"] + (["Class"] if emit_class else [])
+        # Same for the senior Weekend Shifts column (17a).
+        emit_wk = any(n.weekend_shifts for n in self.active_nurses())
+        head = (["Name", "Type"] + (["Class"] if emit_class else [])
+                + (["Weekend Shifts"] if emit_wk else []))
         writer.writerow(head + [str(d) for d in range(1, num_days + 1)])
         # Only active nurses go to the solver; disabled ones stay in self.nurses
         # but are omitted here so they don't appear in the schedule.
         for nurse in self.active_nurses(group):
             cells = [nurse.shifts.get(d, "") for d in range(1, num_days + 1)]
-            lead = [nurse.name, nurse.type] + ([nurse.staff_class] if emit_class else [])
+            lead = ([nurse.name, nurse.type] + ([nurse.staff_class] if emit_class else [])
+                    + ([nurse.weekend_shifts or ""] if emit_wk else []))
             writer.writerow(lead + cells)
 
         return out.getvalue()
@@ -782,7 +818,7 @@ class ScheduleInput:
             "nurses": [
                 # JSON object keys must be strings; days are re-int'd on load.
                 {"name": n.name, "type": n.type, "active": n.active,
-                 "staff_class": n.staff_class,
+                 "staff_class": n.staff_class, "weekend_shifts": n.weekend_shifts,
                  "shifts": {str(k): v for k, v in n.shifts.items()}}
                 for n in self.nurses
             ],
@@ -797,6 +833,7 @@ class ScheduleInput:
                 shifts={int(k): v for k, v in n.get("shifts", {}).items()},
                 active=n.get("active", True),  # default True for pre-existing data
                 staff_class=n.get("staff_class", ""),  # "" for pre-existing rows
+                weekend_shifts=n.get("weekend_shifts", 0),
             )
             for n in data.get("nurses", [])
         ]
@@ -831,6 +868,20 @@ class ScheduleInput:
                         f"Nurse '{nurse.name}' has no staff class. Set RN or "
                         f"PN/NA for every nurse, or clear them all."
                     )
+        # Senior weekend shifts (17a): N beyond the number of Sat/Sun units in the
+        # month can never be met -- reject rather than clamp, so the head nurse
+        # sees the real limit. Ignored for a non-senior (presolve warns).
+        if self.settings.get("head_nurse_special_shift", True):
+            n_units = len(weekend_units(
+                self.settings.get("saturdays", []), self.settings.get("sundays", []),
+                1, num_days))
+            for nurse in active:
+                if (nurse.weekend_shifts and nurse.type.strip().lower() in _SENIOR_TYPES
+                        and nurse.weekend_shifts > n_units):
+                    raise ValueError(
+                        f"Nurse '{nurse.name}' wants {nurse.weekend_shifts} weekend "
+                        f"shifts but this month has only {n_units} Saturday/Sunday "
+                        f"weekends listed. Lower it (0 = always off at weekends).")
         for nurse in self.nurses:
             for day, token in nurse.shifts.items():
                 if not (1 <= day <= num_days):

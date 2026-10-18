@@ -398,6 +398,9 @@ Weekend:  a[n][d][OFF]     == 1
 
 **Location:** `optionHeadNurse()` (same block as constraint 16)
 
+> **Override (§26):** a senior with a per-nurse `weekend_shifts` count N > 0 is exempt on the
+> Saturday/Sunday days that rule claims. Everyone else, and N = 0, is unchanged.
+
 ---
 
 ## 18. Seniority — from the Type column
@@ -823,3 +826,60 @@ absent-keeps-current loop, `off_key` per group); `edit_input.html` "Minimum days
 `tools/gen_templates.py` `_MIN_OFF_ROW`.
 Tests: `test_shiftwork.MinDaysOffTest`, `webapp/tests/test_min_days_off.py`,
 `webapp/tests/test_web.py` (`test_min_days_off_is_per_group_in_form_and_survives_omission`).
+
+
+---
+
+## 26. Senior weekend shifts (per-nurse opt-in, overrides §17)
+
+**Original (Bim, Oct 2026):** a senior with the option to have this extra shift; some weekend
+Saturday, some Sunday; per nurse; "if this option is enabled for a specific senior nurse, it
+overwrites the weekend-off rule"; a count of how many weekends she works (others have none).
+
+**Rule:** a senior with `weekend_shifts = N > 0` works Day (ช) on exactly **N weekend units**, on
+exactly **one** day of each; every other weekend day she is OFF. Weekdays (§16) are unchanged.
+Everyone else (N = 0, the default, or any non-senior) keeps §17 exactly.
+
+**Units.** Each Saturday pairs with the Sunday right after it (`sat + 1`); a Saturday with no
+listed Sunday after it, or a **Sunday with no listed Saturday before it** (ward 15:
+`saturdays=[7,14,21,28]`, `sundays=[1,8,15,22,29]` -> Sunday 1), is a **one-day unit** (works that
+day or not). Built from the literal `saturdays`/`sundays` lists, NOT `Solver.weekends` (the union):
+a Monday public holiday is not a weekend for this rule and she stays OFF on it. One definition,
+`constant.weekend_units(saturdays, sundays, first, last)`, shared by solver, `validate()` and presolve.
+
+```
+for each unit k:  w_k = BoolVar;   sum(a[n][d][DAY] for d in unit_k) == w_k
+sum(w_k) == N                                   # HARD
+claimed day:      DAY + OFF == 1, EVENING == NIGHT == 0
+other weekend:    OFF == 1                       # §17 as before
+for n in senior_weekend_shifts (N > 0, n in senior_nurse_indices)
+```
+
+**Hard, not soft.** N is a small number the head nurse picks; if it cannot be met she lowers it
+rather than have the solver quietly do something else. `N > number of units` is rejected in
+`ScheduleInput.validate()` (`ValueError` naming the nurse) and flagged `weekend_shifts_too_many`
+by presolve; not clamped. Fed straight to the solver it is INFEASIBLE.
+
+**Non-senior.** Ignored: `DataImporter` only records the count for rows typed senior, and presolve
+warns `weekend_shifts_ignored`. Also ignored when `head_nurse_special_shift` is off.
+
+**Interactions.** `exact_coverage` (§9) stays exact: her Saturday Day shift *displaces* a
+non-senior (no extra body), who then needs another shift or a day off - weekends reshuffle, they
+do not gain cover. A shift request (ช, ...) or off-ward cell on a weekend day is still dropped by
+the §16/§17 skip-guard for her (use `off` to forbid a day; the solver then picks the other day of
+the unit). `off`/`vac` on a claimed day just removes that day as a choice. Presolve exempts a
+claimed day from the "senior must be off" rule in its per-day coverage check and from
+`senior_meeting_weekend`. Default 0 => no extra variables, output unchanged.
+
+**Storage.** `Nurse.weekend_shifts: int` (alongside `staff_class`); CSV column `Weekend Shifts`
+(emitted only when some active nurse has N > 0, so other CSVs stay byte-identical); Excel column
+`Weekend shifts` just right of day 31 (found by header text); edit grid `wkshifts_{row}`.
+
+**Location:** `shiftwork.py` `_weekend_units`, `_optin_seniors`, `optionHeadNurse`;
+`dataimporter.py` `seniorWeekendShifts`; `constant.py` `weekend_units`;
+`webapp/core/schedule_input.py` (`Nurse`, `_parse_schedule_rows`, `from_xlsx`, `to_solver_csv`,
+`to_dict`/`from_dict`, `validate`); `webapp/core/duplicate.py`; `webapp/core/presolve.py` (1b);
+`webapp/web/app.py` `_nurses_from_form`; `edit_input.html`; `tools/gen_templates.py` (`WK_COL`,
+example NurseA = 2).
+Tests: `test_shiftwork.SeniorWeekendShiftTest`, `webapp/tests/test_senior_weekend_shifts.py`,
+`webapp/tests/test_duplicate.py`.

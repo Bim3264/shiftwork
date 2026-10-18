@@ -40,7 +40,7 @@ Lifecycle (construction is side-effect-free):
 - `_add_shift_transition_rules()` — E→N and N→D across days (flag-gated).
 - `_add_double_shift_tracking()` — double-shift indicators (feed objective).
 - `_constraintMinimumNurse()` — per-day coverage minimums. One `excluded` set per `(day, shift)`: meeting nurses on Day (§15) **and** off-ward duties on their own shift (§21). The Day-only special case is gone.
-- `optionHeadNurse()` — every nurse typed `senior` in the Type column (`senior_nurse_indices`; any number, zero = no-op): weekdays Day/OFF, weekends OFF.
+- `optionHeadNurse()` — every nurse typed `senior` in the Type column (`senior_nurse_indices`; any number, zero = no-op): weekdays Day/OFF, weekends OFF - except a senior opted in via `senior_weekend_shifts` (per-nurse N from the importer, constraint.md §26): Day on exactly N Sat/Sun units (`_weekend_units`, from `constant.weekend_units`), one day each, OFF elsewhere; hard.
 
 `distribute()` — objective `Minimize(10*shift_imbalance + 10*holiday_imbalance + double_shifts [+ 100000*dropped_requests])`. The huge weight makes keeping requests dominate fairness.
 
@@ -85,7 +85,7 @@ An infeasible ward now gets a job whose INFEASIBLE verdict is explained by
 `setup_logging(path=None)` — lazy ERROR `FileHandler` to `logs/shiftwork_<timestamp>.log` (created only on first error) + installs `sys.excepthook`. `log_path()`. Called from `web/app.py` import and `worker/run_worker.py`.
 
 ### `core/schedule_input.py` — the canonical model
-- `Nurse(name, type="", shifts={day:token}, active=True, staff_class="")`. `active=False` = disabled (kept, not scheduled). **`staff_class`** in `rn`/`pn`/`na`/`""` is an axis **orthogonal to `type`** (seniority) — a PN can be senior; normalised in `__post_init__`.
+- `Nurse(name, type="", shifts={day:token}, active=True, staff_class="", weekend_shifts=0)`. `active=False` = disabled (kept, not scheduled). **`staff_class`** in `rn`/`pn`/`na`/`""` is an axis **orthogonal to `type`** (seniority) — a PN can be senior; normalised in `__post_init__`. **`weekend_shifts`** (int, 0 = off) is a senior's opt-in to N weekend Day shifts (§26): CSV column `Weekend Shifts` (emitted only if some active nurse has N>0), Excel column right of day 31, grid input `wkshifts_{r}`; ignored (presolve warning) on a non-senior; `validate()` rejects N > Sat/Sun units.
 - Staff groups: `GROUP_RN`/`GROUP_PN_NA`/`GROUP_LABELS`/`STAFF_CLASSES`, `group_of(staff_class)` (`pn`+`na` → ONE `pn_na` pool; the PN-vs-NA label is display only). `solve_groups()` → `[]` when no active nurse is classed (legacy single solve), else the present groups in order `["rn","pn_na"]`. `active_nurses(group=None)`, `group_indices(group)` (group-local row → global active index).
 - `ScheduleInput(ward_meta, settings, nurses)`.
   - `from_csv(text)` (reuses DataImporter parsers), `from_xlsx(bytes)` (reads the Excel roster template's Roster sheet directly into `from_grid` — label-driven cards + day-number-header detection; needs openpyxl), `from_grid(ward_meta, settings, nurses)`, `to_solver_csv()`, `to_dict()`/`from_dict()`, `validate()` (raises ValueError; counts **active** nurses; needs ≥2 active if senior rule on), `active_nurses()`.

@@ -121,6 +121,9 @@ NUM_DAYS = 31
 FIRST_DAY_COL = 4                                # D
 LAST_DAY_COL = FIRST_DAY_COL + NUM_DAYS - 1      # AH
 LAST_COL = col_letter(LAST_DAY_COL)
+# Senior weekend-shifts column (constraint.md 17a): just after the last day so the
+# day columns do not move. ScheduleInput.from_xlsx finds it by header text.
+WK_COL = col_letter(LAST_DAY_COL + 1)             # AI
 
 # Default rest days / weekday letters shown in the blank template.
 DEFAULT_REST_DAYS = "6 7 13 14 20 21 27 28"
@@ -198,6 +201,9 @@ EXAMPLE_SUNDAYS = "7 14 21 28"
 # row position), so she carries no request the §16/§17 senior rules would force
 # the solver to drop (Day or OFF on weekdays only) and no off-ward cell, which
 # the §21 skip-guard would discard.
+# NurseA opts in to weekend shifts (constraint.md 17a): Day on 2 weekends, one of
+# Sat/Sun each; off on all the others.
+_EXAMPLE_WEEKEND_SHIFTS = {"NurseA": 2}
 _EXAMPLE_ROWS = (
     ("NurseA", "senior", "rn", {2: "off", 3: "ช", 30: "off"}),
     ("NurseB", None, "rn", {1: "ช", 7: "off", 9: "ช", 11: "off", 15: "off",
@@ -363,6 +369,10 @@ def _build_roster(ws, spec: TemplateSpec):
         _put(ws, ref, text, font=_font(10, True, WHITE), fill=TEAL, align=_CENTER,
              border=BOX)
         ws.merge_cells(f"{ref}:{ref[0]}{R_SUB}")
+    _put(ws, f"{WK_COL}{R_HDR}", "Weekend shifts · เวรเสาร์/อาทิตย์ (senior)",
+         font=_font(8, True, WHITE), fill=TEAL, align=_CENTER, border=BOX)
+    ws.merge_cells(f"{WK_COL}{R_HDR}:{WK_COL}{R_SUB}")
+    ws.column_dimensions[WK_COL].width = 14
     for day in range(1, NUM_DAYS + 1):
         col = col_letter(FIRST_DAY_COL + day - 1)
         rest = day in _REST
@@ -388,6 +398,8 @@ def _build_roster(ws, spec: TemplateSpec):
              fill=bg, align=_CENTER, border=BOX)
         _put(ws, f"C{rr}", None, font=_font(9, False, EX_MUTED if ex else INK),
              fill=class_fill, align=_CENTER, border=BOX)
+        _put(ws, f"{WK_COL}{rr}", None, font=_font(9, False, EX_MUTED if ex else INK),
+             fill=bg, align=_CENTER, border=BOX)
         for day in range(1, NUM_DAYS + 1):
             _put(ws, f"{col_letter(FIRST_DAY_COL + day - 1)}{rr}", None,
                  font=_font(9, ex), fill=REST_BODY if day in _REST else bg,
@@ -404,6 +416,8 @@ def _build_roster(ws, spec: TemplateSpec):
                 _put(ws, f"B{rr}", kind, font=_font(9, True, ink), fill=fill)
             # Class column: the dropdown offers RN / PN / NA (upper-case).
             ws[f"C{rr}"].value = klass.upper()
+            if name in _EXAMPLE_WEEKEND_SHIFTS:
+                ws[f"{WK_COL}{rr}"].value = _EXAMPLE_WEEKEND_SHIFTS[name]
             for day, token in cells.items():
                 ws[f"{col_letter(FIRST_DAY_COL + day - 1)}{rr}"].value = token
 
@@ -422,7 +436,11 @@ def _build_roster(ws, spec: TemplateSpec):
                               showErrorMessage=True,
                               error="RN, PN or NA (blank = one group)")
     dv_class.add(f"C{R_FIRST}:C{last_row}")
-    for dv in (dv_cells, dv_type, dv_class):
+    dv_wk = DataValidation(type="whole", operator="between", formula1="0", formula2="6",
+                           allow_blank=True, showErrorMessage=True,
+                           error="Whole number of weekends (0 = always off at weekends)")
+    dv_wk.add(f"{WK_COL}{R_FIRST}:{WK_COL}{last_row}")
+    for dv in (dv_cells, dv_type, dv_class, dv_wk):
         ws.add_data_validation(dv)
 
     # Conditional formatting: colour the cell from its token.
@@ -462,6 +480,12 @@ _GUIDE_STEPS = (
      "separate rosters, each with its own staffing need (SETTINGS card). Leave "
      "blank if the ward has only one group. · ใส่กลุ่ม RN / PN / NA — "
      "สองกลุ่มจัดเวรแยกกัน", 44),
+    ("6b. Senior weekend shifts",
+     "Optional, senior nurses only: in the 'Weekend shifts' column (right of day "
+     "31) enter how many weekends she works a Day shift - on each of those she "
+     "works Saturday OR Sunday, the solver picks. Blank / 0 = she is off every "
+     "weekend (default). Cannot exceed the Saturday/Sunday weekends listed. · "
+     "ใส่จำนวนสุดสัปดาห์ที่หัวหน้าเข้าเวรเช้า (เสาร์หรืออาทิตย์)", 44),
     ("7. Special holidays",
      "List public / special holiday dates in 'Special holidays' as day numbers "
      "(e.g. 29 30). Those days are staffed from 'Holiday need' (blank = same as "
