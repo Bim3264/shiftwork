@@ -34,6 +34,7 @@ from webapp.core.schedule_input import (
     ScheduleInput,
     _COVERAGE_KEYS,
     _MIN_REQUEST_KEYS,
+    _MIN_OFF_KEYS,
     _normalize_token,
 )
 from webapp.core import presolve
@@ -133,7 +134,7 @@ def _settings_from_form(form, current: dict | None = None) -> dict:
     }
     # min_request_percent{,_rn,_pnna}: the edit page shows the legacy field OR the
     # per-group pair, never both, so absent = "not shown", not "reset".
-    for key in ("holidays", "saturdays", "sundays") + _MIN_REQUEST_KEYS + tuple(_COVERAGE_KEYS):
+    for key in ("holidays", "saturdays", "sundays") + _MIN_REQUEST_KEYS + _MIN_OFF_KEYS + tuple(_COVERAGE_KEYS):
         value = form.get(key)
         if value is not None:
             settings[key] = value
@@ -570,13 +571,13 @@ def _render_edit(request, user, row, schedule_input, error, check=None, status_c
     if classed:
         coverage_groups = [
             {"label": GROUP_LABELS[GROUP_RN], "prefix": "coverage_rn_",
-             "min_key": "min_request_percent_rn"},
+             "min_key": "min_request_percent_rn", "off_key": "min_days_off_rn"},
             {"label": GROUP_LABELS[GROUP_PN_NA], "prefix": "coverage_pnna_",
-             "min_key": "min_request_percent_pnna"},
+             "min_key": "min_request_percent_pnna", "off_key": "min_days_off_pnna"},
         ]
     else:
         coverage_groups = [{"label": "", "prefix": "coverage_",
-                            "min_key": "min_request_percent"}]
+                            "min_key": "min_request_percent", "off_key": "min_days_off"}]
 
     return templates.TemplateResponse(
         request,

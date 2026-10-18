@@ -207,6 +207,18 @@
       easier to give up than an ordinary day off.
     </label>
   </div>
+
+  <div class="card">
+    <h3>วันหยุดขั้นต่ำ / Minimum days off</h3>
+    {% for g in coverage_groups %}
+    <label>Minimum days off per nurse this month{% if g.label %} &mdash; {{ g.label }}{% endif %}:
+      <input type="number" name="{{ g.off_key }}"
+             value="{{ settings.get(g.off_key, 0) }}" min="0" max="31" style="width:4rem"></label><br>
+    {% endfor %}
+    <span class="muted">0 = no requirement. A target, never a blocker: if staffing cannot
+      reach it the solver adds double shifts to free rest days, and only then leaves a nurse
+      short. Approved vacation does not count as a day off.</span>
+  </div>
   </div>{# /settings-grid #}
 
   <details class="card">

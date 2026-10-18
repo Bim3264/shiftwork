@@ -1082,5 +1082,92 @@ class ExactCoverageTest(_SmallWardTest):
         self.assertIn(1, [c["day"] for c in diag["coverage"]])
 
 
+class MinDaysOffTest(_SmallWardTest):
+    """constraint.md section 25: a soft monthly minimum of discretionary days
+    off. Never infeasible; unreachable minimums are bought with double shifts."""
+
+    ON = "exact_coverage,true\n"
+
+    def _stats(self, s, n_nurses, days):
+        """(per-nurse discretionary OFF counts, total double-shift days)."""
+        offs, dbl = [], 0
+        for n in range(n_nurses):
+            vac = s.vacation_days.get(n, set())
+            offs.append(sum(s.solver.Value(s.assignments[n][d][Shift.OFF])
+                            for d in range(days) if d not in vac))
+            for d in range(days):
+                worked = sum(s.solver.Value(s.assignments[n][d][sh])
+                             for sh in (Shift.DAY, Shift.EVENING, Shift.NIGHT))
+                dbl += 1 if worked >= 2 else 0
+        return offs, dbl
+
+    def _solve(self, minimum, rows=None, days=7, n=4):
+        extra = self.ON + ("min_days_off,%d\n" % minimum if minimum is not None else "")
+        s, st, _ = self._run(days, rows or self._plain(n, days), cov=(1, 1, 1),
+                             extra=extra)
+        return s, st
+
+    def test_default_changes_nothing(self):
+        # Absent key and an explicit 0 give the same schedule shape as each other
+        # (the model has no shortfall variables at all when the minimum is 0).
+        s0, st0 = self._solve(None)
+        s1, st1 = self._solve(0)
+        self.assertIn(st0, _SOLVED)
+        self.assertIn(st1, _SOLVED)
+        self.assertEqual(s0.MIN_DAYS_OFF, 0)
+        self.assertEqual(self._stats(s0, 4, 7), self._stats(s1, 4, 7))
+        names = [v.name for v in s0.model.Proto().variables]
+        self.assertFalse(any(nm.startswith("off_short") for nm in names))
+
+    def test_unreachable_minimum_still_solves_by_adding_doubles(self):
+        # Headline (point 2). No-doubles ceiling is 7 free days = 1.75 each, so a
+        # minimum of 3 for all four (12 days) is impossible without doubles.
+        s, st = self._solve(3)
+        self.assertIn(st, _SOLVED)            # never INFEASIBLE
+        offs, dbl = self._stats(s, 4, 7)
+        self.assertGreaterEqual(min(offs), 3)  # reached, via doubles
+        self.assertGreaterEqual(dbl, 5)        # 12 off days - 7 free = 5 doubles
+
+    def test_minimum_beyond_any_staffing_still_solves(self):
+        # 7 days off in a 7-day month cannot coexist with 1/1/1 coverage.
+        s, st = self._solve(7)
+        self.assertIn(st, _SOLVED)
+        offs, _ = self._stats(s, 4, 7)
+        self.assertLess(min(offs), 7)
+
+    def test_vacation_does_not_count_toward_the_minimum(self):
+        # Nurse 0: vac days 1-2 and a Day request on days 3-7, so she can have no
+        # discretionary day off at all. Minimum 1 => shortfall 1 => objective
+        # >= MIN_OFF_WEIGHT. If her 2 vac days counted she would meet the minimum
+        # and the objective would be a few dozen at most.
+        rows = self._plain(4, 7)
+        rows[0] = ("N0", "", ["vac", "vac", "ช", "ช", "ช", "ช", "ช"])
+        s, st = self._solve(1, rows=rows)
+        self.assertIn(st, _SOLVED)
+        offs, _ = self._stats(s, 4, 7)
+        self.assertEqual(offs[0], 0)
+        self.assertGreaterEqual(s.solver.ObjectiveValue(), s.MIN_OFF_WEIGHT)
+
+    def test_minimum_never_drops_a_promised_request(self):
+        # Soft-request mode (percent 0). Nurse 0 has Day requested on 5 of 7
+        # days, so she can reach at most 2 days off; minimum 3 leaves her 1 short.
+        # Dropping a request would cure it, but MIN_OFF_WEIGHT < REJECT_WEIGHT,
+        # so the request is kept and the shortfall accepted.
+        rows = self._plain(4, 7)
+        rows[0] = ("N0", "", ["ช"] * 5)
+        path = os.path.join(self._workdir, "input", "w.csv")
+        text = _ward_csv(7, rows, cov=(1, 1, 1), extra=self.ON + "min_days_off,3" + chr(10))
+        text = text.replace("min_request_percent,100", "min_request_percent,0")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        with contextlib.redirect_stdout(io.StringIO()):
+            s = sw.Solver(path, 7, [], allow_shift_e_n=False, allow_shift_n_d=False)
+            st = s.run(max_time_seconds=10)
+        self.assertIn(st, _SOLVED)
+        self.assertEqual(s.request_report["dropped"], [])
+        for d in range(5):
+            self.assertEqual(s.solver.Value(s.assignments[0][d][Shift.DAY]), 1)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

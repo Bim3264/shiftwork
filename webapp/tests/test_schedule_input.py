@@ -583,6 +583,7 @@ class UngroupedEmissionTest(unittest.TestCase):
         "no_consecutive_day_eve,false\n"
         "exact_coverage,true\n"
         "min_request_percent,100\n"
+        "min_days_off,0\n"
         "max_consecutive_nights,3\n"
         "coverage_weekday_day,5\n"
         "coverage_weekday_evening,3\n"

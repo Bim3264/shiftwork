@@ -255,6 +255,7 @@ class DataImporter():
             'head_nurse_special_shift': raw_settings.get('head_nurse_special_shift', 'true').lower() == 'true',
             'enable_meetings':          self.enable_meetings,
             'min_request_percent':      int(str(raw_settings.get('min_request_percent', 100)).strip() or 100),
+            'min_days_off':             max(0, int(str(raw_settings.get('min_days_off', 0)).strip() or 0)),
             'relax_days_off':           raw_settings.get('relax_days_off', 'false').lower() == 'true',
             'enforce_vacation':         raw_settings.get('enforce_vacation', 'true').lower() == 'true',
             'coverage_weekday_day':     int(str(raw_settings.get('coverage_weekday_day', 5)).strip() or 5),

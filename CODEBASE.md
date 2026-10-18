@@ -173,6 +173,7 @@ Run: `python3 -m unittest discover -s webapp/tests -p "test_*.py"` (from repo ro
 | `exact_coverage` | **true** in web (solver/CSV absent key: false) | yes · `Exact coverage` | §9: per-shift need is `==` not `>=`. Tighter; can make a ward infeasible. Off restores `>=` |
 | `head_nurse_special_shift` | true | yes · `Head-nurse special shift` | senior Day/OFF rule; needs ≥2 active nurses |
 | `min_request_percent` (+ `_rn`, `_pnna`) | 100 | **no** — web/CSV only | 100 = hard requests; <100 = soft (keep max, floor at %). Per staff group; group keys inherit the legacy key; solver sees only the legacy name |
+| `min_days_off` (+ `_rn`, `_pnna`) | 0 | yes · left-card row `Min days off RN / PN/NA` (`"2 / 1"`) | §25: SOFT monthly minimum of discretionary (non-vac) OFF days per nurse; shortfall costs `MIN_OFF_WEIGHT` 5000 (above a double, below `REJECT_WEIGHT`), so the solver adds doubles instead of failing. Per group; group keys inherit the legacy key; solver sees only `min_days_off` |
 | `relax_days_off` | false | **no** — web/CSV only | if soft: also drop requested days-off (else shifts only) |
 | `enforce_vacation` | true | **no** — web/CSV only | `vac` cells: true = leave is hard (never dropped, shown as `vac`); false = droppable like off |
 | `enable_meetings` | tier | indirect · via `Plan` | **tier-derived**, not user-editable |

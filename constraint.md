@@ -778,3 +778,48 @@ pair check models rule (b) (and (a) when k = 1).
 `MAX_CONSECUTIVE_NIGHTS`, `NO_CONSECUTIVE_DAY_EVE` set in `loadReqShifts`;
 `dataimporter.py` settings dict; `webapp/core/presolve.py` §3 block + `_feasible`.
 Tests: `test_shiftwork.FatigueRulesTest`, `webapp/tests/test_fatigue_rules.py`.
+
+---
+
+## 25. Minimum days off per nurse per month (SOFT)
+
+**Original (customer):** "a minimum number of days off per nurse per month", RN and PN/NA
+with their own number, and "avoid infeasible at all cost - work more doubles instead".
+
+**Why soft.** With `exact_coverage` the slot total is fixed, so a nurse's rest days are
+`spare + doubles` (every double buys back exactly one rest day). A ward whose no-doubles
+spare is below the minimum (observed: PN/NA at ~1 day each) would be infeasible under a hard
+`>=`. So it is a penalty, never a constraint.
+
+**Formula.** `disc_off[n]` = OFF days not on a vacation date (the same variables the
+holiday-imbalance term uses). Per nurse `short[n] in [0, K]`, `short[n] >= K - disc_off[n]`;
+objective `+= MIN_OFF_WEIGHT * sum(short)`. `K = 0` adds no variables at all.
+
+**Weight ordering** (the point of the design): `1` per double  <  `10` fairness  <
+`MIN_OFF_WEIGHT = 5000` per missing day  <  `REJECT_WEIGHT = 100000` per dropped request.
+The solver reaches for a double before leaving anyone short, and never breaks a promised
+request to manufacture a rest day. Consequence: a very large total shortfall can still
+outweigh one dropped request - accepted, requests are the stronger promise per item.
+
+**Vacation does NOT count.** Only discretionary OFF counts (same rule as `fairness.py` and
+the holiday imbalance), so approved leave does not eat the monthly rest allowance. This makes
+the minimum harder to hit, which is acceptable because it is soft.
+
+**Reachability caveat.** Doubles are limited by the shift-transition rules (e.g. a Night
+cannot be doubled with Day), so a large minimum may stay partly unmet. The solve still
+succeeds; the shortfall is simply what the model could not buy.
+
+**Settings.** `min_days_off` (legacy, ungrouped ward), `min_days_off_rn`, `min_days_off_pnna`;
+default `0` = no requirement. A group key absent from a saved input inherits the legacy key
+(`_coerce_settings`); `to_solver_csv(group=...)` writes that group's value under the legacy
+name `min_days_off`, so `shiftwork.py`/`DataImporter` never see groups.
+Excel: one left-card row `Min days off RN / PN/NA` with value `"2 / 1"` (a single number sets
+both); the SETTINGS card has no free row. Not tier-gated.
+
+**Location:** `shiftwork.py` `Solver.MIN_DAYS_OFF`, `MIN_OFF_WEIGHT`, block in `distribute()`;
+`dataimporter.py` settings dict; `webapp/core/schedule_input.py` `_GROUP_MIN_OFF_KEY`,
+`_MIN_OFF_KEYS`, `min_days_off_for`; `webapp/web/app.py` (`_MIN_OFF_KEYS` in the
+absent-keeps-current loop, `off_key` per group); `edit_input.html` "Minimum days off" card;
+`tools/gen_templates.py` `_MIN_OFF_ROW`.
+Tests: `test_shiftwork.MinDaysOffTest`, `webapp/tests/test_min_days_off.py`,
+`webapp/tests/test_web.py` (`test_min_days_off_is_per_group_in_form_and_survives_omission`).

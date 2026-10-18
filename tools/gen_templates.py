@@ -148,6 +148,11 @@ _WARD_INFO = (
     ("Plan / แพ็กเกจ", "<tier>"),
 )
 
+# Left-card row appended after _WARD_INFO. The SETTINGS card is full (rows 5-26
+# abut the shift-codes header), so the one min-days-off row ("RN / PN/NA")
+# lives here; from_xlsx reads either card by label.
+_MIN_OFF_ROW = ("Min days off RN / PN/NA / วันหยุดขั้นต่ำต่อเดือน", "0 / 0")
+
 # (label, value). "<holidays>" is blank in the blank templates (= no special
 # holidays) and EXAMPLE_HOLIDAYS in the example.
 _SETTINGS = (
@@ -291,6 +296,9 @@ def _build_roster(ws, spec: TemplateSpec):
         elif spec.example and r in example_info:
             value = example_info[r]
         card_row(r, f"A{r}", "B", f"C{r}", "F", label, value)
+
+    r = R_CARD_HDR + 1 + len(_WARD_INFO)
+    card_row(r, f"A{r}", "B", f"C{r}", "F", *_MIN_OFF_ROW)
 
     for i, (label, value) in enumerate(_SETTINGS):
         r = R_CARD_HDR + 1 + i

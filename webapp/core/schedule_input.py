@@ -108,6 +108,12 @@ _DEFAULT_SETTINGS: dict[str, Any] = {
     # from a saved input -> inherited from min_request_percent (_coerce_settings).
     "min_request_percent_rn": 100,
     "min_request_percent_pnna": 100,
+    # Minimum discretionary days off per nurse per month (constraint.md 25).
+    # SOFT: a shortfall is penalised, never infeasible; 0 = no requirement.
+    # Per staff group; an input that lacks the group keys inherits min_days_off.
+    "min_days_off": 0,
+    "min_days_off_rn": 0,
+    "min_days_off_pnna": 0,
     # On by default: an ordinary requested day off should be the EASY thing to
     # give up when a month is tight. A saved input keeps whatever it stored, so
     # only new wards get this.
@@ -188,6 +194,10 @@ _GROUP_COVERAGE_KEYS = tuple(
 _GROUP_MIN_REQUEST_KEY = {GROUP_RN: "min_request_percent_rn",
                           GROUP_PN_NA: "min_request_percent_pnna"}
 _MIN_REQUEST_KEYS = ("min_request_percent",) + tuple(_GROUP_MIN_REQUEST_KEY.values())
+
+# Per-group minimum-days-off keys (legacy key: "min_days_off").
+_GROUP_MIN_OFF_KEY = {GROUP_RN: "min_days_off_rn", GROUP_PN_NA: "min_days_off_pnna"}
+_MIN_OFF_KEYS = ("min_days_off",) + tuple(_GROUP_MIN_OFF_KEY.values())
 
 # Integer settings clamped to >= 0 (coverage minimums): legacy + per-group.
 _COVERAGE_KEYS = _LEGACY_COVERAGE_KEYS + _GROUP_COVERAGE_KEYS
@@ -403,6 +413,16 @@ class ScheduleInput:
                 elif label.startswith("exact coverage"):
                     if val is not None:
                         settings["exact_coverage"] = _yesno(val)
+                elif label.startswith("min days off"):
+                    # One row, "RN / PN/NA": "2 / 1". A single number sets both.
+                    # The legacy key follows RN (the ungrouped-ward value).
+                    parts = [p for p in _cell_str(val).replace(",", "/").split("/")
+                             if p.strip()]
+                    if parts:
+                        rn = max(0, int(float(parts[0])))
+                        pn = max(0, int(float(parts[-1])))
+                        settings.update(min_days_off=rn, min_days_off_rn=rn,
+                                        min_days_off_pnna=pn)
                 elif "special shift" in label:
                     if val is not None:
                         settings["head_nurse_special_shift"] = _yesno(val)
@@ -546,6 +566,16 @@ class ScheduleInput:
             for gkey in _GROUP_MIN_REQUEST_KEY.values():
                 if gkey not in raw:
                     s[gkey] = s["min_request_percent"]
+        for key in _MIN_OFF_KEYS:
+            if key in raw and str(raw[key]).strip() != "":
+                try:
+                    s[key] = max(0, int(raw[key]))
+                except (TypeError, ValueError):
+                    pass
+        if "min_days_off" in raw:
+            for gkey in _GROUP_MIN_OFF_KEY.values():
+                if gkey not in raw:
+                    s[gkey] = s["min_days_off"]
         if "max_consecutive_nights" in raw and str(raw["max_consecutive_nights"]).strip() != "":
             try:
                 s["max_consecutive_nights"] = max(1, int(raw["max_consecutive_nights"]))
@@ -663,6 +693,11 @@ class ScheduleInput:
         key = _GROUP_MIN_REQUEST_KEY[group] if group is not None else "min_request_percent"
         return self.settings[key]
 
+    def min_days_off_for(self, group: str | None = None) -> int:
+        """Minimum days off for a solve: the group's value, or the legacy key."""
+        key = _GROUP_MIN_OFF_KEY[group] if group is not None else "min_days_off"
+        return self.settings[key]
+
     def solve_groups(self) -> list[str]:
         """The staff groups to solve independently. [] when no active nurse has a
         staff class (legacy single solve); otherwise the groups present, in the
@@ -706,6 +741,7 @@ class ScheduleInput:
             out.write(f"{key},{'true' if value else 'false'}\n")
         # Solver-facing key stays the legacy name; a group run gets its own value.
         out.write(f"min_request_percent,{self.min_request_percent_for(group)}\n")
+        out.write(f"min_days_off,{self.min_days_off_for(group)}\n")
         out.write(f"max_consecutive_nights,{self.settings['max_consecutive_nights']}\n")
         for key in _LEGACY_COVERAGE_KEYS:
             if group is None:

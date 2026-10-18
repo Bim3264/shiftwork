@@ -170,6 +170,15 @@ class Solver():
         self.REJECT_WEIGHT = 100000
         self.REJECT_SCALE = {'vacation': 9, 'holiday': 3}   # others default to 1
 
+        # Monthly minimum of discretionary days off per nurse (§25), SOFT.
+        # What one nurse-day of shortfall costs in the objective. Ordered
+        # deliberately: far ABOVE a double shift (weight 1) and the fairness
+        # terms (weight 10, each bounded by ~num_days*3), so the solver reaches
+        # for a double rather than leave a nurse short; far BELOW REJECT_WEIGHT,
+        # so it never drops a promised request just to manufacture a rest day.
+        self.MIN_OFF_WEIGHT = 5000
+        self.MIN_DAYS_OFF = 0
+
         # Per-shift coverage minimums (nurses required per shift), by day band.
         # Defaults preserve the original hard-coded values. loadReqShifts()
         # overrides these from the file's [settings] before _rebuild_days().
@@ -233,6 +242,7 @@ class Solver():
         self.enable_meetings       = s['enable_meetings']
         self.MIN_REQUEST_PERCENT   = max(0, min(100, int(s.get('min_request_percent', 100))))
         self.RELAX_DAYS_OFF        = bool(s.get('relax_days_off', False))
+        self.MIN_DAYS_OFF          = max(0, int(s.get('min_days_off', 0)))
         self.ENFORCE_VACATION      = bool(s.get('enforce_vacation', True))
         self.coverage = {
             'weekday': {Shift.DAY:     s.get('coverage_weekday_day', 5),
@@ -701,10 +711,23 @@ class Solver():
         total_dbl = self.model.NewIntVar(0, self.num_nurses * self.num_days, 'total_dbl')
         self.model.Add(total_dbl == sum(self.double_shift_vars))
 
+        # --- Minimum days off (soft, §25) ---
+        # shortfall[n] = max(0, MIN_DAYS_OFF - discretionary OFF days). Soft on
+        # purpose: with exact coverage the slot total is fixed, so doubles are the
+        # only lever that frees rest days — a hard >= can make a month infeasible.
+        min_off_penalty = 0
+        if self.MIN_DAYS_OFF > 0:
+            shortfalls = []
+            for n in range(self.num_nurses):
+                sf = self.model.NewIntVar(0, self.MIN_DAYS_OFF, f'off_short_{n}')
+                self.model.Add(sf >= self.MIN_DAYS_OFF - disc_off[n])
+                shortfalls.append(sf)
+            min_off_penalty = self.MIN_OFF_WEIGHT * cp_model.LinearExpr.Sum(shortfalls)
+
         # Combined objective:
         #   Shift imbalance and holiday imbalance are top priority (weight 10)
         #   Double shifts minimised last
-        objective = 10 * overall_imbalance + 10 * holiday_imb + total_dbl
+        objective = 10 * overall_imbalance + 10 * holiday_imb + total_dbl + min_off_penalty
 
         # In soft-request mode, keep as many requests as possible: penalise each
         # dropped request far more than any fairness term, so acceptance is the
