@@ -753,7 +753,7 @@ Web: `schedule_input.VALID_CELL_TOKENS` / `_normalize_token` (`NO:บ` → `no:�
 (`negate_tokens()`), conditional format, legend cell, Guide row.
 
 
-## 24. Fatigue rules — max consecutive nights, no consecutive ช/บ
+## 24. Fatigue rules — max consecutive nights, no consecutive ช/บ, max consecutive working days
 
 **Original (customer):** "max consecutive night shift (ด) = 3" and "no consecutive ช/บ".
 Two **opt-in** hard rules; both default OFF so existing wards are unchanged.
@@ -769,6 +769,16 @@ variables** and deliberately does not use `double_shift_vars` (that means "any 2
 ด/บ included, and feeds the objective). **ด/บ is not covered**; with the default E→N ban
 (§5) two adjacent ด/บ days are already impossible anyway.
 
+**(c) Max consecutive working days (any shift)** — `limit_consecutive_shifts` (bool, false)
+with `max_consecutive_shifts` (int ≥ 1, default 6). Hard. "At most M working days in a row"
+is exactly "every window of M+1 days contains at least one OFF":
+`sum(a[n][d][OFF] for d in window) >= 1`. No new variables; no-op when `M >= num_days`.
+`vac` is assigned as OFF internally, so approved leave breaks a run. **Cost:** M forces at
+least `floor(num_days/(M+1))` rest days per nurse, and each double shift frees exactly one,
+so a short-staffed group (PN/NA especially) can only meet a low M by working more doubles
+or becomes INFEASIBLE. Presolve does not model (c) yet; a request run longer than M surfaces
+as INFEASIBLE with the usual request diagnosis.
+
 **Conflict with requests:** a request cell is hard, so `ด` x4 at limit 3 or ช/บ on two
 adjacent days is a silent "No solution found". `Solver.diagnose()` (§20) rebuilds through
 `constraints()`, gates every request, and the unsat core names exactly those cells
@@ -778,9 +788,9 @@ pair check models rule (b) (and (a) when k = 1).
 
 **Location:** `shiftwork.py` `Solver._add_fatigue_rules()` (called at the end of
 `_add_shift_transition_rules()`); flags `LIMIT_CONSECUTIVE_NIGHTS`,
-`MAX_CONSECUTIVE_NIGHTS`, `NO_CONSECUTIVE_DAY_EVE` set in `loadReqShifts`;
+`MAX_CONSECUTIVE_NIGHTS`, `LIMIT_CONSECUTIVE_SHIFTS`, `MAX_CONSECUTIVE_SHIFTS`, `NO_CONSECUTIVE_DAY_EVE` set in `loadReqShifts`;
 `dataimporter.py` settings dict; `webapp/core/presolve.py` §3 block + `_feasible`.
-Tests: `test_shiftwork.FatigueRulesTest`, `webapp/tests/test_fatigue_rules.py`.
+Tests: `test_shiftwork.FatigueRulesTest`, `test_shiftwork.ConsecutiveShiftsCapTest`, `webapp/tests/test_fatigue_rules.py`.
 
 ---
 

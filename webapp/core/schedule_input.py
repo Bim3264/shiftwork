@@ -98,6 +98,8 @@ _DEFAULT_SETTINGS: dict[str, Any] = {
     # that defaulted on would change every existing ward's schedule.
     "limit_consecutive_nights": False,
     "max_consecutive_nights": 3,
+    "limit_consecutive_shifts": False,
+    "max_consecutive_shifts": 6,
     "no_consecutive_day_eve": False,
     # Coverage numbers are a staffing PLAN: exactly that many per shift, not a
     # floor (constraint.md 9). Tighter than >=; turn off when a month will not
@@ -172,6 +174,7 @@ _BOOL_SETTING_KEYS = (
     "relax_days_off",
     "enforce_vacation",
     "limit_consecutive_nights",
+    "limit_consecutive_shifts",
     "no_consecutive_day_eve",
     "exact_coverage",
 )
@@ -419,6 +422,12 @@ class ScheduleInput:
                 elif label.startswith("max consecutive nights"):
                     if _cell_str(val):
                         settings["max_consecutive_nights"] = max(1, int(float(val)))
+                elif label.startswith("limit consecutive shifts"):
+                    if val is not None:
+                        settings["limit_consecutive_shifts"] = _yesno(val)
+                elif label.startswith("max consecutive shifts"):
+                    if _cell_str(val):
+                        settings["max_consecutive_shifts"] = max(1, int(float(val)))
                 elif label.startswith("no consecutive day"):
                     if val is not None:
                         settings["no_consecutive_day_eve"] = _yesno(val)
@@ -607,6 +616,11 @@ class ScheduleInput:
                 s["max_consecutive_nights"] = max(1, int(raw["max_consecutive_nights"]))
             except (TypeError, ValueError):
                 pass
+        if "max_consecutive_shifts" in raw and str(raw["max_consecutive_shifts"]).strip() != "":
+            try:
+                s["max_consecutive_shifts"] = max(1, int(raw["max_consecutive_shifts"]))
+            except (TypeError, ValueError):
+                pass
         for key in _COVERAGE_KEYS:
             if key in raw and str(raw[key]).strip() != "":
                 try:
@@ -775,6 +789,7 @@ class ScheduleInput:
         out.write(f"min_request_percent,{self.min_request_percent_for(group)}\n")
         out.write(f"min_days_off,{self.min_days_off_for(group)}\n")
         out.write(f"max_consecutive_nights,{self.settings['max_consecutive_nights']}\n")
+        out.write(f"max_consecutive_shifts,{self.settings['max_consecutive_shifts']}\n")
         for key in _LEGACY_COVERAGE_KEYS:
             if group is None:
                 value = self.settings[key]

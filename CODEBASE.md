@@ -185,6 +185,8 @@ retired behaviour and nobody saw the failure. If you add another root-level
 | `allow_night_to_day` | false | yes · `Allow Night→Day` | N→D transition |
 | `limit_consecutive_nights` | false | yes · `Limit consecutive nights` | §24a: cap nights in a row at `max_consecutive_nights` |
 | `max_consecutive_nights` | 3 | yes · `Max consecutive nights` | int ≥ 1; only read when the toggle is on |
+| `limit_consecutive_shifts` | false | yes · `Limit consecutive shifts` | §24c: cap working days (any shift) in a row; OFF-window form, no new vars |
+| `max_consecutive_shifts` | 6 | yes · `Max consecutive shifts` | int ≥ 1; forces ≥ floor(days/(M+1)) rest days per nurse, so low M means more doubles or INFEASIBLE |
 | `no_consecutive_day_eve` | false | yes · `No consecutive Day+Evening double` | §24b: no ช/บ on two adjacent days |
 | `exact_coverage` | **true** in web (solver/CSV absent key: false) | yes · `Exact coverage` | §9: per-shift need is `==` not `>=`. Tighter; can make a ward infeasible. Off restores `>=` |
 | `head_nurse_special_shift` | true | yes · `Head-nurse special shift` | senior Day/OFF rule; needs ≥2 active nurses |

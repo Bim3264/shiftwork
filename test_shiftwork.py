@@ -918,6 +918,83 @@ class RequestFloorTest(_SmallWardTest):
         self.assertEqual(st, cp_model.INFEASIBLE)
 
 
+class ConsecutiveShiftsCapTest(_SmallWardTest):
+    """constraint.md section 24c: limit_consecutive_shifts caps working days in a
+    row (any shift) via "every window of M+1 days holds an OFF"."""
+
+    @staticmethod
+    def _on(m):
+        return f"limit_consecutive_shifts,true\nmax_consecutive_shifts,{m}\n"
+
+    def _busy(self, extra, days=12):
+        """3 nurses, 1/1/1 coverage: left alone every nurse works every day."""
+        rows = [("N%d" % i, "", [""] * days) for i in range(3)]
+        s, status, _o = self._run(days, rows, cov=(1, 1, 1), extra=extra)
+        return s, status
+
+    @staticmethod
+    def _longest_run(s, n):
+        best = run = 0
+        for d in range(s.num_days):
+            if s.solver.Value(s.assignments[n][d][Shift.OFF]):
+                run = 0
+            else:
+                run += 1
+                best = max(best, run)
+        return best
+
+    def test_toggle_off_allows_long_runs(self):
+        s, status = self._busy("max_consecutive_shifts,3\n")
+        self.assertIn(status, _SOLVED)
+        self.assertEqual(max(self._longest_run(s, n) for n in range(3)), 12)
+
+    def test_solved_grid_respects_cap(self):
+        for m in (5, 3):
+            with self.subTest(m=m):
+                s, status = self._busy(self._on(m))
+                self.assertIn(status, _SOLVED)
+                for n in range(3):
+                    self.assertLessEqual(self._longest_run(s, n), m)
+
+    def test_cap_longer_than_month_is_noop(self):
+        s, status = self._busy(self._on(20), days=5)
+        self.assertIn(status, _SOLVED)
+        self.assertEqual(self._longest_run(s, 0), 5)
+
+    def test_requested_run_longer_than_cap_is_infeasible(self):
+        _s, status, _o = self._run(10, [("A", "", ["ช"] * 4)], cov=(0, 0, 0),
+                                   extra=self._on(3))
+        self.assertEqual(status, cp_model.INFEASIBLE)
+        _s, status, _o = self._run(10, [("A", "", ["ช"] * 3)], cov=(0, 0, 0),
+                                   extra=self._on(3))
+        self.assertIn(status, _SOLVED)
+
+    def test_vacation_breaks_a_run(self):
+        # 2 worked, vac, 2 worked at cap 2: feasible only because vac is an OFF
+        # day. (Requests are capped at 5 per nurse, so keep the cell count small.)
+        _s, status, _o = self._run(
+            6, [("A", "", ["ช", "ช", "vac", "ช", "ช"])], cov=(0, 0, 0),
+            extra=self._on(2))
+        self.assertIn(status, _SOLVED)
+        _s, status, _o = self._run(
+            6, [("A", "", ["ช", "ช", "ช", "ช", "ช"])], cov=(0, 0, 0),
+            extra=self._on(2))
+        self.assertEqual(status, cp_model.INFEASIBLE)
+
+    def test_both_caps_hold_together(self):
+        days = 14
+        rows = [("N%d" % i, "", [""] * days) for i in range(4)]
+        s, status, _o = self._run(
+            days, rows, cov=(1, 1, 2),
+            extra=self._on(4) + "limit_consecutive_nights,true\nmax_consecutive_nights,2\n")
+        self.assertIn(status, _SOLVED)
+        for n in range(4):
+            self.assertLessEqual(self._longest_run(s, n), 4)
+            night = [s.solver.Value(s.assignments[n][d][Shift.NIGHT]) for d in range(days)]
+            for d in range(days - 2):
+                self.assertLessEqual(sum(night[d:d + 3]), 2)
+
+
 class FatigueRulesTest(_SmallWardTest):
     """constraint.md section 24: opt-in max-consecutive-nights and
     no-consecutive-ช/บ. Coverage is 0 so only the rule under test can make a

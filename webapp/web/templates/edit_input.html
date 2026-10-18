@@ -250,6 +250,15 @@
         in a row
       </label><br>
       <label>
+        <input type="checkbox" name="limit_consecutive_shifts"
+               {% if settings.limit_consecutive_shifts %}checked{% endif %}>
+        Limit consecutive working days (any shift) to
+        <input type="number" name="max_consecutive_shifts"
+               value="{{ settings.max_consecutive_shifts | default(6) }}" min="1" max="31" style="width:3.5rem">
+        in a row. Every nurse then needs a rest day in every window of that many days + 1;
+        a low number forces extra double shifts (or no schedule) if the ward is short-staffed.
+      </label><br>
+      <label>
         <input type="checkbox" name="no_consecutive_day_eve"
                {% if settings.no_consecutive_day_eve %}checked{% endif %}>
         No consecutive ช/บ (Day+Evening double on two days in a row)

@@ -251,6 +251,8 @@ class DataImporter():
             'allow_night_to_day':       raw_settings.get('allow_night_to_day',     'false').lower() == 'true',
             'limit_consecutive_nights': raw_settings.get('limit_consecutive_nights', 'false').lower() == 'true',
             'max_consecutive_nights':   max(1, int(str(raw_settings.get('max_consecutive_nights', 3)).strip() or 3)),
+            'limit_consecutive_shifts': raw_settings.get('limit_consecutive_shifts', 'false').lower() == 'true',
+            'max_consecutive_shifts':   max(1, int(str(raw_settings.get('max_consecutive_shifts', 6)).strip() or 6)),
             'no_consecutive_day_eve':   raw_settings.get('no_consecutive_day_eve', 'false').lower() == 'true',
             'exact_coverage':           raw_settings.get('exact_coverage', 'false').lower() == 'true',
             'head_nurse_special_shift': raw_settings.get('head_nurse_special_shift', 'true').lower() == 'true',

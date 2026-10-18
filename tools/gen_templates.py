@@ -14,7 +14,7 @@ Layout (Roster sheet)
     rows 5-16    SETTINGS labels H:O / values P:T
     row 24       SHIFT CODES header; rows 25-27 legend
     rows 28-29   grid header (day numbers / weekday letters)
-    rows 30+     nurse rows   (A Nurse, B Type, C Class, D:AH days 1-31)
+    rows 32+     nurse rows   (A Nurse, B Type, C Class, D:AH days 1-31)
 
 The cell-token dropdown is built from ``constant.py`` (never a hardcoded
 string) so adding a token there without touching this file fails the anti-drift
@@ -132,11 +132,11 @@ _LETTERS = "WTFSSMT"
 
 # Row map (Roster).
 R_CARD_HDR = 4
-R_CODES_HDR = 27
-R_LEGEND = 28
-R_HDR = 31
-R_SUB = 32
-R_FIRST = 33
+R_CODES_HDR = 29
+R_LEGEND = 30
+R_HDR = 33
+R_SUB = 34
+R_FIRST = 35
 
 
 # ── Card content ─────────────────────────────────────────────────────────────
@@ -165,6 +165,8 @@ _SETTINGS = (
     ("Allow Night→Day / ดึกต่อเช้า", "No"),
     ("Limit consecutive nights / จำกัดดึกติดกัน", "No"),
     ("Max consecutive nights / ดึกติดกันสูงสุด", 3),
+    ("Limit consecutive shifts / จำกัดวันทำงานติดกัน", "No"),
+    ("Max consecutive shifts / วันทำงานติดกันสูงสุด", 6),
     ("No consecutive Day+Evening double / ห้ามช/บติดกัน", "No"),
     ("Exact coverage / จำนวนเวรตรงตามกำหนด", "Yes"),
     ("Head-nurse special shift / เวรพิเศษหัวหน้า", "Yes"),

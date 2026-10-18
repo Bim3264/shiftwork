@@ -132,6 +132,8 @@ class Solver():
         # existing ward's schedule is unchanged.
         self.LIMIT_CONSECUTIVE_NIGHTS = False
         self.MAX_CONSECUTIVE_NIGHTS = 3
+        self.LIMIT_CONSECUTIVE_SHIFTS = False
+        self.MAX_CONSECUTIVE_SHIFTS = 6
         self.NO_CONSECUTIVE_DAY_EVE = False
 
         # Coverage semantics (constraint.md section 9). False = the per-shift
@@ -237,6 +239,8 @@ class Solver():
         self.ALLOW_SHIFT_N_D       = s['allow_night_to_day']
         self.LIMIT_CONSECUTIVE_NIGHTS = bool(s.get('limit_consecutive_nights', False))
         self.MAX_CONSECUTIVE_NIGHTS   = max(1, int(s.get('max_consecutive_nights', 3)))
+        self.LIMIT_CONSECUTIVE_SHIFTS = bool(s.get('limit_consecutive_shifts', False))
+        self.MAX_CONSECUTIVE_SHIFTS   = max(1, int(s.get('max_consecutive_shifts', 6)))
         self.NO_CONSECUTIVE_DAY_EVE   = bool(s.get('no_consecutive_day_eve', False))
         self.EXACT_COVERAGE           = bool(s.get('exact_coverage', False))
         self.HEAD_NURSE_SPEACIAL_SHIFT = s['head_nurse_special_shift']
@@ -413,6 +417,7 @@ class Solver():
         (a) At most MAX_CONSECUTIVE_NIGHTS nights in a row: every window of
             max+1 consecutive days holds at most max Night assignments. No-op
             when max >= num_days.
+        (c) LIMIT_CONSECUTIVE_SHIFTS: see below (any working day, OFF form).
         (b) No Day+Evening double (ช/บ) on two adjacent days. A nurse works at
             most 2 shifts a day, so "ช/บ on d" is exactly Day_d + Eve_d == 2;
             forbidding it on d and d+1 is the linear form sum of the four <= 3.
@@ -425,6 +430,15 @@ class Solver():
                 for start in range(self.num_days - k):      # window start..start+k
                     self.model.Add(sum(self.assignments[n][d][Shift.NIGHT]
                                        for d in range(start, start + k + 1)) <= k)
+        if self.LIMIT_CONSECUTIVE_SHIFTS:
+            # (c) At most M working days in a row == every window of M+1 days has
+            # at least one OFF. `vac` is assigned as OFF internally, so approved
+            # leave counts as a rest day and breaks a run. No-op when M >= num_days.
+            m = self.MAX_CONSECUTIVE_SHIFTS
+            for n in range(self.num_nurses):
+                for start in range(self.num_days - m):      # window start..start+m
+                    self.model.Add(sum(self.assignments[n][d][Shift.OFF]
+                                       for d in range(start, start + m + 1)) >= 1)
         if self.NO_CONSECUTIVE_DAY_EVE:
             for n in range(self.num_nurses):
                 for d in range(self.num_days - 1):

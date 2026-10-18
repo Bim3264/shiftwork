@@ -79,6 +79,42 @@ class SettingsLayerTests(unittest.TestCase):
 
 
 @unittest.skipUnless(_XLSX, "openpyxl / tools.gen_templates unavailable")
+class ConsecutiveShiftsSettingsTests(unittest.TestCase):
+    """limit_consecutive_shifts / max_consecutive_shifts through every layer."""
+
+    def test_defaults_off_and_six(self):
+        s = _si({}).settings
+        self.assertFalse(s["limit_consecutive_shifts"])
+        self.assertEqual(s["max_consecutive_shifts"], 6)
+
+    def test_csv_round_trip_and_dataimporter(self):
+        import tempfile
+        from dataimporter import DataImporter
+        si = _si({}, limit_consecutive_shifts=True, max_consecutive_shifts=4)
+        csv_text = si.to_solver_csv()
+        s = ScheduleInput.from_csv(csv_text).settings
+        self.assertTrue(s["limit_consecutive_shifts"])
+        self.assertEqual(s["max_consecutive_shifts"], 4)
+        fd, path = tempfile.mkstemp(suffix=".csv")
+        os.close(fd)
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(csv_text)
+            d = DataImporter(path, 5, 5).transform().settings
+        finally:
+            os.unlink(path)
+        self.assertTrue(d["limit_consecutive_shifts"])
+        self.assertEqual(d["max_consecutive_shifts"], 4)
+
+    def test_form_builder(self):
+        on = _settings_from_form({"limit_consecutive_shifts": "on", "max_consecutive_shifts": "5"})
+        self.assertEqual((on["limit_consecutive_shifts"], on["max_consecutive_shifts"]), (True, "5"))
+        off = _settings_from_form({})
+        self.assertFalse(off["limit_consecutive_shifts"])
+        self.assertEqual(off["max_consecutive_shifts"], "6")
+
+
+@unittest.skipUnless(_XLSX, "openpyxl / tools.gen_templates unavailable")
 class ExcelCardTests(unittest.TestCase):
     def _wb(self):
         spec = next(t for t in TEMPLATES if "blank" in t.filename.lower() or "blank" in str(t).lower())
@@ -123,6 +159,32 @@ class ExcelCardTests(unittest.TestCase):
         self.assertTrue(s["limit_consecutive_nights"])
         self.assertTrue(s["no_consecutive_day_eve"])
         self.assertEqual(s["max_consecutive_nights"], 2)
+
+
+    def test_card_consecutive_shifts_rows(self):
+        wb = self._wb()
+        ws = wb.worksheets[0]
+        s0 = ScheduleInput.from_xlsx(self._bytes(wb)).settings
+        self.assertFalse(s0["limit_consecutive_shifts"])
+        self.assertEqual(s0["max_consecutive_shifts"], 6)
+        hits = 0
+        for row in ws.iter_rows():
+            for c in row:
+                if not isinstance(c.value, str):
+                    continue
+                v = c.value.lower()
+                target = "Yes" if v.startswith("limit consecutive shifts") else (
+                    5 if v.startswith("max consecutive shifts") else None)
+                if target is not None:
+                    for cc in ws[c.row]:
+                        if cc.column > c.column and cc.value in ("No", 6):
+                            cc.value = target
+                            hits += 1
+                            break
+        self.assertEqual(hits, 2)
+        s = ScheduleInput.from_xlsx(self._bytes(wb)).settings
+        self.assertTrue(s["limit_consecutive_shifts"])
+        self.assertEqual(s["max_consecutive_shifts"], 5)
 
 
 class PresolveTests(unittest.TestCase):

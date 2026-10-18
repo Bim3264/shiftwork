@@ -126,6 +126,8 @@ def _settings_from_form(form, current: dict | None = None) -> dict:
         "head_nurse_special_shift": form.get("head_nurse_special_shift") is not None,
         "limit_consecutive_nights": form.get("limit_consecutive_nights") is not None,
         "max_consecutive_nights": form.get("max_consecutive_nights", "3"),
+        "limit_consecutive_shifts": form.get("limit_consecutive_shifts") is not None,
+        "max_consecutive_shifts": form.get("max_consecutive_shifts", "6"),
         "no_consecutive_day_eve": form.get("no_consecutive_day_eve") is not None,
         "exact_coverage": form.get("exact_coverage") is not None,
         "relax_days_off": form.get("relax_days_off") is not None,
