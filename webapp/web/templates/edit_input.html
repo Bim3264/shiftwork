@@ -338,11 +338,22 @@
                  title="Uncheck to disable this nurse (kept, but not scheduled)"
                  {% if nurse.active %}checked{% endif %}>
           <input type="text" name="name_{{ r }}" value="{{ nurse.name }}" style="width:78px">
-          {# 44px truncated "senior" to "senic", which made the one Type value
-             that drives the senior rules unreadable. #}
-          <input type="text" name="type_{{ r }}" value="{{ nurse.type }}"
-                 style="width:60px" placeholder="type"
-                 title="senior / new — blank for an ordinary nurse">
+          {# A select, not a free-text box: only these three values mean
+             anything to the solver, and a typo silently produced an ordinary
+             nurse with no warning. #}
+          <select name="type_{{ r }}" style="width:70px;font-size:11px"
+                  title="senior drives the senior-nurse rules; new blocks the Evening+Night double">
+            <option value="" {% if not nurse.type %}selected{% endif %}>—</option>
+            {% for tv, tlabel in [("senior", "senior"), ("new", "new")] %}
+            <option value="{{ tv }}" {% if nurse.type == tv %}selected{% endif %}>{{ tlabel }}</option>
+            {% endfor %}
+            {# The importer also accepts Thai synonyms (อาวุโส, ซีเนียร์, น้องใหม่)
+               and 'junior'. Without this the select would render them as "—" and
+               saving the page would silently wipe a nurse's seniority. #}
+            {% if nurse.type and nurse.type not in ["senior", "new"] %}
+            <option value="{{ nurse.type }}" selected>{{ nurse.type }}</option>
+            {% endif %}
+          </select>
           <select name="class_{{ r }}" title="Staff class: RN, or PN/NA (practical nurse / nurse aide)"
                   style="width:56px;font-size:11px">
             <option value="" {% if not nurse.staff_class %}selected{% endif %}>—</option>

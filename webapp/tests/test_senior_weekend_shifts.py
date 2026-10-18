@@ -92,14 +92,16 @@ class WeekendShiftsFieldTests(unittest.TestCase):
 
 class WeekendShiftsValidationTests(unittest.TestCase):
 
+    # The fixture month has four WHOLE Sat/Sun pairs. Its lone Sunday is not a
+    # weekend, so it neither counts toward N nor raises the cap.
     def test_too_many_weekends_is_rejected_naming_the_nurse(self):
-        si = _si(Nurse(name="Head", type="senior", weekend_shifts=6))   # 5 units
+        si = _si(Nurse(name="Head", type="senior", weekend_shifts=5))
         with self.assertRaises(ValueError) as cm:
             si.validate()
         self.assertIn("Head", str(cm.exception))
 
-    def test_all_weekends_is_allowed(self):
-        _si(Nurse(name="Head", type="senior", weekend_shifts=5)).validate()
+    def test_all_whole_weekends_is_allowed(self):
+        _si(Nurse(name="Head", type="senior", weekend_shifts=4)).validate()
 
     def test_a_count_on_a_non_senior_does_not_block_validation(self):
         _si(Nurse(name="B", weekend_shifts=9)).validate()

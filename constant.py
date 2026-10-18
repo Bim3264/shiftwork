@@ -24,17 +24,19 @@ def weekend_units(saturdays, sundays, first, last):
     """Weekend units for the senior weekend-shift option (constraint.md 17a).
 
     Day numbers may be 0-based (first=0) or 1-based (first=1); `last` is the last
-    day inclusive. Each Saturday pairs with the Sunday right after it; a Saturday
-    with no listed Sunday after it, or a Sunday with no listed Saturday before it
-    (a month starting on Sunday), is a ONE-day unit. Takes the literal Sat/Sun
-    lists -- never the weekends/holidays union.
+    day inclusive. Each Saturday pairs with the Sunday right after it. Takes the
+    literal Sat/Sun lists -- never the weekends/holidays union.
+
+    A weekend here is a COMPLETE Sat/Sun pair. A month edge can leave a lone
+    Saturday or a lone Sunday (November 2026 opens on Sunday the 1st); those are
+    NOT weekends and are dropped, so a senior is never rostered onto a half
+    weekend and it never counts toward her N. The consequence is deliberate: in
+    such a month that stray day gets no senior cover, and N is capped by the
+    number of whole pairs.
     """
     sats = {d for d in saturdays if first <= d <= last}
     suns = {d for d in sundays if first <= d <= last}
-    units = [[s] + ([s + 1] if s + 1 in suns else []) for s in sorted(sats)]
-    paired = {d for u in units for d in u}
-    units += [[s] for s in sorted(suns) if s not in paired]
-    return sorted(units)
+    return sorted([s, s + 1] for s in sorted(sats) if s + 1 in suns)
 
 
 class OffWard(Enum):

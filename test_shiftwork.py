@@ -1177,7 +1177,9 @@ class SeniorWeekendShiftTest(_SmallWardTest):
 
     # Bim's real ward 15 (29 days): Sunday 1 has no Saturday before it.
     _SAT15 = "saturdays,7 14 21 28\nsundays,1 8 15 22 29\n"
-    _UNITS15 = [[0], [6, 7], [13, 14], [20, 21], [27, 28]]   # 0-based
+    # 0-based whole Sat/Sun pairs. Sunday 1 (index 0) is NOT here: it has no
+    # Saturday before it in November, so it is not a weekend.
+    _UNITS15 = [[6, 7], [13, 14], [20, 21], [27, 28]]
 
     def _ward15(self, n_wk, n_nurses=9, second_senior=True, exact=True, solve=True,
                 extra=""):
@@ -1193,14 +1195,18 @@ class SeniorWeekendShiftTest(_SmallWardTest):
     def _day(self, s, n, d):
         return s.solver.Value(s.assignments[n][d][Shift.DAY])
 
-    def test_units_pair_each_saturday_with_the_next_sunday_and_keep_orphans(self):
+    def test_units_are_whole_sat_sun_pairs_and_orphans_are_dropped(self):
         from constant import weekend_units
-        # 1-based, ward 15's literal lists: Sunday 1 is an orphan unit.
+        # A weekend is a COMPLETE Sat/Sun pair. Ward 15's November opens on
+        # Sunday the 1st, which has no Saturday before it in the month, so it is
+        # not a weekend and the senior is never rostered onto it.
         self.assertEqual(
             weekend_units([7, 14, 21, 28], [1, 8, 15, 22, 29], 1, 29),
-            [[1], [7, 8], [14, 15], [21, 22], [28, 29]])
-        # A Saturday on the last day is a one-day unit; a holiday is never a unit.
-        self.assertEqual(weekend_units([6], [], 1, 6), [[6]])
+            [[7, 8], [14, 15], [21, 22], [28, 29]])
+        # A lone Saturday at the month's end is dropped the same way.
+        self.assertEqual(weekend_units([6], [], 1, 6), [])
+        # A month with no whole pair has no weekends at all.
+        self.assertEqual(weekend_units([], [1], 1, 7), [])
 
     def test_headline_exactly_n_weekends_one_day_each_rest_off(self):
         s, st, _ = self._ward15(2)
@@ -1224,12 +1230,22 @@ class SeniorWeekendShiftTest(_SmallWardTest):
         for d in s.weekends:
             self.assertEqual(s.solver.Value(s.assignments[1][d][Shift.OFF]), 1)
 
-    def test_orphan_sunday_is_a_one_day_unit_and_is_worked_when_all_five_requested(self):
-        s, st, _ = self._ward15(5)
+    def test_orphan_sunday_is_never_worked_even_at_the_maximum(self):
+        # Ward 15 has four whole weekends, so N=4 is the cap and the orphan
+        # Sunday 1 must still be OFF: a half weekend is not a weekend.
+        s, st, _ = self._ward15(4)
         self.assertIn(st, _SOLVED)
-        self.assertEqual(self._day(s, 0, 0), 1)            # lone Sunday 1
+        self.assertEqual(self._day(s, 0, 0), 0, "lone Sunday 1 must not be worked")
         for u in self._UNITS15:
             self.assertEqual(sum(self._day(s, 0, d) for d in u), 1)
+
+    def test_n_above_the_whole_pair_count_is_unsatisfiable(self):
+        # Five was satisfiable while the orphan counted as a weekend. With whole
+        # pairs only this ward has four, so five cannot be met. This path builds
+        # a CSV and runs the Solver directly, so it never reaches
+        # ScheduleInput.validate() -- the solver reports it instead.
+        _s, st, _log = self._ward15(5)
+        self.assertEqual(st, cp_model.INFEASIBLE)
 
     def test_saturday_or_sunday_is_the_solvers_choice(self):
         # 14 days, Sat 6/13, Sun 7/14. Only the senior can cover Day on 7 and 13
