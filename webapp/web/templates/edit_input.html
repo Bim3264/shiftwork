@@ -314,7 +314,15 @@
     <table class="grid">
       <thead>
         <tr>
-          <th class="namecell">พยาบาล / Nurse</th>
+          {# Four controls share this one cell, so name them here — without these
+             sub-labels the Class select and the weekend-shift box are just
+             unexplained boxes and nobody finds them. #}
+          <th class="namecell">พยาบาล / Nurse
+            <div class="muted" style="font-weight:400;font-size:10px;line-height:1.3">
+              ชื่อ / Name · ระดับ / Type · กลุ่ม / Class ·
+              <b title="Senior only: how many weekends she works a Day shift (Sat OR Sun, solver picks). Blank or 0 = off every weekend.">สุดสัปดาห์ / Wk</b>
+            </div>
+          </th>
           {% for d in days %}
           <th class="{% if d in settings.weekends or d in settings.get('holidays', []) or d in settings.get('saturdays', []) or d in settings.get('sundays', []) %}wknd{% endif %}">{{ d }}</th>
           {% endfor %}
@@ -330,8 +338,11 @@
                  title="Uncheck to disable this nurse (kept, but not scheduled)"
                  {% if nurse.active %}checked{% endif %}>
           <input type="text" name="name_{{ r }}" value="{{ nurse.name }}" style="width:78px">
+          {# 44px truncated "senior" to "senic", which made the one Type value
+             that drives the senior rules unreadable. #}
           <input type="text" name="type_{{ r }}" value="{{ nurse.type }}"
-                 style="width:44px" placeholder="type">
+                 style="width:60px" placeholder="type"
+                 title="senior / new — blank for an ordinary nurse">
           <select name="class_{{ r }}" title="Staff class: RN, or PN/NA (practical nurse / nurse aide)"
                   style="width:56px;font-size:11px">
             <option value="" {% if not nurse.staff_class %}selected{% endif %}>—</option>
